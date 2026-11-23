@@ -42,9 +42,9 @@ export class Player {
       
       // Validate spritesheet frames (should have 16 frames: 4 directions × 4 frames)
       const playerTexture = scene.textures.get('player');
-      const playerFrameCount = playerTexture.frameTotal;
+      const playerFrameCount = playerTexture.frameTotal - 1; // frameTotal includes Phaser's __BASE frame
       const tintTexture = scene.textures.get('player_tint');
-      const tintFrameCount = tintTexture.frameTotal;
+      const tintFrameCount = tintTexture.frameTotal - 1;
       
       if (playerFrameCount !== 16) {
         console.error(`❌ Player spritesheet has ${playerFrameCount} frames, expected 16`);
