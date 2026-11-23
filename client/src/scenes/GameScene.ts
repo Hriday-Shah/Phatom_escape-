@@ -46,8 +46,9 @@ export class GameScene extends Phaser.Scene {
     this.createDoors();
     this.createFurniture();
 
-    // Create player at entrance
-    this.player = new Player(this, 300, 430);
+    // Create player at spawn point (supports ?spawn=kitchen for dev/screenshots)
+    const spawnPoint = this.getSpawnPoint();
+    this.player = new Player(this, spawnPoint.x, spawnPoint.y);
 
     // Setup collisions
     this.physics.add.collider(this.player.getBody(), this.wallGroup);
@@ -118,13 +119,14 @@ export class GameScene extends Phaser.Scene {
 
   private createRooms(): void {
     houseLayout.rooms.forEach(room => {
-      // Map room IDs to floor texture keys
+      // Map room IDs to floor texture keys (floor_<room.id>)
       const floorKey = `floor_${room.id}`;
       
       if (this.textures.exists(floorKey)) {
-        // Use tiled floor art (16x16 tiles)
+        // Use tiled floor art (16x16 art px tiles at 2x scale = 32x32 world)
         this.add.tileSprite(room.x, room.y, room.width, room.height, floorKey)
           .setOrigin(0, 0)
+          .setScale(2)
           .setDepth(-2);
       } else {
         // Fallback to colored rectangle
@@ -183,19 +185,59 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createFurniture(): void {
+    // Map furniture IDs to texture keys from manifest
+    const furnitureTextures: Record<string, string> = {
+      'car_table': 'car_table',
+      'dining_table': 'dining_table',
+      'study_table': 'study_table',
+    };
+    
     houseLayout.furniture.forEach(furniture => {
       if (furniture.blocking) {
-        const furnitureSprite = this.add.rectangle(
-          furniture.x + furniture.width / 2,
-          furniture.y + furniture.height / 2,
-          furniture.width,
-          furniture.height,
-          0x795548
-        ).setStrokeStyle(2, 0x5D4037);
-
-        this.wallGroup.add(furnitureSprite);
+        const textureKey = furnitureTextures[furniture.id];
+        
+        if (textureKey && this.textures.exists(textureKey)) {
+          // Use art texture at 2x scale
+          const sprite = this.add.image(furniture.x, furniture.y, textureKey)
+            .setOrigin(0, 0)
+            .setScale(2)
+            .setDepth(0);
+          this.wallGroup.add(sprite);
+        } else {
+          // Fallback to rectangle
+          const furnitureSprite = this.add.rectangle(
+            furniture.x + furniture.width / 2,
+            furniture.y + furniture.height / 2,
+            furniture.width,
+            furniture.height,
+            0x795548
+          ).setStrokeStyle(2, 0x5D4037);
+          this.wallGroup.add(furnitureSprite);
+        }
       }
     });
+  }
+
+  private getSpawnPoint(): { x: number; y: number } {
+    // Dev-only URL param: ?spawn=kitchen (also works with ?debug=1)
+    const isDev = import.meta.env.DEV;
+    const params = new URLSearchParams(window.location.search);
+    const hasDebug = params.get('debug') === '1';
+    const spawnRoom = params.get('spawn');
+    
+    if ((isDev || hasDebug) && spawnRoom) {
+      // Find room center
+      const room = houseLayout.rooms.find(r => r.id === spawnRoom);
+      if (room) {
+        return {
+          x: room.x + room.width / 2,
+          y: room.y + room.height / 2,
+        };
+      }
+    }
+    
+    // Default: entrance spawn
+    return { x: 300, y: 430 };
   }
 
   private setupControls(): void {

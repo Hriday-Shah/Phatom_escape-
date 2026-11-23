@@ -1217,7 +1217,7 @@
     32,
     32
    ],
-   "status": "approved",
+   "status": "pending review",
    "slots": [
     {
      "index": 1,
@@ -1268,7 +1268,7 @@
     192,
     48
    ],
-   "status": "approved",
+   "status": "pending review",
    "spritesheet": {
     "frameWidth": 24,
     "frameHeight": 24,
@@ -1287,7 +1287,7 @@
     384,
     96
    ],
-   "status": "approved",
+   "status": "pending review",
    "spritesheet": {
     "frameWidth": 48,
     "frameHeight": 48,

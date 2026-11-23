@@ -15,11 +15,14 @@ export class Player {
     this.moveVector = new Phaser.Math.Vector2(0, 0);
     
     // Check if art is available
-    const hasArt = scene.textures.exists('player') && scene.textures.exists('player_tint');
+    const hasPlayerArt = scene.textures.exists('player');
+    const hasTintArt = scene.textures.exists('player_tint');
+    console.log(`🎨 Player art check: player=${hasPlayerArt}, player_tint=${hasTintArt}`);
     
-    if (hasArt) {
+    if (hasPlayerArt && hasTintArt) {
       // Create animations if not already created
       if (!scene.anims.exists('walk_down')) {
+        console.log('Creating player animations...');
         ['down', 'left', 'right', 'up'].forEach((dir, row) => {
           scene.anims.create({
             key: `walk_${dir}`,
@@ -34,18 +37,27 @@ export class Player {
             repeat: -1,
           });
         });
+        console.log('✅ Player animations created');
       }
       
-      // Layer: tint sprite under body sprite
-      this.tintSprite = scene.add.sprite(x, y, 'player_tint', 0).setScale(2).setTint(0x5FD3E6);
-      this.bodySprite = scene.add.sprite(x, y, 'player', 0).setScale(2);
-      this.bodySprite.setDepth(10);
-      this.tintSprite.setDepth(9);
+      // Layer: tint sprite UNDER body sprite, both at 2x scale
+      this.tintSprite = scene.add.sprite(x, y, 'player_tint', 0)
+        .setScale(2)
+        .setTint(0x5FD3E6)
+        .setDepth(9);
+        
+      this.bodySprite = scene.add.sprite(x, y, 'player', 0)
+        .setScale(2)
+        .setDepth(10);
+        
+      console.log('✅ Player sprites created with art');
     } else {
       // Fallback to placeholder
-      this.bodySprite = scene.add.sprite(x, y, TextureKeys.PLAYER).setScale(1);
+      console.warn('⚠️ Using placeholder player (art not loaded)');
+      this.bodySprite = scene.add.sprite(x, y, TextureKeys.PLAYER)
+        .setScale(1)
+        .setDepth(10);
       this.tintSprite = this.bodySprite; // No separate layer
-      this.bodySprite.setDepth(10);
     }
     
     // Physics on body sprite
@@ -60,7 +72,7 @@ export class Player {
   }
 
   public update(): void {
-    const hasArt = this.scene.textures.exists('player');
+    const hasArt = this.scene.textures.exists('player') && this.tintSprite !== this.bodySprite;
     
     if (this.moveVector.length() > 0) {
       const normalized = this.moveVector.clone().normalize();
@@ -81,21 +93,28 @@ export class Player {
       // Play walk animation if art exists
       if (hasArt && this.scene.anims.exists(`walk_${direction}`)) {
         this.bodySprite.play(`walk_${direction}`, true);
-        this.tintSprite.play(`walk_${direction}_tint`, true);
+        if (this.tintSprite !== this.bodySprite) {
+          this.tintSprite.play(`walk_${direction}_tint`, true);
+        }
       }
     } else {
       this.physics.setVelocity(0, 0);
       
-      // Stop on idle frame
+      // Stop on idle frame (col 0 of each row)
       if (hasArt) {
         const dirIndex = ['down', 'left', 'right', 'up'].indexOf(this.lastDirection);
-        this.bodySprite.stop().setFrame(dirIndex * 4);
-        this.tintSprite.stop().setFrame(dirIndex * 4);
+        const idleFrame = dirIndex * 4; // row * 4 + 0
+        this.bodySprite.stop().setFrame(idleFrame);
+        if (this.tintSprite !== this.bodySprite) {
+          this.tintSprite.stop().setFrame(idleFrame);
+        }
       }
     }
     
     // Sync tint sprite position
-    this.tintSprite.setPosition(this.bodySprite.x, this.bodySprite.y);
+    if (this.tintSprite !== this.bodySprite) {
+      this.tintSprite.setPosition(this.bodySprite.x, this.bodySprite.y);
+    }
   }
 
   public getPosition(): Phaser.Math.Vector2 {
