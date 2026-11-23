@@ -16,13 +16,39 @@ export class PreloadScene extends Phaser.Scene {
       color: '#ffffff',
     }).setOrigin(0.5);
 
-    // Generate all placeholder textures
+    // Generate placeholder textures (fallback)
     TextureGenerator.generateAll(this);
+    
+    // Load art manifest and assets
+    this.load.json('artManifest', 'assets/manifest.json');
     
     loadingText.destroy();
   }
 
   create(): void {
-    this.scene.start('GameScene');
+    // Load art assets from manifest
+    const manifest = this.cache.json.get('artManifest');
+    if (manifest?.assets) {
+      this.load.once('complete', () => this.scene.start('GameScene'));
+      
+      for (const asset of manifest.assets) {
+        const key = asset.key;
+        const url = `assets/${asset.file}`;
+        
+        if (asset.spritesheet) {
+          this.load.spritesheet(key, url, {
+            frameWidth: asset.spritesheet.frameWidth,
+            frameHeight: asset.spritesheet.frameHeight,
+          });
+        } else {
+          this.load.image(key, url);
+        }
+      }
+      
+      this.load.start();
+    } else {
+      this.scene.start('GameScene');
+    }
   }
+
 }
