@@ -135,6 +135,7 @@ export class GameScene extends Phaser.Scene {
         wall.height,
         0x3A3A3A
       ).setStrokeStyle(1, 0x2A2A2A);
+      wallSprite.setData('blocksSight', true); // real walls only; furniture/spot bodies don't block line of sight
 
       this.wallGroup.add(wallSprite);
     });

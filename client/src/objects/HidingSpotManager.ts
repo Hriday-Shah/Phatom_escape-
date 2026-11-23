@@ -136,6 +136,7 @@ export class HidingSpotManager {
     const walls = this.wallGroup.getChildren() as Phaser.GameObjects.GameObject[];
 
     for (const wall of walls) {
+      if (!(wall as any).getData?.('blocksSight')) continue;
       const bounds = (wall as any).getBounds();
       if (!bounds) continue;
 
