@@ -3,15 +3,16 @@ import { GameScene } from '../scenes/GameScene';
 import { PreloadScene } from '../scenes/PreloadScene';
 
 export const gameConfig: Phaser.Types.Core.GameConfig = {
-  type: Phaser.AUTO,
+  type: Phaser.WEBGL,
   parent: 'game',
   backgroundColor: '#000000',
   scale: {
     mode: Phaser.Scale.RESIZE,
-    width: '100%',
-    height: '100%',
+    width: window.innerWidth,
+    height: window.innerHeight,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
+  pixelArt: false,
   physics: {
     default: 'arcade',
     arcade: {

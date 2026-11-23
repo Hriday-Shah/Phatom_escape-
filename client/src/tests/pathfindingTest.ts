@@ -156,6 +156,32 @@ class PathfindingValidator {
     return false;
   }
 
+  private checkEscapes(reachableCells: Set<string>): string[] {
+    const escapes: string[] = [];
+    
+    // Define the house's outer boundary (margins around all rooms)
+    const minX = 60; // 10px before leftmost room (bedroom at x=70)
+    const minY = 90; // 10px before topmost room (bathroom/living at y=100)
+    const maxX = 1030; // 10px after rightmost room (kitchen at x=1020)
+    const maxY = 570; // 10px after bottommost room (kitchen at y=560)
+    
+    // Check if any reachable cell is outside the boundary
+    for (const key of reachableCells) {
+      const [gxStr, gyStr] = key.split(',');
+      const gx = parseInt(gxStr, 10);
+      const gy = parseInt(gyStr, 10);
+      
+      const worldX = gx * GRID_SIZE + GRID_SIZE / 2;
+      const worldY = gy * GRID_SIZE + GRID_SIZE / 2;
+      
+      if (worldX < minX || worldX > maxX || worldY < minY || worldY > maxY) {
+        escapes.push(`Cell at (${worldX.toFixed(0)}, ${worldY.toFixed(0)}) is outside house boundary!`);
+      }
+    }
+    
+    return escapes;
+  }
+
   public validateLayout(): { success: boolean; errors: string[] } {
     const errors: string[] = [];
 
@@ -172,6 +198,21 @@ class PathfindingValidator {
     }
 
     console.log(`Found ${reachableCells.size} reachable cells`);
+
+    // Check for escapes outside the house
+    console.log('Checking for escapes outside house boundary...');
+    const escapes = this.checkEscapes(reachableCells);
+    if (escapes.length > 0) {
+      errors.push(`Player can escape outside the house! Found ${escapes.length} escape points:`);
+      escapes.slice(0, 5).forEach((escape) => {
+        errors.push(`  - ${escape}`);
+      });
+      if (escapes.length > 5) {
+        errors.push(`  ... and ${escapes.length - 5} more`);
+      }
+    } else {
+      console.log('✓ No escapes found - house boundary is sealed');
+    }
 
     // Rooms that should be reachable (bedroom is locked)
     const expectedReachable = ['entrance', 'living', 'dining', 'foyer', 'bathroom', 'kitchen'];

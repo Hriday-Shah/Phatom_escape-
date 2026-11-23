@@ -1,16 +1,21 @@
 import Phaser from 'phaser';
 import { TextureKeys } from '../config/textureKeys';
+import { SafeAreaManager } from '../utils/SafeAreaManager';
 
 export class UIControls {
   private scene: Phaser.Scene;
   private buttons: Map<string, Phaser.GameObjects.Container> = new Map();
   private buttonSize = 60;
   private buttonSpacing = 20;
+  private margin = 20; // Minimum margin from edge
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     this.createButtons();
     this.positionButtons();
+    
+    // Reposition on safe area changes
+    SafeAreaManager.onInsetsChange(() => this.positionButtons());
   }
 
   private createButtons(): void {
@@ -50,8 +55,11 @@ export class UIControls {
   private positionButtons(): void {
     const width = this.scene.scale.width;
     const height = this.scene.scale.height;
-    const rightMargin = 30;
-    const bottomMargin = 30;
+    const insets = SafeAreaManager.getInsets();
+    
+    // Position in bottom-right, offset by safe area
+    const rightMargin = this.margin + insets.right;
+    const bottomMargin = this.margin + insets.bottom;
 
     let yOffset = 0;
     this.buttons.forEach((container) => {

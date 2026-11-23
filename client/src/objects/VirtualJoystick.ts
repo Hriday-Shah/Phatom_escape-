@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { TextureKeys } from '../config/textureKeys';
+import { SafeAreaManager } from '../utils/SafeAreaManager';
 
 export class VirtualJoystick {
   private scene: Phaser.Scene;
@@ -34,8 +35,16 @@ export class VirtualJoystick {
 
   private setupInput(): void {
     this.scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      // Only activate on left half of screen
-      if (pointer.x < this.scene.scale.width / 2 && !this.pointer) {
+      // Only activate on left half of screen AND in bottom-left thumb area
+      const insets = SafeAreaManager.getInsets();
+      const minX = insets.left + 20;
+      const minY = insets.top + 100;
+      const maxX = this.scene.scale.width / 2;
+      const maxY = this.scene.scale.height - insets.bottom - 20;
+      
+      if (pointer.x >= minX && pointer.x < maxX && 
+          pointer.y >= minY && pointer.y < maxY && 
+          !this.pointer) {
         this.pointer = pointer;
         this.visible = true;
         this.basePosition.set(pointer.x, pointer.y);

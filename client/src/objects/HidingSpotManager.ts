@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { HidingSpot } from '../data/houseLayout';
+import { SafeAreaManager } from '../utils/SafeAreaManager';
 
 interface HidingSpotSprite {
   data: HidingSpot;
@@ -35,6 +36,9 @@ export class HidingSpotManager {
       .setVisible(false);
 
     this.createSpots(hidingSpots);
+    
+    // Reposition on safe area changes
+    SafeAreaManager.onInsetsChange(() => this.resize());
   }
 
   private createSpots(hidingSpots: HidingSpot[]): void {
@@ -152,9 +156,12 @@ export class HidingSpotManager {
   }
 
   public resize(): void {
+    const insets = SafeAreaManager.getInsets();
+    const bottomOffset = 150 + insets.bottom; // Keep above controls
+    
     this.messageText.setPosition(
       this.scene.scale.width / 2,
-      this.scene.scale.height - 100
+      this.scene.scale.height - bottomOffset
     );
   }
 
