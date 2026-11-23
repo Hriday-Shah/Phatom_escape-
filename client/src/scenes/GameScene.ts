@@ -4,8 +4,9 @@ import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { houseLayout } from '../data/houseLayout';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { createComposedWalls } from '../utils/wallRenderer';
-import { wallBodyRect } from '../data/colliders';
+import { wallBodyRects } from '../data/colliders';
 import { PLAYER_BODY_RADIUS } from '../objects/Player';
+import { gameDpr } from '../config/display';
 
 /** World units shown across the short side of the screen (before snapping). */
 const TARGET_VIEW_WORLD = 280;
@@ -17,11 +18,6 @@ const TARGET_VIEW_WORLD = 280;
 export function snappedCameraZoom(shortSideDevicePx: number): number {
   const raw = shortSideDevicePx / TARGET_VIEW_WORLD;
   return Math.max(1, Math.round(raw * 2) / 2);
-}
-
-/** Body rect for a wall: thickened exterior when the art is composed separately, else the layout rect (grey fallback draws the body). */
-function composedOrLayout(w: { x: number; y: number; width: number; height: number }, composed: boolean) {
-  return composed ? wallBodyRect(w) : w;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -155,26 +151,31 @@ export class GameScene extends Phaser.Scene {
       houseLayout.windows,
     );
 
-    // Physics + line of sight: one invisible body per layout wall rect. Exterior sides are
-    // grown outward (data/colliders.ts) so a body can never be pushed through to outside;
+    // Physics + line of sight: invisible bodies per layout wall rect. Exterior sides (whole or
+    // partial) are grown outward (data/colliders.ts) so a body cannot be pushed outside;
     // the visible wall art still uses the layout rects.
     houseLayout.walls.forEach(layoutWall => {
-      const wall = composedOrLayout(layoutWall, !!composed);
-      const wallSprite = this.add.rectangle(
-        wall.x + wall.width / 2,
-        wall.y + wall.height / 2,
-        wall.width,
-        wall.height,
-        0x3A3A3A
-      ).setDepth(-1);
-      if (composed) {
-        wallSprite.setVisible(false);
-      } else {
-        wallSprite.setStrokeStyle(1, 0x2A2A2A);
+      if (!composed) {
+        // Grey fallback art: draw the layout rect (no body; the bodies below are invisible).
+        this.add.rectangle(
+          layoutWall.x + layoutWall.width / 2,
+          layoutWall.y + layoutWall.height / 2,
+          layoutWall.width,
+          layoutWall.height,
+          0x3A3A3A
+        ).setDepth(-1).setStrokeStyle(1, 0x2A2A2A);
       }
-      wallSprite.setData('blocksSight', true); // real walls only; furniture/spot bodies don't block line of sight
-
-      this.wallGroup.add(wallSprite);
+      for (const wall of wallBodyRects(layoutWall)) {
+        const wallSprite = this.add.rectangle(
+          wall.x + wall.width / 2,
+          wall.y + wall.height / 2,
+          wall.width,
+          wall.height,
+          0x3A3A3A
+        ).setDepth(-1).setVisible(false);
+        wallSprite.setData('blocksSight', true); // real walls only; furniture/spot bodies don't block line of sight
+        this.wallGroup.add(wallSprite);
+      }
     });
   }
 
@@ -228,10 +229,18 @@ export class GameScene extends Phaser.Scene {
 
       // Store modified door data. Only locked doors are solid: an unlocked door
       // (e.g. the bedroom door with ?debug=unlock) gets no physics body at all.
+      // The art keeps the layout rect; the solid body is invisible and, like exterior walls,
+      // grown outward on any side facing outside the house (the main door's bottom).
+      // checkNearbyDoor() uses doorData (layout rect), so the message trigger is unchanged.
       const doorData = { ...door, locked: isLocked };
       (doorSprite as any).doorData = doorData;
       if (isLocked) {
-        this.doorGroup.add(doorSprite);
+        wallBodyRects(door).forEach((r, i) => {
+          const body = this.add.rectangle(r.x + r.width / 2, r.y + r.height / 2, r.width, r.height, 0x000000, 0)
+            .setVisible(false);
+          if (i === 0) (body as any).doorData = doorData;
+          this.doorGroup.add(body);
+        });
       }
     });
 
@@ -392,12 +401,46 @@ export class GameScene extends Phaser.Scene {
 
     // Update hiding spot highlights
     this.hidingSpotManager.update(this.player.getPosition());
+    this.keepSpotClearOfPrompt();
 
     // Check interact key
     if (Phaser.Input.Keyboard.JustDown(this.interactKey)) {
       this.onInteract();
     }
   }
+
+  /**
+   * QA R4-5: on short landscape phones the top prompt can cover the far end of a tall spot
+   * (the sofa) when the player stands at its lower half. While a spot is highlighted and its
+   * top (with outline) would sit under the prompt, aim the camera a little higher (follow
+   * offset, eased by the follow lerp) so the whole spot clears the prompt. Capped so the
+   * player stays well inside the screen; back to centred when nothing is highlighted.
+   */
+  private keepSpotClearOfPrompt(): void {
+    const cam = this.cameras.main;
+    const spot = this.hidingSpotManager.getHighlightedBounds();
+    const promptBottomCss: number = (this.uiScene as any)?.getPromptBottom?.() ?? 0;
+    let lift = 0;
+    if (spot && promptBottomCss > 0) {
+      const worldPerCss = gameDpr(this) / cam.zoom;
+      const viewH = cam.height / cam.zoom;
+      const maxLift = viewH * 0.25;
+      const clearTop = (promptBottomCss + GameScene.PROMPT_CLEARANCE_CSS) * worldPerCss;
+      const camTopCentred = this.player.y - viewH / 2;
+      const need = camTopCentred + clearTop - spot.y;
+      lift = Phaser.Math.Clamp(need, 0, maxLift);
+      // The follow lerp trails the player by up to ~30 world px while walking; don't let that
+      // lag push the spot under the prompt (only within the same lift cap).
+      if (need > 0 && need <= maxLift) {
+        const maxScrollY = Math.floor(spot.y - clearTop + viewH / 2 - cam.height / 2);
+        if (cam.scrollY > maxScrollY) cam.setScroll(cam.scrollX, maxScrollY);
+      }
+    }
+    if (Math.abs(cam.followOffset.y - lift) > 0.5) cam.setFollowOffset(0, lift);
+  }
+
+  /** CSS px kept between the prompt's bottom edge and a highlighted spot. */
+  static readonly PROMPT_CLEARANCE_CSS = 6;
 
   private onResize(): void {
     // Update camera zoom for new dimensions

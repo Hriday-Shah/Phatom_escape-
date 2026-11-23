@@ -102,6 +102,17 @@ export class HidingSpotManager {
     }
   }
 
+  /** World rect of the highlighted spot including its outline (null when none). */
+  public getHighlightedBounds(): { x: number; y: number; width: number; height: number } | null {
+    if (!this.highlightedSpot) return null;
+    const { x, y, width, height } = this.highlightedSpot.data;
+    const pad = HidingSpotManager.OUTLINE_PAD;
+    return { x: x - pad, y: y - pad, width: width + pad * 2, height: height + pad * 2 };
+  }
+
+  /** The outline is stroked 3px outside the spot with a 4px line: it reaches 5px out. */
+  static readonly OUTLINE_PAD = 5;
+
   public update(playerPosition: Phaser.Math.Vector2): void {
     let closestSpot: HidingSpotSprite | null = null;
     let closestDistance = Infinity;
