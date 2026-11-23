@@ -1,0 +1,11 @@
+{
+  "name": "phantom-escape-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Authoritative game server for Phantom Escape (Stage 2)",
+  "scripts": {
+    "dev": "echo 'Server not implemented yet (Stage 2)'",
+    "build": "echo 'Server not implemented yet (Stage 2)'"
+  }
+}
