@@ -14,9 +14,13 @@ export class HidingSpotManager {
   private highlightedSpot: HidingSpotSprite | null = null;
   private messageTimer: Phaser.Time.TimerEvent | null = null;
   private wallGroup: Phaser.Physics.Arcade.StaticGroup | null = null;
+  /** Pulsing outline drawn around the targeted spot (QA N6). */
+  private highlightGfx: Phaser.GameObjects.Graphics;
+  private highlightTween: Phaser.Tweens.Tween | null = null;
 
   constructor(scene: Phaser.Scene, hidingSpots: HidingSpot[]) {
     this.scene = scene;
+    this.highlightGfx = scene.add.graphics().setDepth(5).setVisible(false);
     this.createSpots(hidingSpots);
   }
 
@@ -153,13 +157,44 @@ export class HidingSpotManager {
     const s: any = spot.sprite;
     if (typeof s.setStrokeStyle === 'function') s.setStrokeStyle(3, 0xFFFF00);
     else if (typeof s.setTint === 'function') s.setTint(0xFFF2A0);
+
+    // Bright outline (2 world px = 1 art px, drawn just outside the spot) that pulses.
+    const { x, y, width, height } = spot.data;
+    const g = this.highlightGfx;
+    g.clear();
+    g.lineStyle(4, 0x000000, 0.6);
+    g.strokeRect(x - 3, y - 3, width + 6, height + 6);
+    g.lineStyle(2, 0xFFE14D, 1);
+    g.strokeRect(x - 2, y - 2, width + 4, height + 4);
+    g.setAlpha(1).setVisible(true);
+    this.highlightTween?.stop();
+    this.highlightTween = this.scene.tweens.add({
+      targets: g,
+      alpha: { from: 1, to: 0.35 },
+      duration: 450,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
+    this.showPrompt(spot);
+  }
+
+  private promptText(spot: HidingSpotSprite): string {
     // Show keyboard hint only on non-touch devices
     const isTouch = this.scene.sys.game.device.input.touch;
     const hint = isTouch ? '' : '[E] ';
-    this.showMessage(`${hint}${spot.data.name}`);
+    return `${hint}${spot.data.name}`;
+  }
+
+  private showPrompt(spot: HidingSpotSprite): void {
+    this.showMessage(this.promptText(spot));
   }
 
   private clearHighlight(): void {
+    this.highlightTween?.stop();
+    this.highlightTween = null;
+    this.highlightGfx.clear().setVisible(false);
     if (this.highlightedSpot) {
       const s: any = this.highlightedSpot.sprite;
       if (typeof s.setStrokeStyle === 'function') s.setStrokeStyle(2, 0x000000);
@@ -194,48 +229,45 @@ export class HidingSpotManager {
       if (spot.sprite instanceof Phaser.GameObjects.Image) {
         spot.sprite.setTexture(spot.isOpen ? openKey : textureKey);
       }
-      this.showMessage('Empty', 2000);
     } else if ('setFillStyle' in spot.sprite) {
       // Fallback: change color
-      if (spot.isOpen) {
-        (spot.sprite as any).setFillStyle(this.getOpenColor(spot.data.type));
-        this.showMessage('Empty', 2000);
-      } else {
-        (spot.sprite as any).setFillStyle(this.getColorForType(spot.data.type));
-        // Don't hide message - let it show the highlight prompt again
-        this.clearHighlight();
-        if (this.highlightedSpot === spot) {
-          this.highlightSpot(spot);
-        }
-      }
+      (spot.sprite as any).setFillStyle(
+        spot.isOpen ? this.getOpenColor(spot.data.type) : this.getColorForType(spot.data.type)
+      );
+    }
+
+    if (spot.isOpen) {
+      // Only OPENING reveals the contents; the name comes back after 2 s.
+      this.showMessage('Empty', 2000);
+    } else if (this.highlightedSpot === spot) {
+      // Closing: straight back to the name prompt (cancels any pending 'Empty' timer).
+      this.showPrompt(spot);
     }
   }
 
   private showMessage(text: string, duration?: number): void {
-    // Cancel previous timer
+    // Every new message cancels the previous timer, so a stale timer can never
+    // blank or replace a newer message.
     if (this.messageTimer) {
       this.messageTimer.destroy();
       this.messageTimer = null;
     }
 
-    // Show message via UIScene
+    // Show message via UIScene (UIScene itself never auto-hides the spot prompt;
+    // this manager owns the only timer).
     const uiScene = this.scene.scene.get('UIScene');
     if (uiScene && (uiScene as any).showHidingSpotPrompt) {
+      (uiScene as any).showHidingSpotPrompt(text);
       if (duration) {
-        (uiScene as any).showHidingSpotPrompt(text, duration);
-        
-        // Store timer reference so we can cancel it
         this.messageTimer = this.scene.time.delayedCall(duration, () => {
           this.messageTimer = null;
-          // Re-show highlight prompt if still highlighted
+          // Re-show the highlight prompt if still highlighted, else hide.
           if (this.highlightedSpot) {
-            const isTouch = this.scene.sys.game.device.input.touch;
-            const hint = isTouch ? '' : '[E] ';
-            (uiScene as any).showHidingSpotPrompt(`${hint}${this.highlightedSpot.data.name}`);
+            (uiScene as any).showHidingSpotPrompt(this.promptText(this.highlightedSpot));
+          } else {
+            (uiScene as any).hideHidingSpotPrompt?.();
           }
         });
-      } else {
-        (uiScene as any).showHidingSpotPrompt(text);
       }
     }
   }
@@ -261,6 +293,8 @@ export class HidingSpotManager {
     if (this.messageTimer) {
       this.messageTimer.destroy();
     }
+    this.highlightTween?.stop();
+    this.highlightGfx.destroy();
     this.spots.forEach(spot => {
       spot.sprite.destroy();
       spot.highlight?.destroy();

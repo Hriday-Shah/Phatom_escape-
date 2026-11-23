@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { TextureGenerator } from '../config/textureGenerator';
+import { devLog, gameDpr } from '../config/display';
 
 export class PreloadScene extends Phaser.Scene {
   private loadedArtCount = 0;
@@ -14,7 +15,7 @@ export class PreloadScene extends Phaser.Scene {
     const height = this.cameras.main.height;
     
     const loadingText = this.add.text(width / 2, height / 2, 'Loading...', {
-      fontSize: '32px',
+      fontSize: `${Math.round(32 * gameDpr(this))}px`,
       color: '#ffffff',
     }).setOrigin(0.5);
 
@@ -35,7 +36,7 @@ export class PreloadScene extends Phaser.Scene {
     const manifest = this.cache.json.get('artManifest');
     
     if (!manifest) {
-      console.warn('⚠️ manifest.json not found, using placeholders');
+      devLog('manifest.json not found, using placeholders');
       this.scene.start('GameScene');
       return;
     }
@@ -50,8 +51,6 @@ export class PreloadScene extends Phaser.Scene {
     const approvedAssets = manifest.assets.filter(
       (asset: any) => asset.status === 'approved'
     );
-    
-    console.log(`📦 Loading ${approvedAssets.length} approved art assets...`);
     
     const basePath = import.meta.env.BASE_URL || '/';
     
@@ -70,7 +69,7 @@ export class PreloadScene extends Phaser.Scene {
     }
     
     this.load.on('loaderror', (file: any) => {
-      console.error(`❌ Failed to load: ${file.key} from ${file.url}`);
+      console.error(`Failed to load: ${file.key} from ${file.url}`);
     });
     
     this.load.once('complete', () => {
@@ -79,10 +78,8 @@ export class PreloadScene extends Phaser.Scene {
         (asset: any) => this.textures.exists(asset.key)
       ).length;
       
-      console.log(`✅ Loaded ${this.loadedArtCount}/${approvedAssets.length} art textures`);
-      
       if (this.loadedArtCount === 0) {
-        console.warn('⚠️ No art textures loaded, using placeholders');
+        devLog('No art textures loaded, using placeholders');
       }
       
       this.scene.start('GameScene');

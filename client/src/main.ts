@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { gameConfig } from './config/gameConfig';
 import { SafeAreaManager } from './utils/SafeAreaManager';
+import { currentRenderDpr } from './config/display';
 
 // Prevent iOS Safari bounce and zoom
 document.addEventListener('touchmove', (e) => {
@@ -23,35 +24,40 @@ document.addEventListener('gestureend', (e) => {
 window.addEventListener('load', () => {
   // Initialize safe area manager
   SafeAreaManager.init();
-  
-  // Handle DPR for crisp rendering on high-DPI displays
-  const dpr = window.devicePixelRatio || 1;
-  
-  // Create game with DPR-adjusted config
-  const config = {
-    ...gameConfig,
-    scale: {
-      ...gameConfig.scale,
-      resolution: dpr,
-    },
+
+  const game = new Phaser.Game(gameConfig);
+
+  // Test hook for QA/Playwright (dev builds or any ?debug=... URL only).
+  if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('debug')) {
+    (window as any).__PE_GAME__ = game;
+  }
+
+  // Keep the backing store at CSS size x DPR (DPR can change when the window
+  // moves between screens or the page is zoomed).
+  const applySize = () => {
+    const dpr = currentRenderDpr();
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    game.scale.zoom = 1 / dpr;
+    game.scale.resize(Math.round(w * dpr), Math.round(h * dpr));
+    const canvas = game.canvas;
+    if (canvas) {
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+    }
   };
-  
-  const game = new Phaser.Game(config);
-  
+
+  game.events.once(Phaser.Core.Events.READY, applySize);
+
   // Handle visualViewport resize for mobile browser UI
   if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', () => {
-      game.scale.resize(window.innerWidth, window.innerHeight);
-    });
-    
+    window.visualViewport.addEventListener('resize', applySize);
     window.visualViewport.addEventListener('scroll', () => {
       // Prevent any scrolling effects
       window.scrollTo(0, 0);
     });
   }
-  
+
   // Fallback resize handler
-  window.addEventListener('resize', () => {
-    game.scale.resize(window.innerWidth, window.innerHeight);
-  });
+  window.addEventListener('resize', applySize);
 });

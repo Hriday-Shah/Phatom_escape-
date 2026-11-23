@@ -3,9 +3,20 @@
  * Uses a grid-based flood-fill algorithm at the player's body size.
  */
 
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { houseLayout, Wall, Door } from '../data/houseLayout';
+import {
+  PLAYER_BODY_OFFSET_FRAME,
+  PLAYER_BODY_RADIUS,
+  PLAYER_BODY_RADIUS_FRAME,
+  PLAYER_FRAME_SIZE,
+  PLAYER_SPRITE_SCALE,
+} from '../config/playerConfig';
 
-const PLAYER_RADIUS = 16; // Must match Player.ts setCircle(16)
+// The REAL body radius Player.ts gives Arcade (setCircle(PLAYER_BODY_RADIUS_FRAME) on a
+// PLAYER_SPRITE_SCALE sprite). Player.ts imports the same constants, so this can't drift.
+const PLAYER_RADIUS = PLAYER_BODY_RADIUS;
 const GRID_SIZE = 4; // Grid resolution (smaller = more accurate but slower)
 const SPAWN_X = 300;
 const SPAWN_Y = 430;
@@ -22,7 +33,10 @@ class PathfindingValidator {
   private gridWidth: number;
   private gridHeight: number;
 
-  constructor() {
+  private doors: Door[];
+
+  constructor(doors: Door[] = houseLayout.doors) {
+    this.doors = doors;
     this.width = houseLayout.width;
     this.height = houseLayout.height;
     this.gridWidth = Math.ceil(this.width / GRID_SIZE);
@@ -79,7 +93,7 @@ class PathfindingValidator {
         const worldX = gx * GRID_SIZE + GRID_SIZE / 2;
         const worldY = gy * GRID_SIZE + GRID_SIZE / 2;
 
-        if (this.isColliding(worldX, worldY, houseLayout.walls, houseLayout.doors)) {
+        if (this.isColliding(worldX, worldY, houseLayout.walls, this.doors)) {
           this.grid[gy][gx] = false;
         }
 
@@ -211,6 +225,23 @@ class PathfindingValidator {
     return escapes;
   }
 
+  /** Is any reachable cell within `range` of (x, y)? */
+  public anyReachableWithin(reachableCells: Set<string>, x: number, y: number, range: number): boolean {
+    for (const key of reachableCells) {
+      const [gx, gy] = key.split(',').map((v) => parseInt(v, 10));
+      const wx = gx * GRID_SIZE + GRID_SIZE / 2;
+      const wy = gy * GRID_SIZE + GRID_SIZE / 2;
+      if (Math.hypot(wx - x, wy - y) <= range) return true;
+    }
+    return false;
+  }
+
+  /** Flood fill from spawn (no assertions), for the debug-unlock scenario. */
+  public reachableFromSpawn(): Set<string> {
+    this.buildCollisionGrid();
+    return this.floodFill(SPAWN_X, SPAWN_Y);
+  }
+
   public validateLayout(): { success: boolean; errors: string[] } {
     const errors: string[] = [];
 
@@ -317,7 +348,59 @@ class PathfindingValidator {
       }
     }
 
+    // Main door message: GameScene.checkNearbyDoor uses a 50px radius from the door centre.
+    const mainDoor = houseLayout.doors.find((d) => d.id === 'main_door');
+    if (mainDoor) {
+      const cx = mainDoor.x + mainDoor.width / 2;
+      const cy = mainDoor.y + mainDoor.height / 2;
+      if (!this.anyReachableWithin(reachableCells, cx, cy, 50)) {
+        errors.push('Main door message is unreachable (no reachable cell within 50px of the door centre)');
+      } else {
+        console.log('✓ Main door is within message range');
+      }
+    }
+
     return { success: errors.length === 0, errors };
+  }
+}
+
+function checkBodyConstants(errors: string[]): void {
+  if (PLAYER_BODY_RADIUS_FRAME * 2 + PLAYER_BODY_OFFSET_FRAME * 2 !== PLAYER_FRAME_SIZE) {
+    errors.push(`Player body circle (r=${PLAYER_BODY_RADIUS_FRAME}, offset ${PLAYER_BODY_OFFSET_FRAME}) is not centred on the ${PLAYER_FRAME_SIZE}px frame`);
+  }
+  if (PLAYER_BODY_RADIUS !== PLAYER_BODY_RADIUS_FRAME * PLAYER_SPRITE_SCALE) {
+    errors.push('PLAYER_BODY_RADIUS must equal frame radius x sprite scale');
+  }
+  // Player.ts must hand Arcade the shared FRAME-pixel radius (not a world-unit literal).
+  const playerSrc = readFileSync(join(process.cwd(), 'src/objects/Player.ts'), 'utf-8');
+  const calls = [...playerSrc.matchAll(/setCircle\(([^,)]+)/g)].map((m) => m[1].trim());
+  if (!calls.includes('PLAYER_BODY_RADIUS_FRAME') || calls.some((c) => /^\d/.test(c))) {
+    errors.push(`Player.ts setCircle() must use PLAYER_BODY_RADIUS_FRAME, found: ${calls.join(', ')}`);
+  }
+  // The player sprite is 32 world px wide; a body bigger than the sprite was QA bug N1.
+  if (PLAYER_BODY_RADIUS * 2 > PLAYER_FRAME_SIZE * PLAYER_SPRITE_SCALE) {
+    errors.push(`Player body (${PLAYER_BODY_RADIUS * 2}px) is bigger than the sprite`);
+  }
+}
+
+/** With ?debug=unlock the bedroom door has no body: the bedroom and all 17 spots must be reachable. */
+function checkDebugUnlock(errors: string[]): void {
+  console.log('\nChecking ?debug=unlock (bedroom door open)...');
+  const doors = houseLayout.doors.filter((d) => d.id !== 'bedroom_door');
+  const v = new PathfindingValidator(doors);
+  const reachable = v.reachableFromSpawn();
+  const bedroomCells = v.countRoomCells('bedroom', reachable);
+  if (bedroomCells === 0) {
+    errors.push('With the bedroom door unlocked, the bedroom is still unreachable');
+  } else {
+    console.log(`✓ Bedroom reachable when unlocked (${bedroomCells} cells)`);
+  }
+  for (const spot of houseLayout.hidingSpots) {
+    const ok = v.anyReachableWithin(reachable, spot.x + spot.width / 2, spot.y + spot.height / 2, spot.interactRange);
+    if (!ok) errors.push(`(unlocked) Hiding spot "${spot.name}" has no reachable cell in range`);
+  }
+  if (!errors.some((e) => e.startsWith('(unlocked)'))) {
+    console.log(`✓ All ${houseLayout.hidingSpots.length} hiding spots reachable when unlocked`);
   }
 }
 
@@ -330,6 +413,9 @@ export function runPathfindingTest(): void {
 
   const validator = new PathfindingValidator();
   const result = validator.validateLayout();
+  checkBodyConstants(result.errors);
+  checkDebugUnlock(result.errors);
+  result.success = result.errors.length === 0;
 
   console.log('');
   if (result.success) {

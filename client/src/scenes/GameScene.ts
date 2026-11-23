@@ -3,6 +3,20 @@ import { Player } from '../objects/Player';
 import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { houseLayout } from '../data/houseLayout';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
+import { createComposedWalls } from '../utils/wallRenderer';
+import { PLAYER_BODY_RADIUS } from '../objects/Player';
+
+/** World units shown across the short side of the screen (before snapping). */
+const TARGET_VIEW_WORLD = 280;
+
+/**
+ * Camera zoom in DEVICE px per world unit, snapped so that one art px (2 world units)
+ * always covers a whole number of device pixels: zoom is a multiple of 0.5.
+ */
+export function snappedCameraZoom(shortSideDevicePx: number): number {
+  const raw = shortSideDevicePx / TARGET_VIEW_WORLD;
+  return Math.max(1, Math.round(raw * 2) / 2);
+}
 
 export class GameScene extends Phaser.Scene {
   private player!: Player;
@@ -48,6 +62,12 @@ export class GameScene extends Phaser.Scene {
     const spawnPoint = this.getSpawnPoint();
     this.player = new Player(this, spawnPoint.x, spawnPoint.y);
 
+    // Runtime guard for QA N1: the body must be a 32px circle centred on the sprite.
+    const expected = PLAYER_BODY_RADIUS * 2;
+    if (Math.abs(this.player.getBodyDiameter() - expected) > 0.01) {
+      throw new Error(`Player body is ${this.player.getBodyDiameter()}px wide, expected ${expected}px`);
+    }
+
     // Setup collisions
     this.physics.add.collider(this.player.getBody(), this.wallGroup);
     this.physics.add.collider(this.player.getBody(), this.doorGroup);
@@ -80,18 +100,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateCameraZoom(): void {
-    // Close-up camera: show about 250-300 world units on the short side
-    // This gives a view of roughly one room around the player
-    const width = this.scale.width;
-    const height = this.scale.height;
-    const minDimension = Math.min(width, height);
-    
-    // Target showing 280px of world at minimum dimension (close-up view)
-    const targetZoom = minDimension / 280;
-    // Clamp to reasonable bounds, allowing higher zoom on larger screens
-    const zoom = Math.max(1.2, Math.min(3.0, targetZoom));
-    
-    this.cameras.main.setZoom(zoom);
+    // Close-up camera: about 280 world units on the short side (roughly one room).
+    // scale.width/height are DEVICE px (the canvas renders at devicePixelRatio), so the
+    // snapped zoom gives every art pixel the same whole number of physical pixels.
+    const minDimension = Math.min(this.scale.width, this.scale.height);
+    this.cameras.main.setZoom(snappedCameraZoom(minDimension));
     
     // Recenter on player if it exists
     if (this.player) {
@@ -127,6 +140,16 @@ export class GameScene extends Phaser.Scene {
   private createWalls(): void {
     this.wallGroup = this.physics.add.staticGroup();
 
+    // Visuals: one texture composed from the approved wall/window tiles (falls back to grey).
+    const composed = createComposedWalls(
+      this,
+      houseLayout.width,
+      houseLayout.height,
+      houseLayout.walls,
+      houseLayout.windows,
+    );
+
+    // Physics + line of sight: one invisible body per layout wall rect.
     houseLayout.walls.forEach(wall => {
       const wallSprite = this.add.rectangle(
         wall.x + wall.width / 2,
@@ -134,7 +157,12 @@ export class GameScene extends Phaser.Scene {
         wall.width,
         wall.height,
         0x3A3A3A
-      ).setStrokeStyle(1, 0x2A2A2A);
+      ).setDepth(-1);
+      if (composed) {
+        wallSprite.setVisible(false);
+      } else {
+        wallSprite.setStrokeStyle(1, 0x2A2A2A);
+      }
       wallSprite.setData('blocksSight', true); // real walls only; furniture/spot bodies don't block line of sight
 
       this.wallGroup.add(wallSprite);
@@ -155,7 +183,7 @@ export class GameScene extends Phaser.Scene {
       let textureKey = 'door'; // Default
       
       if (door.id === 'bedroom_door') {
-        textureKey = isLocked ? 'door_locked' : 'door';
+        textureKey = isLocked ? 'door_locked' : (this.textures.exists('door_open') ? 'door_open' : 'door');
       } else if (door.id === 'main_door') {
         textureKey = 'main_door'; // main_door is always locked in stage 1
       }
@@ -189,11 +217,23 @@ export class GameScene extends Phaser.Scene {
         }
       }
 
-      // Store modified door data
+      // Store modified door data. Only locked doors are solid: an unlocked door
+      // (e.g. the bedroom door with ?debug=unlock) gets no physics body at all.
       const doorData = { ...door, locked: isLocked };
-      this.doorGroup.add(doorSprite);
       (doorSprite as any).doorData = doorData;
+      if (isLocked) {
+        this.doorGroup.add(doorSprite);
+      }
     });
+
+    // The bathroom doorway is an always-open door: draw the approved open door art, no body.
+    const bathroomDoor = houseLayout.openings.find(o => o.id === 'bathroom_door');
+    if (bathroomDoor && this.textures.exists('door_small_open')) {
+      this.add.image(bathroomDoor.x, bathroomDoor.y, 'door_small_open')
+        .setOrigin(0, 0)
+        .setScale(2)
+        .setDepth(0);
+    }
   }
 
   private createFurniture(): void {

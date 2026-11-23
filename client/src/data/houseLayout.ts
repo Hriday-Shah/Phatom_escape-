@@ -5,6 +5,13 @@ export interface Wall {
   height: number;
 }
 
+export interface WindowRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface Door {
   id: string;
   x: number;
@@ -16,6 +23,7 @@ export interface Door {
 }
 
 export interface Opening {
+  id?: string;
   x: number;
   y: number;
   width: number;
@@ -61,6 +69,8 @@ export interface HouseLayout {
   walls: Wall[];
   doors: Door[];
   openings: Opening[];
+  /** Decorative windows drawn over (solid) wall segments. */
+  windows: WindowRect[];
   hidingSpots: HidingSpot[];
   furniture: Furniture[];
 }
@@ -87,13 +97,11 @@ export const houseLayout: HouseLayout = {
     { x: 390, y: 370, width: 40, height: 10 }, // bottom right (after door)
     { x: 420, y: 140, width: 10, height: 240 }, // right
     
-    // Gap between bedroom and entrance (outer boundary)
-    { x: 70, y: 380, width: 80, height: 10 }, // close gap bedroom-to-entrance
-    
-    // Entrance outer walls (opening to living at x=430, y=386-484)
+    // Entrance outer walls (opening to living at x=430, y=386-484).
+    // The entrance shares the bedroom's bottom wall (y 370-380) as its top wall, so there is
+    // no separate entrance top wall (that drew the shared wall double-thick) and no
+    // floating gap-closer stub outside the house at x 70-150.
     { x: 150, y: 380, width: 10, height: 110 }, // left
-    { x: 150, y: 380, width: 140, height: 10 }, // top left (connects to gap above)
-    { x: 350, y: 380, width: 80, height: 10 }, // top right
     { x: 150, y: 480, width: 140, height: 10 }, // bottom left (before main door)
     { x: 380, y: 480, width: 50, height: 10 }, // bottom right (after main door)
     { x: 420, y: 380, width: 10, height: 6 }, // right top (before opening to living)
@@ -152,6 +160,12 @@ export const houseLayout: HouseLayout = {
     },
   ],
 
+  windows: [
+    { x: 190, y: 140, width: 140, height: 10 }, // bedroom, top wall
+    { x: 540, y: 100, width: 160, height: 10 }, // living room, top wall
+    { x: 836, y: 550, width: 64, height: 10 }, // kitchen, bottom wall above the stove
+  ],
+
   openings: [
     // Entrance to Living Room
     { x: 430, y: 386, width: 10, height: 98 },
@@ -160,7 +174,7 @@ export const houseLayout: HouseLayout = {
     // Foyer to Kitchen
     { x: 830, y: 310, width: 60, height: 10 },
     // Bathroom door (open)
-    { x: 900, y: 224, width: 50, height: 12 },
+    { id: 'bathroom_door', x: 900, y: 224, width: 50, height: 12 },
   ],
 
   hidingSpots: [
@@ -170,7 +184,7 @@ export const houseLayout: HouseLayout = {
       name: 'Study Table - Top Drawer',
       x: 80,
       y: 170,
-      width: 45,
+      width: 46,
       height: 50,
       type: 'drawer',
       contents: [],
@@ -181,7 +195,7 @@ export const houseLayout: HouseLayout = {
       name: 'Study Table - Middle Drawer',
       x: 80,
       y: 220,
-      width: 45,
+      width: 46,
       height: 50,
       type: 'drawer',
       contents: [],
@@ -192,7 +206,7 @@ export const houseLayout: HouseLayout = {
       name: 'Study Table - Bottom Drawer',
       x: 80,
       y: 270,
-      width: 45,
+      width: 46,
       height: 50,
       type: 'drawer',
       contents: [],
@@ -215,7 +229,7 @@ export const houseLayout: HouseLayout = {
       x: 340,
       y: 155,
       width: 50,
-      height: 35,
+      height: 36,
       type: 'drawer',
       contents: [],
       interactRange: 60,
@@ -317,9 +331,9 @@ export const houseLayout: HouseLayout = {
     {
       id: 'kitchen_sink_cabinet',
       name: 'Kitchen Sink Cabinet',
-      x: 975,
+      x: 974,
       y: 360,
-      width: 35,
+      width: 36,
       height: 150,
       type: 'cabinet',
       contents: [],
@@ -329,9 +343,9 @@ export const houseLayout: HouseLayout = {
       id: 'stove',
       name: 'Stove',
       x: 820,
-      y: 515,
+      y: 514,
       width: 90,
-      height: 35,
+      height: 36,
       type: 'appliance',
       contents: [],
       interactRange: 60,
@@ -340,9 +354,9 @@ export const houseLayout: HouseLayout = {
       id: 'stove_drawers',
       name: 'Stove-side Drawers',
       x: 910,
-      y: 515,
+      y: 514,
       width: 100,
-      height: 35,
+      height: 36,
       type: 'drawer',
       contents: [],
       interactRange: 60,
@@ -352,8 +366,8 @@ export const houseLayout: HouseLayout = {
       name: 'Fridge',
       x: 820,
       y: 440,
-      width: 45,
-      height: 65,
+      width: 46,
+      height: 66,
       type: 'appliance',
       contents: [],
       interactRange: 60,
@@ -377,7 +391,7 @@ export const houseLayout: HouseLayout = {
       x: 560,
       y: 415,
       width: 120,
-      height: 55,
+      height: 56,
       blocking: true,
     },
   ],
