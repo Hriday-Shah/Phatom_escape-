@@ -22,8 +22,9 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
   },
   scene: [PreloadScene, GameScene],
   render: {
-    antialias: true,
-    pixelArt: false,
+    pixelArt: true,
+    antialias: false,
+    roundPixels: true,
   },
   input: {
     activePointers: 3,
