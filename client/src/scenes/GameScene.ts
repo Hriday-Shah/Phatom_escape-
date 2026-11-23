@@ -50,8 +50,8 @@ export class GameScene extends Phaser.Scene {
     this.player = new Player(this, 300, 430);
 
     // Setup collisions
-    this.physics.add.collider(this.player, this.wallGroup);
-    this.physics.add.collider(this.player, this.doorGroup);
+    this.physics.add.collider(this.player.getBody(), this.wallGroup);
+    this.physics.add.collider(this.player.getBody(), this.doorGroup);
 
     // Setup camera with dynamic zoom based on screen size
     this.updateCameraZoom();
