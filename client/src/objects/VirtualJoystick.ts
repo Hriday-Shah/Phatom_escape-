@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { TextureKeys } from '../config/textureKeys';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
+import { cssSize, hudScale } from '../config/display';
 
 export class VirtualJoystick {
   private scene: Phaser.Scene;
@@ -12,11 +13,11 @@ export class VirtualJoystick {
   private direction: Phaser.Math.Vector2;
   private isActive: boolean = false;
   
-  // UI layout specs: 100px base, 50px knob, 30px travel radius
-  private readonly baseSize = 100; // CSS px
-  private readonly knobSize = 50; // CSS px
-  private readonly maxDistance = 30; // CSS px
-  private readonly deadZone = 10;
+  // UI layout specs: 100px base, 50px knob, 30px travel radius (x1.5 when short side >= 600)
+  private baseSize = 100; // CSS px
+  private knobSize = 50; // CSS px
+  private maxDistance = 30; // CSS px
+  private deadZone = 10;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -45,13 +46,25 @@ export class VirtualJoystick {
     SafeAreaManager.onInsetsChange(() => this.positionJoystick());
   }
 
+  /** Pointer position in HUD (CSS px) coordinates; pointer.x/y are canvas (device) px. */
+  private pointerPos(pointer: Phaser.Input.Pointer): Phaser.Math.Vector2 {
+    return pointer.positionToCamera(this.scene.cameras.main) as Phaser.Math.Vector2;
+  }
+
   private positionJoystick(): void {
     const insets = SafeAreaManager.getInsets();
+    const s = hudScale(this.scene);
+    this.baseSize = 100 * s;
+    this.knobSize = 50 * s;
+    this.maxDistance = 30 * s;
+    this.deadZone = 10 * s;
+    this.base.setDisplaySize(this.baseSize, this.baseSize);
+    this.thumb.setDisplaySize(this.knobSize, this.knobSize);
     
     // 16px margin plus safe-area insets
     const margin = 16;
     const leftEdge = insets.left + margin;
-    const bottomEdge = this.scene.scale.height - insets.bottom - margin;
+    const bottomEdge = cssSize(this.scene).height - insets.bottom - margin;
     
     const x = leftEdge + this.baseSize / 2;
     const y = bottomEdge - this.baseSize / 2;
@@ -68,17 +81,18 @@ export class VirtualJoystick {
   private setupInput(): void {
     this.scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       // Activate on left half of screen
-      if (pointer.x < this.scene.scale.width / 2 && !this.pointer) {
+      const p = this.pointerPos(pointer);
+      if (p.x < cssSize(this.scene).width / 2 && !this.pointer) {
         this.pointer = pointer;
         this.isActive = true;
-        this.basePosition.set(pointer.x, pointer.y);
+        this.basePosition.set(p.x, p.y);
         
         // Use active texture if available
         if (this.scene.textures.exists('ui_joystick_base_active')) {
           this.base.setTexture('ui_joystick_base_active');
         }
-        this.base.setPosition(pointer.x, pointer.y).setAlpha(0.8);
-        this.thumb.setPosition(pointer.x, pointer.y).setAlpha(0.9);
+        this.base.setPosition(p.x, p.y).setAlpha(0.8);
+        this.thumb.setPosition(p.x, p.y).setAlpha(0.9);
       }
     });
 
@@ -96,8 +110,9 @@ export class VirtualJoystick {
   }
 
   private updateThumb(pointer: Phaser.Input.Pointer): void {
-    const dx = pointer.x - this.basePosition.x;
-    const dy = pointer.y - this.basePosition.y;
+    const p = this.pointerPos(pointer);
+    const dx = p.x - this.basePosition.x;
+    const dy = p.y - this.basePosition.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance < this.deadZone) {

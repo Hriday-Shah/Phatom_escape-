@@ -1,18 +1,23 @@
 import Phaser from 'phaser';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
+import { cssSize, gameDpr, hudScale } from '../config/display';
 
 export class UIControls {
   private scene: Phaser.Scene;
   private buttons: Map<string, Phaser.GameObjects.Container> = new Map();
   private itemSlot: Phaser.GameObjects.Container | null = null;
   
-  // UI layout specs: 60px buttons in 2x2 cluster, 12px gaps, 16px margin
-  private readonly buttonSize = 60; // CSS px
-  private readonly buttonGap = 12; // CSS px
+  // UI layout specs (ui-layout.md): 60px buttons in 2x2 cluster, 12px gaps, 16px margin.
+  // On screens whose short side is >= 600 CSS px everything is art x3 (x1.5 of phone size).
+  private readonly baseButtonSize = 60; // CSS px
+  private readonly baseButtonGap = 12; // CSS px
   private readonly margin = 16; // CSS px
+  private buttonSize = 60;
+  private buttonGap = 12;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
+    this.updateScale();
     this.createButtons();
     this.positionButtons();
     
@@ -71,6 +76,7 @@ export class UIControls {
         const text = this.scene.add.text(0, 0, config.label, {
           fontSize: '12px',
           color: config.active ? '#ffffff' : '#888888',
+          resolution: gameDpr(this.scene),
         }).setOrigin(0.5);
 
         if (config.active) {
@@ -103,9 +109,32 @@ export class UIControls {
     }
   }
 
+  private updateScale(): void {
+    const s = hudScale(this.scene);
+    this.buttonSize = this.baseButtonSize * s;
+    this.buttonGap = this.baseButtonGap * s;
+  }
+
+  /** Resize every control (images via setDisplaySize, fallbacks via scale). */
+  private applySizes(): void {
+    const all = [...this.buttons.values(), ...(this.itemSlot ? [this.itemSlot] : [])];
+    for (const container of all) {
+      const first = container.list[0] as any;
+      if (first instanceof Phaser.GameObjects.Image) {
+        first.setDisplaySize(this.buttonSize, this.buttonSize);
+      } else {
+        container.setScale(this.buttonSize / this.baseButtonSize);
+      }
+      container.list.forEach((child: any) => {
+        if (child instanceof Phaser.GameObjects.Text) child.setResolution(gameDpr(this.scene));
+      });
+    }
+  }
+
   private positionButtons(): void {
-    const width = this.scene.scale.width;
-    const height = this.scene.scale.height;
+    this.updateScale();
+    this.applySizes();
+    const { width, height } = cssSize(this.scene);
     const insets = SafeAreaManager.getInsets();
     const isPortrait = height > width;
     

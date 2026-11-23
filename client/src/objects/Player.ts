@@ -1,5 +1,15 @@
 import Phaser from 'phaser';
 import { TextureKeys } from '../config/textureKeys';
+import {
+  PLAYER_BODY_OFFSET_FRAME,
+  PLAYER_BODY_RADIUS,
+  PLAYER_BODY_RADIUS_FRAME,
+  PLAYER_SPRITE_SCALE,
+} from '../config/playerConfig';
+import { devLog } from '../config/display';
+
+// Re-exported so callers (and tests, via config/playerConfig) share one source of truth.
+export { PLAYER_BODY_RADIUS, PLAYER_BODY_RADIUS_FRAME } from '../config/playerConfig';
 
 export class Player {
   private scene: Phaser.Scene;
@@ -17,12 +27,10 @@ export class Player {
     // Check if art is available
     const hasPlayerArt = scene.textures.exists('player');
     const hasTintArt = scene.textures.exists('player_tint');
-    console.log(`🎨 Player art check: player=${hasPlayerArt}, player_tint=${hasTintArt}`);
     
     if (hasPlayerArt && hasTintArt) {
       // Create animations if not already created
       if (!scene.anims.exists('walk_down')) {
-        console.log('Creating player animations...');
         ['down', 'left', 'right', 'up'].forEach((dir, row) => {
           scene.anims.create({
             key: `walk_${dir}`,
@@ -37,7 +45,6 @@ export class Player {
             repeat: -1,
           });
         });
-        console.log('✅ Player animations created');
       }
       
       // Validate spritesheet frames (should have 16 frames: 4 directions × 4 frames)
@@ -47,31 +54,25 @@ export class Player {
       const tintFrameCount = tintTexture.frameTotal - 1;
       
       if (playerFrameCount !== 16) {
-        console.error(`❌ Player spritesheet has ${playerFrameCount} frames, expected 16`);
         throw new Error(`Invalid player spritesheet: has ${playerFrameCount} frames, expected 16 (4 directions × 4 frames)`);
       }
       
       if (tintFrameCount !== 16) {
-        console.error(`❌ Player tint spritesheet has ${tintFrameCount} frames, expected 16`);
         throw new Error(`Invalid player_tint spritesheet: has ${tintFrameCount} frames, expected 16`);
       }
       
-      console.log(`✅ Player spritesheets validated: ${playerFrameCount} frames each`);
-      
       // Layer: tint sprite UNDER body sprite, both at 2x scale
       this.tintSprite = scene.add.sprite(x, y, 'player_tint', 0)
-        .setScale(2)
+        .setScale(PLAYER_SPRITE_SCALE)
         .setTint(0x5FD3E6)
         .setDepth(9);
         
       this.bodySprite = scene.add.sprite(x, y, 'player', 0)
-        .setScale(2)
+        .setScale(PLAYER_SPRITE_SCALE)
         .setDepth(10);
-        
-      console.log('✅ Player sprites created with art');
     } else {
       // Fallback to placeholder (use ph_ prefix)
-      console.warn('⚠️ Using placeholder player (art not loaded)');
+      devLog('Using placeholder player (art not loaded)');
       this.bodySprite = scene.add.sprite(x, y, 'ph_' + TextureKeys.PLAYER)
         .setScale(1)
         .setDepth(10);
@@ -81,8 +82,33 @@ export class Player {
     // Physics on body sprite
     scene.physics.add.existing(this.bodySprite);
     this.physics = this.bodySprite.body as Phaser.Physics.Arcade.Body;
-    this.physics.setCircle(16);
+    // Body.setCircle takes UNSCALED frame pixels; Arcade multiplies by the sprite scale.
+    // Radius 8 on a 16px frame at 2x = a 32px body, offset 0 centres it on the sprite.
+    if (this.bodySprite.scaleX === PLAYER_SPRITE_SCALE) {
+      this.physics.setCircle(PLAYER_BODY_RADIUS_FRAME, PLAYER_BODY_OFFSET_FRAME, PLAYER_BODY_OFFSET_FRAME);
+    } else {
+      // Placeholder texture at scale 1: centre a PLAYER_BODY_RADIUS circle on its frame.
+      const off = this.bodySprite.width / 2 - PLAYER_BODY_RADIUS;
+      this.physics.setCircle(PLAYER_BODY_RADIUS, off, off);
+    }
     this.physics.setCollideWorldBounds(true);
+
+    // Keep the colour layer glued to the body sprite AFTER Arcade has moved it this frame.
+    scene.events.on(Phaser.Scenes.Events.POST_UPDATE, this.syncLayers, this);
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      scene.events.off(Phaser.Scenes.Events.POST_UPDATE, this.syncLayers, this);
+    });
+  }
+
+  private syncLayers(): void {
+    if (this.tintSprite !== this.bodySprite) {
+      this.tintSprite.setPosition(this.bodySprite.x, this.bodySprite.y);
+    }
+  }
+
+  /** Body diameter in world units (for runtime sanity checks). */
+  public getBodyDiameter(): number {
+    return this.physics.width;
   }
 
   public setMovement(x: number, y: number): void {
@@ -129,10 +155,7 @@ export class Player {
       }
     }
     
-    // Sync tint sprite position
-    if (this.tintSprite !== this.bodySprite) {
-      this.tintSprite.setPosition(this.bodySprite.x, this.bodySprite.y);
-    }
+    // Tint layer position is synced in POST_UPDATE (after the physics step).
   }
 
   public getPosition(): Phaser.Math.Vector2 {
