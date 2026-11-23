@@ -4,6 +4,7 @@ import { VirtualJoystick } from '../objects/VirtualJoystick';
 import { UIControls } from '../objects/UIControls';
 import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { houseLayout } from '../data/houseLayout';
+import { SafeAreaManager } from '../utils/SafeAreaManager';
 
 export class GameScene extends Phaser.Scene {
   private player!: Player;
@@ -30,6 +31,15 @@ export class GameScene extends Phaser.Scene {
     // Set world bounds
     this.physics.world.setBounds(0, 0, houseLayout.width, houseLayout.height);
 
+    // Add background (dark floor outside house)
+    this.add.rectangle(
+      houseLayout.width / 2,
+      houseLayout.height / 2,
+      houseLayout.width,
+      houseLayout.height,
+      0x1a1a1a
+    ).setDepth(-10);
+
     // Create the house
     this.createRooms();
     this.createWalls();
@@ -43,10 +53,11 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.player, this.wallGroup);
     this.physics.add.collider(this.player, this.doorGroup);
 
-    // Setup camera
-    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
-    this.cameras.main.setZoom(1.5);
+    // Setup camera with dynamic zoom based on screen size
+    this.updateCameraZoom();
     this.cameras.main.setBounds(0, 0, houseLayout.width, houseLayout.height);
+    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    this.cameras.main.centerOn(this.player.x, this.player.y);
 
     // Create hiding spot manager
     this.hidingSpotManager = new HidingSpotManager(this, houseLayout.hidingSpots);
@@ -80,6 +91,29 @@ export class GameScene extends Phaser.Scene {
 
     // Handle interact event
     this.events.on('interact', this.onInteract, this);
+    
+    // Reposition on safe area changes
+    SafeAreaManager.onInsetsChange(() => this.onResize());
+  }
+
+  private updateCameraZoom(): void {
+    // Dynamic zoom based on screen dimensions
+    // Aim to show ~400-600px of game world regardless of screen size
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const minDimension = Math.min(width, height);
+    
+    // Target showing 500px of world at minimum dimension
+    const targetZoom = minDimension / 500;
+    // Clamp between reasonable bounds
+    const zoom = Math.max(0.8, Math.min(2.0, targetZoom));
+    
+    this.cameras.main.setZoom(zoom);
+    
+    // Recenter on player if it exists
+    if (this.player) {
+      this.cameras.main.centerOn(this.player.x, this.player.y);
+    }
   }
 
   private createRooms(): void {
@@ -248,9 +282,18 @@ export class GameScene extends Phaser.Scene {
   private onResize(): void {
     const width = this.scale.width;
     const height = this.scale.height;
-
-    this.messageText.setPosition(width / 2, height - 150);
+    const insets = SafeAreaManager.getInsets();
+    
+    // Update camera zoom for new dimensions
+    this.updateCameraZoom();
+    
+    // Position message above controls, within safe area
+    const bottomOffset = 200 + insets.bottom;
+    this.messageText.setPosition(width / 2, height - bottomOffset);
+    
+    // Update UI
     this.uiControls.resize();
     this.hidingSpotManager.resize();
+    this.joystick.resize();
   }
 }

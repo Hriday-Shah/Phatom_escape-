@@ -156,6 +156,54 @@ class PathfindingValidator {
     return false;
   }
 
+  public countRoomCells(roomId: string, reachableCells: Set<string>): number {
+    const room = houseLayout.rooms.find((r) => r.id === roomId);
+    if (!room) return 0;
+
+    let count = 0;
+    const roomGridStart = this.worldToGrid(room.x + PLAYER_RADIUS, room.y + PLAYER_RADIUS);
+    const roomGridEnd = this.worldToGrid(
+      room.x + room.width - PLAYER_RADIUS,
+      room.y + room.height - PLAYER_RADIUS
+    );
+
+    for (let gy = roomGridStart.y; gy <= roomGridEnd.y; gy++) {
+      for (let gx = roomGridStart.x; gx <= roomGridEnd.x; gx++) {
+        if (reachableCells.has(`${gx},${gy}`)) {
+          count++;
+        }
+      }
+    }
+
+    return count;
+  }
+
+  private checkEscapes(reachableCells: Set<string>): string[] {
+    const escapes: string[] = [];
+    
+    // Define the house's outer boundary (margins around all rooms)
+    const minX = 60; // 10px before leftmost room (bedroom at x=70)
+    const minY = 90; // 10px before topmost room (bathroom/living at y=100)
+    const maxX = 1030; // 10px after rightmost room (kitchen at x=1020)
+    const maxY = 570; // 10px after bottommost room (kitchen at y=560)
+    
+    // Check if any reachable cell is outside the boundary
+    for (const key of reachableCells) {
+      const [gxStr, gyStr] = key.split(',');
+      const gx = parseInt(gxStr, 10);
+      const gy = parseInt(gyStr, 10);
+      
+      const worldX = gx * GRID_SIZE + GRID_SIZE / 2;
+      const worldY = gy * GRID_SIZE + GRID_SIZE / 2;
+      
+      if (worldX < minX || worldX > maxX || worldY < minY || worldY > maxY) {
+        escapes.push(`Cell at (${worldX.toFixed(0)}, ${worldY.toFixed(0)}) is outside house boundary!`);
+      }
+    }
+    
+    return escapes;
+  }
+
   public validateLayout(): { success: boolean; errors: string[] } {
     const errors: string[] = [];
 
@@ -173,23 +221,49 @@ class PathfindingValidator {
 
     console.log(`Found ${reachableCells.size} reachable cells`);
 
+    // Show per-room reachable cell counts
+    console.log('\nPer-room reachable cell counts:');
+    const allRooms = [...houseLayout.rooms];
+    allRooms.forEach((room) => {
+      const count = this.countRoomCells(room.id, reachableCells);
+      console.log(`  ${room.name.padEnd(15)} (${room.id.padEnd(10)}): ${count.toString().padStart(5)} cells`);
+    });
+    console.log('');
+
+    // Check for escapes outside the house
+    console.log('Checking for escapes outside house boundary...');
+    const escapes = this.checkEscapes(reachableCells);
+    if (escapes.length > 0) {
+      errors.push(`Player can escape outside the house! Found ${escapes.length} escape points:`);
+      escapes.slice(0, 5).forEach((escape) => {
+        errors.push(`  - ${escape}`);
+      });
+      if (escapes.length > 5) {
+        errors.push(`  ... and ${escapes.length - 5} more`);
+      }
+    } else {
+      console.log('✓ No escapes found - house boundary is sealed');
+    }
+
     // Rooms that should be reachable (bedroom is locked)
     const expectedReachable = ['entrance', 'living', 'dining', 'foyer', 'bathroom', 'kitchen'];
     const expectedBlocked = ['bedroom'];
 
     for (const roomId of expectedReachable) {
-      if (!this.isRoomReachable(roomId, reachableCells)) {
+      const count = this.countRoomCells(roomId, reachableCells);
+      if (count === 0) {
         const room = houseLayout.rooms.find((r) => r.id === roomId);
         errors.push(`Room "${room?.name}" (${roomId}) is NOT reachable from spawn!`);
       } else {
-        console.log(`✓ Room "${roomId}" is reachable`);
+        console.log(`✓ Room "${roomId}" is reachable (${count} cells)`);
       }
     }
 
     for (const roomId of expectedBlocked) {
-      if (this.isRoomReachable(roomId, reachableCells)) {
+      const count = this.countRoomCells(roomId, reachableCells);
+      if (count > 0) {
         const room = houseLayout.rooms.find((r) => r.id === roomId);
-        errors.push(`Room "${room?.name}" (${roomId}) should be locked but is reachable!`);
+        errors.push(`Room "${room?.name}" (${roomId}) should be locked but has ${count} reachable cells!`);
       } else {
         console.log(`✓ Room "${roomId}" is correctly blocked`);
       }

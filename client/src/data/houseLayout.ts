@@ -80,32 +80,36 @@ export const houseLayout: HouseLayout = {
   ],
 
   walls: [
-    // Bedroom outer walls
-    { x: 70, y: 140, width: 360, height: 10 }, // top
+    // Bedroom outer walls (window at x=190-330, y=134-146 is decorative - solid wall behind)
+    { x: 70, y: 140, width: 360, height: 10 }, // top (includes window area - solid)
     { x: 70, y: 140, width: 10, height: 240 }, // left
-    { x: 70, y: 370, width: 240, height: 10 }, // bottom left
-    { x: 390, y: 370, width: 40, height: 10 }, // bottom right
+    { x: 70, y: 370, width: 240, height: 10 }, // bottom left (before door)
+    { x: 390, y: 370, width: 40, height: 10 }, // bottom right (after door)
     { x: 420, y: 140, width: 10, height: 240 }, // right
     
-    // Entrance walls (opening to living at x=430, y=386-484)
-    { x: 150, y: 380, width: 10, height: 110 }, // left
-    { x: 150, y: 380, width: 140, height: 10 }, // top left
-    { x: 350, y: 380, width: 80, height: 10 }, // top right
-    { x: 150, y: 480, width: 140, height: 10 }, // bottom left
-    { x: 380, y: 480, width: 50, height: 10 }, // bottom right
-    { x: 420, y: 380, width: 10, height: 6 }, // right top (before opening)
-    { x: 420, y: 484, width: 10, height: 6 }, // right bottom (after opening)
+    // Gap between bedroom and entrance (outer boundary)
+    { x: 70, y: 380, width: 80, height: 10 }, // close gap bedroom-to-entrance
     
-    // Living/Dining outer walls (opening to entrance at x=430, y=386-484; opening to foyer at x=800-810, y=240-300)
+    // Entrance outer walls (opening to living at x=430, y=386-484)
+    { x: 150, y: 380, width: 10, height: 110 }, // left
+    { x: 150, y: 380, width: 140, height: 10 }, // top left (connects to gap above)
+    { x: 350, y: 380, width: 80, height: 10 }, // top right
+    { x: 150, y: 480, width: 140, height: 10 }, // bottom left (before main door)
+    { x: 380, y: 480, width: 50, height: 10 }, // bottom right (after main door)
+    { x: 420, y: 380, width: 10, height: 6 }, // right top (before opening to living)
+    { x: 420, y: 484, width: 10, height: 6 }, // right bottom (after opening to living)
+    
+    // Living/Dining outer walls (window at x=540-700, y=94-106 is decorative - solid wall behind)
     { x: 430, y: 100, width: 10, height: 286 }, // left top (before entrance opening)
     { x: 430, y: 484, width: 10, height: 6 }, // left bottom (after entrance opening)
-    { x: 430, y: 100, width: 110, height: 10 }, // top left
-    { x: 700, y: 100, width: 110, height: 10 }, // top right
+    { x: 430, y: 100, width: 110, height: 10 }, // top left (before window)
+    { x: 540, y: 100, width: 160, height: 10 }, // top window area (SOLID WALL)
+    { x: 700, y: 100, width: 110, height: 10 }, // top right (after window)
     { x: 800, y: 100, width: 10, height: 140 }, // right top (before foyer opening)
     { x: 800, y: 300, width: 10, height: 190 }, // right bottom (after foyer opening)
     { x: 430, y: 480, width: 370, height: 10 }, // bottom
     
-    // Bathroom walls (door opening at x=900-950, y=224-236)
+    // Bathroom outer walls
     { x: 810, y: 100, width: 160, height: 10 }, // top
     { x: 810, y: 100, width: 10, height: 130 }, // left
     { x: 810, y: 220, width: 90, height: 10 }, // bottom left (before door)
@@ -119,12 +123,16 @@ export const houseLayout: HouseLayout = {
     { x: 890, y: 300, width: 80, height: 10 }, // bottom right (after kitchen opening)
     { x: 960, y: 230, width: 10, height: 80 }, // right
     
-    // Kitchen walls (opening to foyer at x=830-890, y=310)
+    // Kitchen outer walls (window on bottom wall is decorative - solid wall behind)
     { x: 810, y: 310, width: 20, height: 10 }, // top left (before foyer opening)
     { x: 890, y: 310, width: 130, height: 10 }, // top right (after foyer opening)
     { x: 810, y: 310, width: 10, height: 250 }, // left
-    { x: 810, y: 550, width: 210, height: 10 }, // bottom
+    { x: 810, y: 550, width: 210, height: 10 }, // bottom (includes stove window area - solid)
     { x: 1010, y: 310, width: 10, height: 250 }, // right
+    
+    // Gap between bathroom/foyer and kitchen right edge (outer boundary)
+    { x: 970, y: 230, width: 40, height: 10 }, // close gap bathroom-to-kitchen top
+    { x: 1010, y: 240, width: 10, height: 70 }, // close gap kitchen right side
   ],
 
   doors: [
