@@ -1,15 +1,11 @@
 import Phaser from 'phaser';
 import { Player } from '../objects/Player';
-import { VirtualJoystick } from '../objects/VirtualJoystick';
-import { UIControls } from '../objects/UIControls';
 import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { houseLayout } from '../data/houseLayout';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
 
 export class GameScene extends Phaser.Scene {
   private player!: Player;
-  private joystick!: VirtualJoystick;
-  private uiControls!: UIControls;
   private hidingSpotManager!: HidingSpotManager;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: {
@@ -21,7 +17,7 @@ export class GameScene extends Phaser.Scene {
   private interactKey!: Phaser.Input.Keyboard.Key;
   private wallGroup!: Phaser.Physics.Arcade.StaticGroup;
   private doorGroup!: Phaser.Physics.Arcade.StaticGroup;
-  private messageText!: Phaser.GameObjects.Text;
+  private uiScene!: Phaser.Scene;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -31,12 +27,14 @@ export class GameScene extends Phaser.Scene {
     // Set world bounds
     this.physics.world.setBounds(0, 0, houseLayout.width, houseLayout.height);
 
-    // Add background (dark floor outside house)
+    // Add background (dark floor covering entire world)
+    // Extend beyond house bounds to prevent black strips in portrait
+    const bgSize = Math.max(houseLayout.width, houseLayout.height) * 2;
     this.add.rectangle(
       houseLayout.width / 2,
       houseLayout.height / 2,
-      houseLayout.width,
-      houseLayout.height,
+      bgSize,
+      bgSize,
       0x1a1a1a
     ).setDepth(-10);
 
@@ -62,30 +60,14 @@ export class GameScene extends Phaser.Scene {
 
     // Create hiding spot manager
     this.hidingSpotManager = new HidingSpotManager(this, houseLayout.hidingSpots);
+    this.hidingSpotManager.setWallGroup(this.wallGroup);
 
     // Setup controls
     this.setupControls();
 
-    // Create UI
-    this.joystick = new VirtualJoystick(this);
-    this.uiControls = new UIControls(this);
-
-    // Door interaction message
-    this.messageText = this.add.text(
-      this.scale.width / 2,
-      this.scale.height - 150,
-      '',
-      {
-        fontSize: '18px',
-        color: '#ffffff',
-        backgroundColor: '#000000aa',
-        padding: { x: 12, y: 8 },
-      }
-    )
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(999)
-      .setVisible(false);
+    // Start UIScene in parallel
+    this.scene.launch('UIScene');
+    this.uiScene = this.scene.get('UIScene');
 
     // Handle screen resize
     this.scale.on('resize', this.onResize, this);
@@ -98,16 +80,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateCameraZoom(): void {
-    // Dynamic zoom based on screen dimensions
-    // Aim to show ~400-600px of game world regardless of screen size
+    // Close-up camera: show about 250-300 world units on the short side
+    // This gives a view of roughly one room around the player
     const width = this.scale.width;
     const height = this.scale.height;
     const minDimension = Math.min(width, height);
     
-    // Target showing 500px of world at minimum dimension
-    const targetZoom = minDimension / 500;
-    // Clamp between reasonable bounds
-    const zoom = Math.max(0.8, Math.min(2.0, targetZoom));
+    // Target showing 280px of world at minimum dimension (close-up view)
+    const targetZoom = minDimension / 280;
+    // Clamp to reasonable bounds, allowing higher zoom on larger screens
+    const zoom = Math.max(1.2, Math.min(3.0, targetZoom));
     
     this.cameras.main.setZoom(zoom);
     
@@ -153,6 +135,7 @@ export class GameScene extends Phaser.Scene {
         wall.height,
         0x3A3A3A
       ).setStrokeStyle(1, 0x2A2A2A);
+      wallSprite.setData('blocksSight', true); // real walls only; furniture/spot bodies don't block line of sight
 
       this.wallGroup.add(wallSprite);
     });
@@ -161,12 +144,18 @@ export class GameScene extends Phaser.Scene {
   private createDoors(): void {
     this.doorGroup = this.physics.add.staticGroup();
 
+    // Check for debug unlock flag
+    const params = new URLSearchParams(window.location.search);
+    const debugUnlock = params.get('debug') === 'unlock';
+
     houseLayout.doors.forEach(door => {
+      // Apply debug unlock only to bedroom_door
+      const isLocked = door.locked && !(debugUnlock && door.id === 'bedroom_door');
       // Map door IDs to art keys
       let textureKey = 'door'; // Default
       
       if (door.id === 'bedroom_door') {
-        textureKey = door.locked ? 'door_locked' : 'door';
+        textureKey = isLocked ? 'door_locked' : 'door';
       } else if (door.id === 'main_door') {
         textureKey = 'main_door'; // main_door is always locked in stage 1
       }
@@ -190,7 +179,7 @@ export class GameScene extends Phaser.Scene {
           0x8B4513
         ).setStrokeStyle(2, 0x654321);
         
-        if (door.locked) {
+        if (isLocked) {
           this.add.circle(
             door.x + door.width * 0.75,
             door.y + door.height / 2,
@@ -200,8 +189,10 @@ export class GameScene extends Phaser.Scene {
         }
       }
 
+      // Store modified door data
+      const doorData = { ...door, locked: isLocked };
       this.doorGroup.add(doorSprite);
-      (doorSprite as any).doorData = door;
+      (doorSprite as any).doorData = doorData;
     });
   }
 
@@ -236,6 +227,20 @@ export class GameScene extends Phaser.Scene {
           this.wallGroup.add(furnitureSprite);
         }
       }
+    });
+    
+    // Make all hiding spots solid (player interacts from adjacent position)
+    houseLayout.hidingSpots.forEach(spot => {
+      // Create invisible physics body for collision
+      const body = this.add.rectangle(
+        spot.x + spot.width / 2,
+        spot.y + spot.height / 2,
+        spot.width,
+        spot.height,
+        0x000000,
+        0
+      );
+      this.wallGroup.add(body);
     });
   }
 
@@ -277,7 +282,7 @@ export class GameScene extends Phaser.Scene {
     // Check for door interaction
     const nearbyDoor = this.checkNearbyDoor();
     if (nearbyDoor) {
-      this.showMessage(nearbyDoor.message || 'Locked', 2000);
+      (this.uiScene as any).showDoorMessage(nearbyDoor.message || 'Locked', 2000);
       return;
     }
 
@@ -289,28 +294,23 @@ export class GameScene extends Phaser.Scene {
     const playerPos = this.player.getPosition();
     const checkRadius = 50;
 
-    for (const door of houseLayout.doors) {
+    // Check against door sprites in the physics group (which have modified doorData)
+    const doorSprites = this.doorGroup.getChildren();
+    for (const sprite of doorSprites) {
+      const doorData = (sprite as any).doorData;
+      if (!doorData || !doorData.locked) continue;
+      
       const doorCenter = new Phaser.Math.Vector2(
-        door.x + door.width / 2,
-        door.y + door.height / 2
+        doorData.x + doorData.width / 2,
+        doorData.y + doorData.height / 2
       );
       
       if (playerPos.distance(doorCenter) < checkRadius) {
-        return door;
+        return doorData;
       }
     }
 
     return null;
-  }
-
-  private showMessage(text: string, duration?: number): void {
-    this.messageText.setText(text).setVisible(true);
-    
-    if (duration) {
-      this.time.delayedCall(duration, () => {
-        this.messageText.setVisible(false);
-      });
-    }
   }
 
   update(): void {
@@ -330,8 +330,8 @@ export class GameScene extends Phaser.Scene {
       moveY = 1;
     }
 
-    // Get joystick input (overrides keyboard if active)
-    const joystickDir = this.joystick.getDirection();
+    // Get joystick input from UIScene (overrides keyboard if active)
+    const joystickDir = (this.uiScene as any).getJoystickDirection();
     if (joystickDir.length() > 0) {
       moveX = joystickDir.x;
       moveY = joystickDir.y;
@@ -348,26 +348,17 @@ export class GameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.interactKey)) {
       this.onInteract();
     }
-
-    // Update joystick
-    this.joystick.update();
   }
 
   private onResize(): void {
-    const width = this.scale.width;
-    const height = this.scale.height;
-    const insets = SafeAreaManager.getInsets();
-    
     // Update camera zoom for new dimensions
     this.updateCameraZoom();
     
-    // Position message above controls, within safe area
-    const bottomOffset = 200 + insets.bottom;
-    this.messageText.setPosition(width / 2, height - bottomOffset);
-    
-    // Update UI
-    this.uiControls.resize();
+    // Update hiding spot manager (prompt now in UIScene)
     this.hidingSpotManager.resize();
-    this.joystick.resize();
+  }
+
+  public getUIScene(): Phaser.Scene {
+    return this.uiScene;
   }
 }

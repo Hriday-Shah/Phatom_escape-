@@ -89,6 +89,13 @@ class PathfindingValidator {
             this.grid[gy][gx] = false;
           }
         }
+
+        // Check hiding spots (all are solid)
+        for (const spot of houseLayout.hidingSpots) {
+          if (this.circleRectCollision(worldX, worldY, PLAYER_RADIUS, spot)) {
+            this.grid[gy][gx] = false;
+          }
+        }
       }
     }
   }
@@ -266,6 +273,47 @@ class PathfindingValidator {
         errors.push(`Room "${room?.name}" (${roomId}) should be locked but has ${count} reachable cells!`);
       } else {
         console.log(`✓ Room "${roomId}" is correctly blocked`);
+      }
+    }
+
+    // Check that every hiding spot (except bedroom ones) has a reachable cell within interact range
+    console.log('\nChecking hiding spot reachability...');
+    const bedroomSpots = ['study_drawer_1', 'study_drawer_2', 'study_drawer_3', 'bed', 'bedside_drawer', 'closet_drawers'];
+    for (const spot of houseLayout.hidingSpots) {
+      if (bedroomSpots.includes(spot.id)) {
+        console.log(`  Skipping "${spot.name}" (in locked bedroom)`);
+        continue;
+      }
+
+      const spotCenter = {
+        x: spot.x + spot.width / 2,
+        y: spot.y + spot.height / 2,
+      };
+
+      // Check if any reachable cell is within interact range
+      let hasReachableCell = false;
+      for (const key of reachableCells) {
+        const [gxStr, gyStr] = key.split(',');
+        const gx = parseInt(gxStr, 10);
+        const gy = parseInt(gyStr, 10);
+        
+        const worldX = gx * GRID_SIZE + GRID_SIZE / 2;
+        const worldY = gy * GRID_SIZE + GRID_SIZE / 2;
+        
+        const dx = worldX - spotCenter.x;
+        const dy = worldY - spotCenter.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance <= spot.interactRange) {
+          hasReachableCell = true;
+          break;
+        }
+      }
+
+      if (!hasReachableCell) {
+        errors.push(`Hiding spot "${spot.name}" (${spot.id}) has no reachable cell within interact range ${spot.interactRange}!`);
+      } else {
+        console.log(`✓ Hiding spot "${spot.name}" is reachable`);
       }
     }
 

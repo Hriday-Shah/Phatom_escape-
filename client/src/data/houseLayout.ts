@@ -129,10 +129,6 @@ export const houseLayout: HouseLayout = {
     { x: 810, y: 310, width: 10, height: 250 }, // left
     { x: 810, y: 550, width: 210, height: 10 }, // bottom (includes stove window area - solid)
     { x: 1010, y: 310, width: 10, height: 250 }, // right
-    
-    // Gap between bathroom/foyer and kitchen right edge (outer boundary)
-    { x: 970, y: 230, width: 40, height: 10 }, // close gap bathroom-to-kitchen top
-    { x: 1010, y: 240, width: 10, height: 70 }, // close gap kitchen right side
   ],
 
   doors: [
