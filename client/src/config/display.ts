@@ -24,10 +24,19 @@ export function cssSize(scene: Phaser.Scene): { width: number; height: number } 
   return { width: scene.scale.width / dpr, height: scene.scale.height / dpr };
 }
 
-/** HUD scale per ui-layout.md: art x2 on phones, art x3 when the short side is >= 600 CSS px. */
+/**
+ * HUD scale relative to the phone HUD (60px buttons, 100px joystick = art x2):
+ * x1.5 (art x3) when the short side is >= 600 CSS px, x2 (art x4) when it is >= 1000.
+ */
+export function hudScaleForShortSide(shortSideCss: number): number {
+  if (shortSideCss >= 1000) return 2;
+  if (shortSideCss >= 600) return 1.5;
+  return 1;
+}
+
 export function hudScale(scene: Phaser.Scene): number {
   const { width, height } = cssSize(scene);
-  return Math.min(width, height) >= 600 ? 1.5 : 1;
+  return hudScaleForShortSide(Math.min(width, height));
 }
 
 /** Dev-only logging (stripped from production behaviour). */

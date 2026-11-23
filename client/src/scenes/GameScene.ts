@@ -4,6 +4,7 @@ import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { houseLayout } from '../data/houseLayout';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { createComposedWalls } from '../utils/wallRenderer';
+import { wallBodyRect } from '../data/colliders';
 import { PLAYER_BODY_RADIUS } from '../objects/Player';
 
 /** World units shown across the short side of the screen (before snapping). */
@@ -16,6 +17,11 @@ const TARGET_VIEW_WORLD = 280;
 export function snappedCameraZoom(shortSideDevicePx: number): number {
   const raw = shortSideDevicePx / TARGET_VIEW_WORLD;
   return Math.max(1, Math.round(raw * 2) / 2);
+}
+
+/** Body rect for a wall: thickened exterior when the art is composed separately, else the layout rect (grey fallback draws the body). */
+function composedOrLayout(w: { x: number; y: number; width: number; height: number }, composed: boolean) {
+  return composed ? wallBodyRect(w) : w;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -149,8 +155,11 @@ export class GameScene extends Phaser.Scene {
       houseLayout.windows,
     );
 
-    // Physics + line of sight: one invisible body per layout wall rect.
-    houseLayout.walls.forEach(wall => {
+    // Physics + line of sight: one invisible body per layout wall rect. Exterior sides are
+    // grown outward (data/colliders.ts) so a body can never be pushed through to outside;
+    // the visible wall art still uses the layout rects.
+    houseLayout.walls.forEach(layoutWall => {
+      const wall = composedOrLayout(layoutWall, !!composed);
       const wallSprite = this.add.rectangle(
         wall.x + wall.width / 2,
         wall.y + wall.height / 2,
