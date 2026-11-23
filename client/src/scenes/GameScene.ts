@@ -123,10 +123,11 @@ export class GameScene extends Phaser.Scene {
       const floorKey = `floor_${room.id}`;
       
       if (this.textures.exists(floorKey)) {
-        // Use tiled floor art (16x16 art px tiles at 2x scale = 32x32 world)
+        // Use tiled floor art (16x16 art px tiles)
+        // Create at half size and scale 2x, OR full size with tileScale 2x
         this.add.tileSprite(room.x, room.y, room.width, room.height, floorKey)
           .setOrigin(0, 0)
-          .setScale(2)
+          .setTileScale(2, 2) // Scale the tiles themselves, not the sprite
           .setDepth(-2);
       } else {
         // Fallback to colored rectangle

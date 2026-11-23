@@ -40,6 +40,24 @@ export class Player {
         console.log('✅ Player animations created');
       }
       
+      // Validate spritesheet frames (should have 16 frames: 4 directions × 4 frames)
+      const playerTexture = scene.textures.get('player');
+      const playerFrameCount = playerTexture.frameTotal;
+      const tintTexture = scene.textures.get('player_tint');
+      const tintFrameCount = tintTexture.frameTotal;
+      
+      if (playerFrameCount !== 16) {
+        console.error(`❌ Player spritesheet has ${playerFrameCount} frames, expected 16`);
+        throw new Error(`Invalid player spritesheet: has ${playerFrameCount} frames, expected 16 (4 directions × 4 frames)`);
+      }
+      
+      if (tintFrameCount !== 16) {
+        console.error(`❌ Player tint spritesheet has ${tintFrameCount} frames, expected 16`);
+        throw new Error(`Invalid player_tint spritesheet: has ${tintFrameCount} frames, expected 16`);
+      }
+      
+      console.log(`✅ Player spritesheets validated: ${playerFrameCount} frames each`);
+      
       // Layer: tint sprite UNDER body sprite, both at 2x scale
       this.tintSprite = scene.add.sprite(x, y, 'player_tint', 0)
         .setScale(2)
@@ -52,9 +70,9 @@ export class Player {
         
       console.log('✅ Player sprites created with art');
     } else {
-      // Fallback to placeholder
+      // Fallback to placeholder (use ph_ prefix)
       console.warn('⚠️ Using placeholder player (art not loaded)');
-      this.bodySprite = scene.add.sprite(x, y, TextureKeys.PLAYER)
+      this.bodySprite = scene.add.sprite(x, y, 'ph_' + TextureKeys.PLAYER)
         .setScale(1)
         .setDepth(10);
       this.tintSprite = this.bodySprite; // No separate layer

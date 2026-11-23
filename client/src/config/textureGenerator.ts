@@ -18,7 +18,7 @@ export class TextureGenerator {
     const size = 32;
     const graphics = scene.add.graphics();
     
-    // Player as a circle
+    // Player as a circle (placeholder with ph_ prefix to avoid collision with art)
     graphics.fillStyle(0x4A90E2, 1);
     graphics.fillCircle(size / 2, size / 2, size / 2);
     graphics.lineStyle(2, 0x2E5C8A, 1);
@@ -28,7 +28,7 @@ export class TextureGenerator {
     graphics.fillStyle(0xFFFFFF, 1);
     graphics.fillCircle(size / 2, size / 4, 4);
     
-    graphics.generateTexture(TextureKeys.PLAYER, size, size);
+    graphics.generateTexture('ph_' + TextureKeys.PLAYER, size, size);
     graphics.destroy();
   }
 
@@ -48,7 +48,7 @@ export class TextureGenerator {
       graphics.fillRect(0, 0, 64, 64);
       graphics.lineStyle(1, color - 0x101010, 0.3);
       graphics.strokeRect(0, 0, 64, 64);
-      graphics.generateTexture(key, 64, 64);
+      graphics.generateTexture('ph_' + key, 64, 64);
       graphics.destroy();
     });
   }
@@ -61,7 +61,7 @@ export class TextureGenerator {
     graphics.fillRect(0, 0, 32, 32);
     graphics.lineStyle(1, 0x2A2A2A, 1);
     graphics.strokeRect(0, 0, 32, 32);
-    graphics.generateTexture(TextureKeys.WALL, 32, 32);
+    graphics.generateTexture('ph_' + TextureKeys.WALL, 32, 32);
     graphics.clear();
     
     // Locked door
@@ -71,7 +71,7 @@ export class TextureGenerator {
     graphics.strokeRect(1, 1, 30, 30);
     graphics.fillStyle(0xFFD700, 1);
     graphics.fillCircle(24, 16, 3);
-    graphics.generateTexture(TextureKeys.DOOR_LOCKED, 32, 32);
+    graphics.generateTexture('ph_' + TextureKeys.DOOR_LOCKED, 32, 32);
     graphics.clear();
     
     // Open door
@@ -79,7 +79,7 @@ export class TextureGenerator {
     graphics.fillRect(0, 0, 32, 32);
     graphics.lineStyle(2, 0x654321, 0.7);
     graphics.strokeRect(1, 1, 30, 30);
-    graphics.generateTexture(TextureKeys.DOOR_OPEN, 32, 32);
+    graphics.generateTexture('ph_' + TextureKeys.DOOR_OPEN, 32, 32);
     
     graphics.destroy();
   }
@@ -116,7 +116,7 @@ export class TextureGenerator {
         }
       }
       
-      graphics.generateTexture(key, 32, 32);
+      graphics.generateTexture('ph_' + key, 32, 32);
       graphics.destroy();
     });
   }
@@ -129,7 +129,7 @@ export class TextureGenerator {
     graphics.fillCircle(baseSize / 2, baseSize / 2, baseSize / 2);
     graphics.lineStyle(2, 0xFFFFFF, 0.5);
     graphics.strokeCircle(baseSize / 2, baseSize / 2, baseSize / 2);
-    graphics.generateTexture(TextureKeys.JOYSTICK_BASE, baseSize, baseSize);
+    graphics.generateTexture('ph_' + TextureKeys.JOYSTICK_BASE, baseSize, baseSize);
     graphics.destroy();
     
     // Joystick thumb
@@ -139,7 +139,7 @@ export class TextureGenerator {
     graphics.fillCircle(thumbSize / 2, thumbSize / 2, thumbSize / 2);
     graphics.lineStyle(2, 0xCCCCCC, 0.8);
     graphics.strokeCircle(thumbSize / 2, thumbSize / 2, thumbSize / 2);
-    graphics.generateTexture(TextureKeys.JOYSTICK_THUMB, thumbSize, thumbSize);
+    graphics.generateTexture('ph_' + TextureKeys.JOYSTICK_THUMB, thumbSize, thumbSize);
     graphics.destroy();
     
     // Button
@@ -149,7 +149,7 @@ export class TextureGenerator {
     graphics.fillCircle(buttonSize / 2, buttonSize / 2, buttonSize / 2);
     graphics.lineStyle(3, 0x2E5C8A, 1);
     graphics.strokeCircle(buttonSize / 2, buttonSize / 2, buttonSize / 2);
-    graphics.generateTexture(TextureKeys.BUTTON, buttonSize, buttonSize);
+    graphics.generateTexture('ph_' + TextureKeys.BUTTON, buttonSize, buttonSize);
     graphics.destroy();
     
     // Disabled button
@@ -158,7 +158,7 @@ export class TextureGenerator {
     graphics.fillCircle(buttonSize / 2, buttonSize / 2, buttonSize / 2);
     graphics.lineStyle(3, 0x444444, 0.6);
     graphics.strokeCircle(buttonSize / 2, buttonSize / 2, buttonSize / 2);
-    graphics.generateTexture(TextureKeys.BUTTON_DISABLED, buttonSize, buttonSize);
+    graphics.generateTexture('ph_' + TextureKeys.BUTTON_DISABLED, buttonSize, buttonSize);
     graphics.destroy();
   }
 }

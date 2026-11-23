@@ -25,8 +25,8 @@ export class VirtualJoystick {
     this.direction = new Phaser.Math.Vector2(0, 0);
 
     // Create joystick elements - always visible at rest
-    const baseKey = scene.textures.exists('ui_joystick_base') ? 'ui_joystick_base' : TextureKeys.JOYSTICK_BASE;
-    const thumbKey = scene.textures.exists('ui_joystick_knob') ? 'ui_joystick_knob' : TextureKeys.JOYSTICK_THUMB;
+    const baseKey = scene.textures.exists('ui_joystick_base') ? 'ui_joystick_base' : 'ph_' + TextureKeys.JOYSTICK_BASE;
+    const thumbKey = scene.textures.exists('ui_joystick_knob') ? 'ui_joystick_knob' : 'ph_' + TextureKeys.JOYSTICK_THUMB;
     
     this.base = scene.add.image(0, 0, baseKey)
       .setScrollFactor(0)
