@@ -162,22 +162,42 @@ export class GameScene extends Phaser.Scene {
     this.doorGroup = this.physics.add.staticGroup();
 
     houseLayout.doors.forEach(door => {
-      const doorSprite = this.add.rectangle(
-        door.x + door.width / 2,
-        door.y + door.height / 2,
-        door.width,
-        door.height,
-        0x8B4513
-      ).setStrokeStyle(2, 0x654321);
-
-      // Add lock indicator
-      if (door.locked) {
-        this.add.circle(
-          door.x + door.width * 0.75,
+      // Map door IDs to art keys
+      let textureKey = 'door'; // Default
+      
+      if (door.id === 'bedroom_door') {
+        textureKey = door.locked ? 'door_locked' : 'door';
+      } else if (door.id === 'main_door') {
+        textureKey = 'main_door'; // main_door is always locked in stage 1
+      }
+      
+      let doorSprite: Phaser.GameObjects.GameObject;
+      
+      if (this.textures.exists(textureKey)) {
+        // Use art texture at 2x scale
+        const image = this.add.image(door.x, door.y, textureKey)
+          .setOrigin(0, 0)
+          .setScale(2)
+          .setDepth(0);
+        doorSprite = image;
+      } else {
+        // Fallback to rectangle
+        doorSprite = this.add.rectangle(
+          door.x + door.width / 2,
           door.y + door.height / 2,
-          3,
-          0xFFD700
-        ).setDepth(1);
+          door.width,
+          door.height,
+          0x8B4513
+        ).setStrokeStyle(2, 0x654321);
+        
+        if (door.locked) {
+          this.add.circle(
+            door.x + door.width * 0.75,
+            door.y + door.height / 2,
+            3,
+            0xFFD700
+          ).setDepth(1);
+        }
       }
 
       this.doorGroup.add(doorSprite);
