@@ -150,13 +150,9 @@ export class HidingSpotManager {
   }
 
   private highlightSpot(spot: HidingSpotSprite): void {
-    // Use tint for Image sprites (can't use setStrokeStyle)
-    if (spot.sprite instanceof Phaser.GameObjects.Image) {
-      spot.sprite.setTint(0xFFFF00);
-    } else {
-      spot.sprite.setStrokeStyle(3, 0xFFFF00);
-    }
-    
+    const s: any = spot.sprite;
+    if (typeof s.setStrokeStyle === 'function') s.setStrokeStyle(3, 0xFFFF00);
+    else if (typeof s.setTint === 'function') s.setTint(0xFFF2A0);
     // Show keyboard hint only on non-touch devices
     const isTouch = this.scene.sys.game.device.input.touch;
     const hint = isTouch ? '' : '[E] ';
@@ -165,11 +161,9 @@ export class HidingSpotManager {
 
   private clearHighlight(): void {
     if (this.highlightedSpot) {
-      if (this.highlightedSpot.sprite instanceof Phaser.GameObjects.Image) {
-        this.highlightedSpot.sprite.clearTint();
-      } else {
-        this.highlightedSpot.sprite.setStrokeStyle(2, 0x000000);
-      }
+      const s: any = this.highlightedSpot.sprite;
+      if (typeof s.setStrokeStyle === 'function') s.setStrokeStyle(2, 0x000000);
+      else if (typeof s.clearTint === 'function') s.clearTint();
       this.hideMessage();
     }
   }
