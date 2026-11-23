@@ -1,0 +1,73 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Temporary files
+.tmp/
+temp/
+*.tmp
+
+# Testing
+coverage/
+.nyc_output/
+
+# Debug
+.vercel
+.firebase/
+
+# Personal data
+*.pem
+*.key
+secrets/
+credentials/
+
+# Media files (privacy - repo is public)
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.heic
+*.mov
+*.mp4
+*.avi
+*.webm
+*.JPG
+*.JPEG
+*.PNG
+*.GIF
+*.BMP
+*.HEIC
+*.MOV
+*.MP4
+*.AVI
+*.WEBM
+
+# Uploads folders
+uploads/
+**/uploads/
