@@ -132,13 +132,17 @@ export class HidingSpotManager {
   }
 
   private highlightSpot(spot: HidingSpotSprite): void {
-    spot.sprite.setStrokeStyle(3, 0xFFFF00);
+    const s: any = spot.sprite;
+    if (typeof s.setStrokeStyle === 'function') s.setStrokeStyle(3, 0xFFFF00);
+    else if (typeof s.setTint === 'function') s.setTint(0xFFF2A0);
     this.showMessage(`[E] ${spot.data.name}`);
   }
 
   private clearHighlight(): void {
     if (this.highlightedSpot) {
-      this.highlightedSpot.sprite.setStrokeStyle(2, 0x000000);
+      const s: any = this.highlightedSpot.sprite;
+      if (typeof s.setStrokeStyle === 'function') s.setStrokeStyle(2, 0x000000);
+      else if (typeof s.clearTint === 'function') s.clearTint();
       this.hideMessage();
     }
   }
