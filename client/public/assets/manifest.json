@@ -1,0 +1,1573 @@
+{
+ "version": "stage1-final-2 (half-res)",
+ "artPxPerWorldUnits": 2,
+ "displayScale": 2,
+ "tileSize": 16,
+ "render": {
+  "pixelArt": true,
+  "antialias": false,
+  "roundPixels": true
+ },
+ "worldSprites": "art px; place at layout rect/2 in art space, or in world units with setScale(2) and origin (0,0)",
+ "screenSprites": "exported at final screen px (already integer-scaled x4); use setScale(1), setScrollFactor(0)",
+ "playerColours": {
+  "cyan": "#5FD3E6",
+  "orange": "#F28C28",
+  "violet": "#9B6BFF",
+  "yellow": "#F2D13A",
+  "blue": "#3A7BF2",
+  "pink": "#FF8FD0",
+  "white": "#F4F1EA",
+  "silver": "#A9B4C8"
+ },
+ "tintRamp": [
+  "#FFFFFF",
+  "#B4B4B4",
+  "#8C8C8C"
+ ],
+ "aliasesForCurrentCodeKeys": {
+  "drawer": "study_drawer",
+  "drawer_open": "study_drawer_open",
+  "cabinet": "sideboard",
+  "cabinet_open": "sideboard_open",
+  "table": "dining_table",
+  "joystick_base": "ui_joystick_base",
+  "joystick_thumb": "ui_joystick_knob",
+  "floor_default": "floor_entrance"
+ },
+ "hidingSpotIdToTexture": {
+  "study_drawer_1": "study_drawer",
+  "study_drawer_2": "study_drawer",
+  "study_drawer_3": "study_drawer",
+  "bed": "bed",
+  "bedside_drawer": "bedside_drawer",
+  "closet_drawers": "closet",
+  "sofa": "sofa",
+  "ottoman": "ottoman",
+  "tv_unit": "tv_unit",
+  "sideboard": "sideboard",
+  "sink_cabinet": "sink_cabinet",
+  "wall_shelf": "wall_shelf",
+  "microwave_unit": "microwave_unit",
+  "kitchen_sink_cabinet": "kitchen_sink",
+  "stove": "stove",
+  "stove_drawers": "kitchen_drawer",
+  "fridge": "fridge"
+ },
+ "statusValues": {
+  "approved": "stage 1, approved by Game coder",
+  "unused": "kept but not used",
+  "pending review": "Hriday morning review; not for integration tonight"
+ },
+ "openState": "key K has K_open on the same canvas size",
+ "assets": [
+  {
+   "key": "floor_bedroom",
+   "file": "tiles/floor_bedroom.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "approved",
+   "tile": true
+  },
+  {
+   "key": "floor_living",
+   "file": "tiles/floor_living.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "approved",
+   "tile": true
+  },
+  {
+   "key": "floor_dining",
+   "file": "tiles/floor_dining.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "approved",
+   "tile": true
+  },
+  {
+   "key": "floor_entrance",
+   "file": "tiles/floor_entrance.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "approved",
+   "tile": true
+  },
+  {
+   "key": "floor_foyer",
+   "file": "tiles/floor_foyer.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "approved",
+   "tile": true
+  },
+  {
+   "key": "floor_bathroom",
+   "file": "tiles/floor_bathroom.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "approved",
+   "tile": true
+  },
+  {
+   "key": "floor_kitchen",
+   "file": "tiles/floor_kitchen.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "approved",
+   "tile": true
+  },
+  {
+   "key": "wall_fill",
+   "file": "tiles/wall_fill.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "approved",
+   "tile": true,
+   "note": "16x16 seamless fill for thick wall areas"
+  },
+  {
+   "key": "wall",
+   "file": "tiles/wall.png",
+   "width": 16,
+   "height": 6,
+   "space": "world",
+   "worldSize": [
+    32,
+    12
+   ],
+   "status": "approved",
+   "tile": true,
+   "note": "horizontal wall strip, tile along x"
+  },
+  {
+   "key": "wall_v",
+   "file": "tiles/wall_v.png",
+   "width": 6,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    12,
+    32
+   ],
+   "status": "approved",
+   "tile": true,
+   "note": "vertical wall strip, tile along y"
+  },
+  {
+   "key": "wall_corner",
+   "file": "tiles/wall_corner.png",
+   "width": 6,
+   "height": 6,
+   "space": "world",
+   "worldSize": [
+    12,
+    12
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "window",
+   "file": "tiles/window.png",
+   "width": 16,
+   "height": 6,
+   "space": "world",
+   "worldSize": [
+    32,
+    12
+   ],
+   "status": "approved",
+   "tile": true,
+   "note": "horizontal, replaces wall strip"
+  },
+  {
+   "key": "window_v",
+   "file": "tiles/window_v.png",
+   "width": 6,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    12,
+    32
+   ],
+   "status": "approved",
+   "tile": true
+  },
+  {
+   "key": "door",
+   "file": "doors/door.png",
+   "width": 40,
+   "height": 6,
+   "space": "world",
+   "worldSize": [
+    80,
+    12
+   ],
+   "status": "approved",
+   "note": "bedroom door (layout 80x12)"
+  },
+  {
+   "key": "door_open",
+   "file": "doors/door_open.png",
+   "width": 40,
+   "height": 6,
+   "space": "world",
+   "worldSize": [
+    80,
+    12
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "door_locked",
+   "file": "doors/door_locked.png",
+   "width": 40,
+   "height": 6,
+   "space": "world",
+   "worldSize": [
+    80,
+    12
+   ],
+   "status": "approved",
+   "note": "bedroom door, padlock"
+  },
+  {
+   "key": "door_small",
+   "file": "doors/door_small.png",
+   "width": 25,
+   "height": 6,
+   "space": "world",
+   "worldSize": [
+    50,
+    12
+   ],
+   "status": "approved",
+   "note": "bathroom door (layout 50x12)"
+  },
+  {
+   "key": "door_small_open",
+   "file": "doors/door_small_open.png",
+   "width": 25,
+   "height": 6,
+   "space": "world",
+   "worldSize": [
+    50,
+    12
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "main_door",
+   "file": "doors/main_door.png",
+   "width": 45,
+   "height": 7,
+   "space": "world",
+   "worldSize": [
+    90,
+    14
+   ],
+   "status": "approved",
+   "note": "closed, electrified wire live"
+  },
+  {
+   "key": "main_door_wire_cut",
+   "file": "doors/main_door_wire_cut.png",
+   "width": 45,
+   "height": 7,
+   "space": "world",
+   "worldSize": [
+    90,
+    14
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "main_door_powered",
+   "file": "doors/main_door_powered.png",
+   "width": 45,
+   "height": 7,
+   "space": "world",
+   "worldSize": [
+    90,
+    14
+   ],
+   "status": "approved",
+   "note": "wire cut + battery lock powered"
+  },
+  {
+   "key": "main_door_open",
+   "file": "doors/main_door_open.png",
+   "width": 45,
+   "height": 7,
+   "space": "world",
+   "worldSize": [
+    90,
+    14
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "study_drawer",
+   "file": "furniture/study_drawer.png",
+   "width": 23,
+   "height": 25,
+   "space": "world",
+   "worldSize": [
+    46,
+    50
+   ],
+   "status": "approved",
+   "note": "overlay on study_table at y=0/25/50"
+  },
+  {
+   "key": "study_drawer_open",
+   "file": "furniture/study_drawer_open.png",
+   "width": 23,
+   "height": 25,
+   "space": "world",
+   "worldSize": [
+    46,
+    50
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "study_table",
+   "file": "furniture/study_table.png",
+   "width": 23,
+   "height": 75,
+   "space": "world",
+   "worldSize": [
+    46,
+    150
+   ],
+   "status": "approved",
+   "note": "static body; drawers overlay it"
+  },
+  {
+   "key": "bed",
+   "file": "furniture/bed.png",
+   "width": 55,
+   "height": 35,
+   "space": "world",
+   "worldSize": [
+    110,
+    70
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "bed_open",
+   "file": "furniture/bed_open.png",
+   "width": 55,
+   "height": 35,
+   "space": "world",
+   "worldSize": [
+    110,
+    70
+   ],
+   "status": "approved",
+   "note": "searched/disturbed"
+  },
+  {
+   "key": "bedside_drawer",
+   "file": "furniture/bedside_drawer.png",
+   "width": 25,
+   "height": 18,
+   "space": "world",
+   "worldSize": [
+    50,
+    36
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "bedside_drawer_open",
+   "file": "furniture/bedside_drawer_open.png",
+   "width": 25,
+   "height": 18,
+   "space": "world",
+   "worldSize": [
+    50,
+    36
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "closet",
+   "file": "furniture/closet.png",
+   "width": 75,
+   "height": 19,
+   "space": "world",
+   "worldSize": [
+    150,
+    38
+   ],
+   "status": "approved",
+   "note": "fronts face up into room"
+  },
+  {
+   "key": "closet_open",
+   "file": "furniture/closet_open.png",
+   "width": 75,
+   "height": 19,
+   "space": "world",
+   "worldSize": [
+    150,
+    38
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "car_table",
+   "file": "furniture/car_table.png",
+   "width": 35,
+   "height": 14,
+   "space": "world",
+   "worldSize": [
+    70,
+    28
+   ],
+   "status": "approved",
+   "bays": [
+    [
+     3,
+     3,
+     5,
+     5
+    ],
+    [
+     11,
+     3,
+     5,
+     5
+    ],
+    [
+     19,
+     3,
+     5,
+     5
+    ],
+    [
+     27,
+     3,
+     5,
+     5
+    ]
+   ],
+   "note": "static; bays = where the 4 toy cars sit (art px)"
+  },
+  {
+   "key": "sofa",
+   "file": "furniture/sofa.png",
+   "width": 25,
+   "height": 80,
+   "space": "world",
+   "worldSize": [
+    50,
+    160
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "sofa_open",
+   "file": "furniture/sofa_open.png",
+   "width": 25,
+   "height": 80,
+   "space": "world",
+   "worldSize": [
+    50,
+    160
+   ],
+   "status": "approved",
+   "note": "searched/disturbed: cushions pulled"
+  },
+  {
+   "key": "ottoman",
+   "file": "furniture/ottoman.png",
+   "width": 25,
+   "height": 20,
+   "space": "world",
+   "worldSize": [
+    50,
+    40
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "ottoman_open",
+   "file": "furniture/ottoman_open.png",
+   "width": 25,
+   "height": 20,
+   "space": "world",
+   "worldSize": [
+    50,
+    40
+   ],
+   "status": "approved",
+   "note": "lid up"
+  },
+  {
+   "key": "tv_unit",
+   "file": "furniture/tv_unit.png",
+   "width": 20,
+   "height": 55,
+   "space": "world",
+   "worldSize": [
+    40,
+    110
+   ],
+   "status": "approved",
+   "note": "faces left"
+  },
+  {
+   "key": "tv_unit_open",
+   "file": "furniture/tv_unit_open.png",
+   "width": 20,
+   "height": 55,
+   "space": "world",
+   "worldSize": [
+    40,
+    110
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "sideboard",
+   "file": "furniture/sideboard.png",
+   "width": 20,
+   "height": 75,
+   "space": "world",
+   "worldSize": [
+    40,
+    150
+   ],
+   "status": "approved",
+   "note": "faces left"
+  },
+  {
+   "key": "sideboard_open",
+   "file": "furniture/sideboard_open.png",
+   "width": 20,
+   "height": 75,
+   "space": "world",
+   "worldSize": [
+    40,
+    150
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "dining_table",
+   "file": "furniture/dining_table.png",
+   "width": 60,
+   "height": 28,
+   "space": "world",
+   "worldSize": [
+    120,
+    56
+   ],
+   "status": "approved",
+   "note": "static, with chairs"
+  },
+  {
+   "key": "sink_cabinet",
+   "file": "furniture/sink_cabinet.png",
+   "width": 30,
+   "height": 15,
+   "space": "world",
+   "worldSize": [
+    60,
+    30
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "sink_cabinet_open",
+   "file": "furniture/sink_cabinet_open.png",
+   "width": 30,
+   "height": 15,
+   "space": "world",
+   "worldSize": [
+    60,
+    30
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "wall_shelf",
+   "file": "furniture/wall_shelf.png",
+   "width": 35,
+   "height": 8,
+   "space": "world",
+   "worldSize": [
+    70,
+    16
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "wall_shelf_open",
+   "file": "furniture/wall_shelf_open.png",
+   "width": 35,
+   "height": 8,
+   "space": "world",
+   "worldSize": [
+    70,
+    16
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "microwave_unit",
+   "file": "furniture/microwave_unit.png",
+   "width": 55,
+   "height": 17,
+   "space": "world",
+   "worldSize": [
+    110,
+    34
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "microwave_unit_open",
+   "file": "furniture/microwave_unit_open.png",
+   "width": 55,
+   "height": 17,
+   "space": "world",
+   "worldSize": [
+    110,
+    34
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "kitchen_sink",
+   "file": "furniture/kitchen_sink.png",
+   "width": 18,
+   "height": 75,
+   "space": "world",
+   "worldSize": [
+    36,
+    150
+   ],
+   "status": "approved",
+   "note": "faces left"
+  },
+  {
+   "key": "kitchen_sink_open",
+   "file": "furniture/kitchen_sink_open.png",
+   "width": 18,
+   "height": 75,
+   "space": "world",
+   "worldSize": [
+    36,
+    150
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "kitchen_counter",
+   "file": "furniture/kitchen_counter.png",
+   "width": 95,
+   "height": 18,
+   "space": "world",
+   "worldSize": [
+    190,
+    36
+   ],
+   "status": "unused",
+   "note": "UNUSED: stove 45x18 + kitchen_drawer 50x18 fill the counter"
+  },
+  {
+   "key": "kitchen_drawer",
+   "file": "furniture/kitchen_drawer.png",
+   "width": 50,
+   "height": 18,
+   "space": "world",
+   "worldSize": [
+    100,
+    36
+   ],
+   "status": "approved",
+   "note": "layout stove_drawers 100x35 at x=910 (art x=455)"
+  },
+  {
+   "key": "kitchen_drawer_open",
+   "file": "furniture/kitchen_drawer_open.png",
+   "width": 50,
+   "height": 18,
+   "space": "world",
+   "worldSize": [
+    100,
+    36
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "stove",
+   "file": "furniture/stove.png",
+   "width": 45,
+   "height": 18,
+   "space": "world",
+   "worldSize": [
+    90,
+    36
+   ],
+   "status": "approved",
+   "note": "layout stove 90x35 at x=820"
+  },
+  {
+   "key": "stove_open",
+   "file": "furniture/stove_open.png",
+   "width": 45,
+   "height": 18,
+   "space": "world",
+   "worldSize": [
+    90,
+    36
+   ],
+   "status": "approved",
+   "note": "searched: oven open, grate knocked"
+  },
+  {
+   "key": "fridge",
+   "file": "furniture/fridge.png",
+   "width": 23,
+   "height": 33,
+   "space": "world",
+   "worldSize": [
+    46,
+    66
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "fridge_open",
+   "file": "furniture/fridge_open.png",
+   "width": 23,
+   "height": 33,
+   "space": "world",
+   "worldSize": [
+    46,
+    66
+   ],
+   "status": "approved"
+  },
+  {
+   "key": "player",
+   "file": "player/player.png",
+   "width": 64,
+   "height": 64,
+   "space": "world",
+   "worldSize": [
+    128,
+    128
+   ],
+   "status": "approved",
+   "spritesheet": {
+    "frameWidth": 16,
+    "frameHeight": 16,
+    "rows": [
+     "down",
+     "left",
+     "right",
+     "up"
+    ],
+    "framesPerRow": 4,
+    "idleFrame": "col 0 of each row",
+    "frameIndex": "row*4+col"
+   },
+   "layer": "fixed (skin, eyes, hair, outline, trousers, hands)"
+  },
+  {
+   "key": "player_tint",
+   "file": "player/player_tint.png",
+   "width": 64,
+   "height": 64,
+   "space": "world",
+   "worldSize": [
+    128,
+    128
+   ],
+   "status": "approved",
+   "spritesheet": {
+    "frameWidth": 16,
+    "frameHeight": 16,
+    "rows": [
+     "down",
+     "left",
+     "right",
+     "up"
+    ],
+    "framesPerRow": 4,
+    "idleFrame": "col 0 of each row",
+    "frameIndex": "row*4+col"
+   },
+   "layer": "greyscale hoodie for setTint; draw UNDER player"
+  },
+  {
+   "key": "player_sneak",
+   "file": "player/player_sneak.png",
+   "width": 64,
+   "height": 64,
+   "space": "world",
+   "worldSize": [
+    128,
+    128
+   ],
+   "status": "approved",
+   "spritesheet": {
+    "frameWidth": 16,
+    "frameHeight": 16,
+    "rows": [
+     "down",
+     "left",
+     "right",
+     "up"
+    ],
+    "framesPerRow": 4,
+    "idleFrame": "col 0 of each row",
+    "frameIndex": "row*4+col"
+   },
+   "layer": "fixed (skin, eyes, hair, outline, trousers, hands)"
+  },
+  {
+   "key": "player_sneak_tint",
+   "file": "player/player_sneak_tint.png",
+   "width": 64,
+   "height": 64,
+   "space": "world",
+   "worldSize": [
+    128,
+    128
+   ],
+   "status": "approved",
+   "spritesheet": {
+    "frameWidth": 16,
+    "frameHeight": 16,
+    "rows": [
+     "down",
+     "left",
+     "right",
+     "up"
+    ],
+    "framesPerRow": 4,
+    "idleFrame": "col 0 of each row",
+    "frameIndex": "row*4+col"
+   },
+   "layer": "greyscale hoodie for setTint; draw UNDER player_sneak"
+  },
+  {
+   "key": "ui_btn_interact",
+   "file": "ui/ui_btn_interact.png",
+   "width": 120,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    30,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_btn_interact_pressed",
+   "file": "ui/ui_btn_interact_pressed.png",
+   "width": 120,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    30,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_btn_drop",
+   "file": "ui/ui_btn_drop.png",
+   "width": 120,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    30,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_btn_drop_pressed",
+   "file": "ui/ui_btn_drop_pressed.png",
+   "width": 120,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    30,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_btn_sneak",
+   "file": "ui/ui_btn_sneak.png",
+   "width": 120,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    30,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_btn_sneak_pressed",
+   "file": "ui/ui_btn_sneak_pressed.png",
+   "width": 120,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    30,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_btn_shoot",
+   "file": "ui/ui_btn_shoot.png",
+   "width": 120,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    30,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_btn_shoot_pressed",
+   "file": "ui/ui_btn_shoot_pressed.png",
+   "width": 120,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    30,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_btn_shoot_disabled",
+   "file": "ui/ui_btn_shoot_disabled.png",
+   "width": 120,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    30,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved",
+   "note": "no bullet loaded"
+  },
+  {
+   "key": "ui_btn_shoot_cooldown",
+   "file": "ui/ui_btn_shoot_cooldown.png",
+   "width": 960,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    240,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved",
+   "spritesheet": {
+    "frameWidth": 120,
+    "frameHeight": 120,
+    "frames": 8,
+    "order": "frame=min(7,floor(progress*8)); 0 = just hit (fully covered)"
+   },
+   "note": "5-min reload after a hit"
+  },
+  {
+   "key": "ui_joystick_base",
+   "file": "ui/ui_joystick_base.png",
+   "width": 200,
+   "height": 200,
+   "space": "screen",
+   "artSize": [
+    50,
+    50
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_joystick_base_active",
+   "file": "ui/ui_joystick_base_active.png",
+   "width": 200,
+   "height": 200,
+   "space": "screen",
+   "artSize": [
+    50,
+    50
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_joystick_knob",
+   "file": "ui/ui_joystick_knob.png",
+   "width": 100,
+   "height": 100,
+   "space": "screen",
+   "artSize": [
+    25,
+    25
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_item_slot",
+   "file": "ui/ui_item_slot.png",
+   "width": 120,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    30,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved",
+   "note": "single held-item slot; item icon area = inner 104x104 screen px"
+  },
+  {
+   "key": "ui_item_slot_gun_loaded",
+   "file": "ui/ui_item_slot_gun_loaded.png",
+   "width": 120,
+   "height": 120,
+   "space": "screen",
+   "artSize": [
+    30,
+    30
+   ],
+   "exportScale": 4,
+   "status": "approved"
+  },
+  {
+   "key": "ui_aim_dot",
+   "file": "ui/ui_aim_dot.png",
+   "width": 16,
+   "height": 16,
+   "space": "screen",
+   "artSize": [
+    4,
+    4
+   ],
+   "exportScale": 4,
+   "status": "approved",
+   "note": "repeat every ~40 screen px along throw/shoot path"
+  },
+  {
+   "key": "ui_aim_reticle",
+   "file": "ui/ui_aim_reticle.png",
+   "width": 96,
+   "height": 96,
+   "space": "screen",
+   "artSize": [
+    24,
+    24
+   ],
+   "exportScale": 4,
+   "status": "approved",
+   "note": "landing point (throw) / target (shoot)"
+  },
+  {
+   "key": "ui_paper_code_view",
+   "file": "ui/ui_paper_code_view.png",
+   "width": 320,
+   "height": 176,
+   "space": "screen",
+   "artSize": [
+    80,
+    44
+   ],
+   "exportScale": 4,
+   "status": "approved",
+   "slots": [
+    {
+     "index": 1,
+     "art": [
+      9,
+      16,
+      11,
+      11
+     ],
+     "screen": [
+      36,
+      64,
+      44,
+      44
+     ]
+    },
+    {
+     "index": 2,
+     "art": [
+      26,
+      16,
+      11,
+      11
+     ],
+     "screen": [
+      104,
+      64,
+      44,
+      44
+     ]
+    },
+    {
+     "index": 3,
+     "art": [
+      43,
+      16,
+      11,
+      11
+     ],
+     "screen": [
+      172,
+      64,
+      44,
+      44
+     ]
+    },
+    {
+     "index": 4,
+     "art": [
+      60,
+      16,
+      11,
+      11
+     ],
+     "screen": [
+      240,
+      64,
+      44,
+      44
+     ]
+    }
+   ],
+   "note": "draw car icon / colour swatch for position i in slot i (Phantom's order). Rects in exported screen px; 'art' = before 4x"
+  },
+  {
+   "key": "item_paper_code",
+   "file": "items/item_paper_code.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "approved",
+   "slots": [
+    {
+     "index": 1,
+     "art": [
+      2,
+      7,
+      2,
+      2
+     ]
+    },
+    {
+     "index": 2,
+     "art": [
+      5,
+      7,
+      2,
+      2
+     ]
+    },
+    {
+     "index": 3,
+     "art": [
+      8,
+      7,
+      2,
+      2
+     ]
+    },
+    {
+     "index": 4,
+     "art": [
+      11,
+      7,
+      2,
+      2
+     ]
+    }
+   ],
+   "note": "world item 16x16 art; fill each 2x2 slot with a colour pixel block"
+  },
+  {
+   "key": "fx_ripple",
+   "file": "fx/fx_ripple.png",
+   "width": 96,
+   "height": 24,
+   "space": "world",
+   "worldSize": [
+    192,
+    48
+   ],
+   "status": "approved",
+   "spritesheet": {
+    "frameWidth": 24,
+    "frameHeight": 24,
+    "frames": 4,
+    "fps": 10
+   },
+   "note": "local player's own footsteps"
+  },
+  {
+   "key": "fx_ripple_landed",
+   "file": "fx/fx_ripple_landed.png",
+   "width": 192,
+   "height": 48,
+   "space": "world",
+   "worldSize": [
+    384,
+    96
+   ],
+   "status": "approved",
+   "spritesheet": {
+    "frameWidth": 48,
+    "frameHeight": 48,
+    "frames": 4,
+    "fps": 10
+   },
+   "note": "Phantom view: thrown item landed (bigger/stronger)"
+  },
+  {
+   "key": "item_stun_gun",
+   "file": "items/item_stun_gun.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "pending review"
+  },
+  {
+   "key": "item_stun_gun_loaded",
+   "file": "items/item_stun_gun_loaded.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "pending review",
+   "note": "gun + bullet held together"
+  },
+  {
+   "key": "item_bullet",
+   "file": "items/item_bullet.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "pending review",
+   "note": "bold brass cartridge, copper tip"
+  },
+  {
+   "key": "item_toy_car_red",
+   "file": "items/item_toy_car_red.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "pending review",
+   "note": "car table only"
+  },
+  {
+   "key": "item_toy_car_blue",
+   "file": "items/item_toy_car_blue.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "pending review",
+   "note": "car table only"
+  },
+  {
+   "key": "item_toy_car_violet",
+   "file": "items/item_toy_car_violet.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "pending review",
+   "note": "car table only"
+  },
+  {
+   "key": "item_toy_car_yellow",
+   "file": "items/item_toy_car_yellow.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "pending review",
+   "note": "car table only"
+  },
+  {
+   "key": "item_wire_cutter",
+   "file": "items/item_wire_cutter.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "pending review",
+   "note": "silver jaws, bold crimson handles"
+  },
+  {
+   "key": "item_room_key",
+   "file": "items/item_room_key.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "pending review"
+  },
+  {
+   "key": "item_battery",
+   "file": "items/item_battery.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "pending review"
+  },
+  {
+   "key": "phantom",
+   "file": "phantom/phantom.png",
+   "width": 96,
+   "height": 96,
+   "space": "world",
+   "worldSize": [
+    192,
+    192
+   ],
+   "status": "pending review",
+   "spritesheet": {
+    "frameWidth": 24,
+    "frameHeight": 24,
+    "rows": [
+     "down",
+     "left",
+     "right",
+     "up"
+    ],
+    "framesPerRow": 4,
+    "idleFrame": "col 0",
+    "frameIndex": "row*4+col"
+   },
+   "note": "no glow; only seen at close range"
+  },
+  {
+   "key": "phantom_stunned",
+   "file": "phantom/phantom_stunned.png",
+   "width": 96,
+   "height": 24,
+   "space": "world",
+   "worldSize": [
+    192,
+    48
+   ],
+   "status": "pending review",
+   "spritesheet": {
+    "frameWidth": 24,
+    "frameHeight": 24,
+    "frames": 4,
+    "fps": 10
+   }
+  },
+  {
+   "key": "fx_ripple_sneak",
+   "file": "fx/fx_ripple_sneak.png",
+   "width": 64,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    128,
+    32
+   ],
+   "status": "pending review",
+   "spritesheet": {
+    "frameWidth": 16,
+    "frameHeight": 16,
+    "frames": 4,
+    "fps": 10
+   },
+   "note": "local player sneaking"
+  },
+  {
+   "key": "fx_ripple_heard",
+   "file": "fx/fx_ripple_heard.png",
+   "width": 96,
+   "height": 24,
+   "space": "world",
+   "worldSize": [
+    192,
+    48
+   ],
+   "status": "pending review",
+   "spritesheet": {
+    "frameWidth": 24,
+    "frameHeight": 24,
+    "frames": 4,
+    "fps": 10
+   },
+   "note": "Phantom view: player footsteps (faint)"
+  },
+  {
+   "key": "fx_light_mask",
+   "file": "fx/fx_light_mask.png",
+   "width": 208,
+   "height": 208,
+   "space": "world",
+   "worldSize": [
+    416,
+    416
+   ],
+   "status": "pending review",
+   "note": "player light, radius 104 art px (~6.5 tiles); use as BitmapMask / ERASE brush on a darkness RenderTexture"
+  },
+  {
+   "key": "fx_phantom_vision",
+   "file": "fx/fx_phantom_vision.png",
+   "width": 80,
+   "height": 80,
+   "space": "world",
+   "worldSize": [
+    160,
+    160
+   ],
+   "status": "pending review",
+   "note": "Phantom small vision (~2.5 tiles), crimson tint overlay"
+  },
+  {
+   "key": "fx_spot_highlight",
+   "file": "fx/fx_spot_highlight.png",
+   "width": 64,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    128,
+    32
+   ],
+   "status": "pending review",
+   "spritesheet": {
+    "frameWidth": 16,
+    "frameHeight": 16,
+    "frames": 4,
+    "fps": 6
+   },
+   "note": "green corner brackets; use as 9-slice (corners 4px) or place 4 corners around the spot rect"
+  },
+  {
+   "key": "fx_stun_hit",
+   "file": "fx/fx_stun_hit.png",
+   "width": 96,
+   "height": 24,
+   "space": "world",
+   "worldSize": [
+    192,
+    48
+   ],
+   "status": "pending review",
+   "spritesheet": {
+    "frameWidth": 24,
+    "frameHeight": 24,
+    "frames": 4,
+    "fps": 14
+   },
+   "note": "stun gun hit on the Phantom; play once"
+  }
+ ]
+}

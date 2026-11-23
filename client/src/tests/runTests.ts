@@ -3,10 +3,12 @@
  */
 
 import { runPathfindingTest } from './pathfindingTest';
+import { runManifestTest } from './manifestTest';
 
 console.log('Running tests...\n');
 
 try {
+  runManifestTest();
   runPathfindingTest();
   console.log('\n✅ All tests passed!');
   process.exit(0);
