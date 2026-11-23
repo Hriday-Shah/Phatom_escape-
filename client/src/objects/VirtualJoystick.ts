@@ -29,13 +29,11 @@ export class VirtualJoystick {
     const thumbKey = scene.textures.exists('ui_joystick_knob') ? 'ui_joystick_knob' : 'ph_' + TextureKeys.JOYSTICK_THUMB;
     
     this.base = scene.add.image(0, 0, baseKey)
-      .setScrollFactor(0)
       .setDepth(1000)
       .setAlpha(0.6)
       .setDisplaySize(this.baseSize, this.baseSize);
 
     this.thumb = scene.add.image(0, 0, thumbKey)
-      .setScrollFactor(0)
       .setDepth(1001)
       .setAlpha(0.7)
       .setDisplaySize(this.knobSize, this.knobSize);

@@ -31,7 +31,6 @@ export class UIControls {
 
     buttonConfigs.forEach((config) => {
       const container = this.scene.add.container(0, 0)
-        .setScrollFactor(0)
         .setDepth(1000);
 
       if (this.scene.textures.exists(config.key)) {
@@ -86,7 +85,6 @@ export class UIControls {
     
     // Item slot (60px): top-right in landscape, above Shoot in portrait
     this.itemSlot = this.scene.add.container(0, 0)
-      .setScrollFactor(0)
       .setDepth(1000);
     
     if (this.scene.textures.exists('ui_item_slot')) {

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GameScene } from '../scenes/GameScene';
 import { PreloadScene } from '../scenes/PreloadScene';
+import { UIScene } from '../scenes/UIScene';
 
 export const gameConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,
@@ -11,8 +12,9 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
     width: window.innerWidth,
     height: window.innerHeight,
     autoCenter: Phaser.Scale.CENTER_BOTH,
+    resolution: window.devicePixelRatio || 1,
   },
-  pixelArt: false,
+  pixelArt: true,
   physics: {
     default: 'arcade',
     arcade: {
@@ -20,7 +22,7 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
       gravity: { x: 0, y: 0 },
     },
   },
-  scene: [PreloadScene, GameScene],
+  scene: [PreloadScene, GameScene, UIScene],
   render: {
     pixelArt: true,
     antialias: false,
