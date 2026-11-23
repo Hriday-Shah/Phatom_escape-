@@ -47,26 +47,33 @@ secrets/
 credentials/
 
 # Media files (privacy - repo is public)
+# Photos and videos blocked everywhere
 *.jpg
 *.jpeg
-*.png
-*.gif
-*.bmp
 *.heic
+*.heif
 *.mov
 *.mp4
 *.avi
 *.webm
+*.gif
+*.bmp
 *.JPG
 *.JPEG
-*.PNG
-*.GIF
-*.BMP
 *.HEIC
+*.HEIF
 *.MOV
 *.MP4
 *.AVI
 *.WEBM
+*.GIF
+*.BMP
+
+# PNG files blocked everywhere EXCEPT client/public/assets/
+*.png
+*.PNG
+!client/public/assets/**/*.png
+!client/public/assets/**/*.PNG
 
 # Uploads folders
 uploads/

@@ -8,6 +8,33 @@ One random player becomes the Phantom. The Phantom hides key items around a top-
 
 **Stage 1 Complete** - Single-player gameplay with full house exploration and hiding spots. No networking yet.
 
+## Media Policy 🔒
+
+This is a **public repository** with strict media file rules for privacy and security:
+
+### Allowed Locations
+
+- **PNG files**: `client/public/assets/` only (game sprites, textures)
+- **JSON files**: `client/public/assets/` (texture atlases)
+- **SVG exception**: `docs/floor-plan.svg` (approved design asset)
+
+### Blocked Everywhere
+
+❌ **Photos**: `.jpg`, `.jpeg`, `.heic`, `.heif`, `.gif`, `.bmp`  
+❌ **Videos**: `.mov`, `.mp4`, `.avi`, `.webm`  
+❌ **PNG outside assets**: Blocked by `.gitignore` with negation rule  
+❌ **Uploads folders**: `uploads/`, `**/uploads/`
+
+### Enforcement
+
+- **Git**: `.gitignore` blocks media files (with `!client/public/assets/**/*.png` exception)
+- **CI**: `npm run check:media` validates on every PR and push
+- **Deploy**: GitHub Pages workflow checks before deploying
+
+**Violations fail CI and prevent deployment.**
+
+See [`client/public/assets/README.md`](client/public/assets/README.md) for details.
+
 ## Project Structure
 
 This is a monorepo organized with npm workspaces:
@@ -48,6 +75,16 @@ npm run build
 ```
 
 The static files are output to `client/dist/` and can be hosted on any static file server.
+
+### Check Media Policy
+
+Validate that no prohibited media files are committed:
+
+```bash
+npm run check:media
+```
+
+This check runs automatically in CI and before deployment.
 
 ### Preview Production Build
 
