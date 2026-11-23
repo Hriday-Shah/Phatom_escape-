@@ -12,7 +12,6 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
     width: window.innerWidth,
     height: window.innerHeight,
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    resolution: window.devicePixelRatio || 1,
   },
   pixelArt: true,
   physics: {

@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
 import { HidingSpot } from '../data/houseLayout';
-import { SafeAreaManager } from '../utils/SafeAreaManager';
 
 interface HidingSpotSprite {
   data: HidingSpot;

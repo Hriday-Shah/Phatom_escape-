@@ -1,7 +1,5 @@
 import Phaser from 'phaser';
 import { Player } from '../objects/Player';
-import { VirtualJoystick } from '../objects/VirtualJoystick';
-import { UIControls } from '../objects/UIControls';
 import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { houseLayout } from '../data/houseLayout';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
@@ -184,15 +182,6 @@ export class GameScene extends Phaser.Scene {
       'car_table': 'car_table',
       'dining_table': 'dining_table',
       'study_table': 'study_table',
-    };
-    
-    // Map hiding spot IDs to texture keys - all furniture should be solid
-    const hidingSpotTextures: Record<string, string> = {
-      'study_drawer_1': 'study_drawer', 'study_drawer_2': 'study_drawer', 'study_drawer_3': 'study_drawer',
-      'bed': 'bed', 'bedside_drawer': 'bedside_drawer', 'closet_drawers': 'closet',
-      'sofa': 'sofa', 'ottoman': 'ottoman', 'tv_unit': 'tv_unit', 'sideboard': 'sideboard',
-      'sink_cabinet': 'sink_cabinet', 'wall_shelf': 'wall_shelf', 'microwave_unit': 'microwave_unit',
-      'kitchen_sink_cabinet': 'kitchen_sink', 'stove': 'stove', 'stove_drawers': 'kitchen_drawer', 'fridge': 'fridge',
     };
     
     houseLayout.furniture.forEach(furniture => {

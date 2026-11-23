@@ -98,7 +98,6 @@ export class UIScene extends Phaser.Scene {
   private onResize(): void {
     const width = this.scale.width;
     const height = this.scale.height;
-    const insets = SafeAreaManager.getInsets();
 
     // Position prompts in the top half to avoid controls
     // Hiding spot prompt - centered in top 60% of screen

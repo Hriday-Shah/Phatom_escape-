@@ -24,8 +24,19 @@ window.addEventListener('load', () => {
   // Initialize safe area manager
   SafeAreaManager.init();
   
-  // Create game
-  const game = new Phaser.Game(gameConfig);
+  // Handle DPR for crisp rendering on high-DPI displays
+  const dpr = window.devicePixelRatio || 1;
+  
+  // Create game with DPR-adjusted config
+  const config = {
+    ...gameConfig,
+    scale: {
+      ...gameConfig.scale,
+      resolution: dpr,
+    },
+  };
+  
+  const game = new Phaser.Game(config);
   
   // Handle visualViewport resize for mobile browser UI
   if (window.visualViewport) {
