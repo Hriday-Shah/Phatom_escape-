@@ -7,13 +7,14 @@ import {
   PLAYER_SPRITE_SCALE,
 } from '../config/playerConfig';
 import { devLog } from '../config/display';
+import { PLAYER_SPEED } from '../config/physicsConfig';
 
 // Re-exported so callers (and tests, via config/playerConfig) share one source of truth.
 export { PLAYER_BODY_RADIUS, PLAYER_BODY_RADIUS_FRAME } from '../config/playerConfig';
 
 export class Player {
   private scene: Phaser.Scene;
-  private speed = 200;
+  private speed = PLAYER_SPEED;
   private moveVector: Phaser.Math.Vector2;
   private tintSprite: Phaser.GameObjects.Sprite;
   private bodySprite: Phaser.GameObjects.Sprite;

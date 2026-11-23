@@ -89,6 +89,7 @@ export class UIScene extends Phaser.Scene {
     this.promptTimer?.remove(false);
     this.promptTimer = null;
     this.hidingSpotPrompt.setText(text).setVisible(true);
+    this.stackDoorMessage();
 
     if (duration) {
       this.promptTimer = this.time.delayedCall(duration, () => {
@@ -108,6 +109,7 @@ export class UIScene extends Phaser.Scene {
     this.doorTimer?.remove(false);
     this.doorTimer = null;
     this.doorMessageText.setText(text).setVisible(true);
+    this.stackDoorMessage();
 
     if (duration) {
       this.doorTimer = this.time.delayedCall(duration, () => {
@@ -115,6 +117,11 @@ export class UIScene extends Phaser.Scene {
         this.doorMessageText.setVisible(false);
       });
     }
+  }
+
+  /** Keep the door message just below the prompt, using the prompt's CURRENT height (multi-line safe). */
+  private stackDoorMessage(): void {
+    this.doorMessageText.setPosition(this.hidingSpotPrompt.x, this.hidingSpotPrompt.y + this.hidingSpotPrompt.height + 8);
   }
 
   private onResize(): void {
@@ -141,7 +148,7 @@ export class UIScene extends Phaser.Scene {
     }
 
     this.hidingSpotPrompt.setPosition(width / 2, top);
-    this.doorMessageText.setPosition(width / 2, top + this.hidingSpotPrompt.height + 8);
+    this.stackDoorMessage();
 
     // Update UI controls and joystick
     this.uiControls.resize();
