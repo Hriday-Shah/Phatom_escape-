@@ -118,13 +118,24 @@ export class GameScene extends Phaser.Scene {
 
   private createRooms(): void {
     houseLayout.rooms.forEach(room => {
-      this.add.rectangle(
-        room.x + room.width / 2,
-        room.y + room.height / 2,
-        room.width,
-        room.height,
-        room.floorColor
-      ).setDepth(-2);
+      // Map room IDs to floor texture keys
+      const floorKey = `floor_${room.id}`;
+      
+      if (this.textures.exists(floorKey)) {
+        // Use tiled floor art (16x16 tiles)
+        this.add.tileSprite(room.x, room.y, room.width, room.height, floorKey)
+          .setOrigin(0, 0)
+          .setDepth(-2);
+      } else {
+        // Fallback to colored rectangle
+        this.add.rectangle(
+          room.x + room.width / 2,
+          room.y + room.height / 2,
+          room.width,
+          room.height,
+          room.floorColor
+        ).setDepth(-2);
+      }
     });
   }
 

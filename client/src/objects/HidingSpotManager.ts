@@ -42,16 +42,36 @@ export class HidingSpotManager {
   }
 
   private createSpots(hidingSpots: HidingSpot[]): void {
+    // Map spot IDs to texture keys
+    const spotTextures: Record<string, string> = {
+      'study_drawer_1': 'study_drawer', 'study_drawer_2': 'study_drawer', 'study_drawer_3': 'study_drawer',
+      'bed': 'bed', 'bedside_drawer': 'bedside_drawer', 'closet_drawers': 'closet',
+      'sofa': 'sofa', 'ottoman': 'ottoman', 'tv_unit': 'tv_unit', 'sideboard': 'sideboard',
+      'sink_cabinet': 'sink_cabinet', 'wall_shelf': 'wall_shelf', 'microwave_unit': 'microwave_unit',
+      'kitchen_sink_cabinet': 'kitchen_sink', 'stove': 'stove', 'stove_drawers': 'kitchen_drawer', 'fridge': 'fridge',
+    };
+
     hidingSpots.forEach(spot => {
-      const color = this.getColorForType(spot.type);
-      const sprite = this.scene.add.rectangle(
-        spot.x + spot.width / 2,
-        spot.y + spot.height / 2,
-        spot.width,
-        spot.height,
-        color,
-        1
-      ).setStrokeStyle(2, 0x000000);
+      const textureKey = spotTextures[spot.id];
+      let sprite: any;
+      
+      if (textureKey && this.scene.textures.exists(textureKey)) {
+        // Use art (at 2x scale, art is half resolution)
+        sprite = this.scene.add.image(spot.x, spot.y, textureKey)
+          .setOrigin(0, 0)
+          .setScale(2);
+      } else {
+        // Fallback to colored rectangle
+        const color = this.getColorForType(spot.type);
+        sprite = this.scene.add.rectangle(
+          spot.x + spot.width / 2,
+          spot.y + spot.height / 2,
+          spot.width,
+          spot.height,
+          color,
+          1
+        ).setStrokeStyle(2, 0x000000);
+      }
 
       this.spots.push({
         data: spot,
@@ -132,12 +152,33 @@ export class HidingSpotManager {
   private toggleSpot(spot: HidingSpotSprite): void {
     spot.isOpen = !spot.isOpen;
     
-    if (spot.isOpen) {
-      spot.sprite.setFillStyle(this.getOpenColor(spot.data.type));
+    // Map spot ID to texture
+    const spotTextures: Record<string, string> = {
+      'study_drawer_1': 'study_drawer', 'study_drawer_2': 'study_drawer', 'study_drawer_3': 'study_drawer',
+      'bed': 'bed', 'bedside_drawer': 'bedside_drawer', 'closet_drawers': 'closet',
+      'sofa': 'sofa', 'ottoman': 'ottoman', 'tv_unit': 'tv_unit', 'sideboard': 'sideboard',
+      'sink_cabinet': 'sink_cabinet', 'wall_shelf': 'wall_shelf', 'microwave_unit': 'microwave_unit',
+      'kitchen_sink_cabinet': 'kitchen_sink', 'stove': 'stove', 'stove_drawers': 'kitchen_drawer', 'fridge': 'fridge',
+    };
+    
+    const textureKey = spotTextures[spot.data.id];
+    const openKey = textureKey ? `${textureKey}_open` : null;
+    
+    if (textureKey && openKey && this.scene.textures.exists(textureKey) && this.scene.textures.exists(openKey)) {
+      // Switch texture (sprite is Image if art exists)
+      if (spot.sprite instanceof Phaser.GameObjects.Image) {
+        spot.sprite.setTexture(spot.isOpen ? openKey : textureKey);
+      }
       this.showMessage('Empty', 2000);
-    } else {
-      spot.sprite.setFillStyle(this.getColorForType(spot.data.type));
-      this.hideMessage();
+    } else if ('setFillStyle' in spot.sprite) {
+      // Fallback: change color
+      if (spot.isOpen) {
+        (spot.sprite as any).setFillStyle(this.getOpenColor(spot.data.type));
+        this.showMessage('Empty', 2000);
+      } else {
+        (spot.sprite as any).setFillStyle(this.getColorForType(spot.data.type));
+        this.hideMessage();
+      }
     }
   }
 
