@@ -43,7 +43,8 @@ export class HidingSpotManager {
         // Use art (at 2x scale, art is half resolution)
         sprite = this.scene.add.image(spot.x, spot.y, textureKey)
           .setOrigin(0, 0)
-          .setScale(2);
+          .setScale(2)
+          .setInteractive();
       } else {
         // Fallback to colored rectangle
         const color = this.getColorForType(spot.type);
@@ -54,14 +55,25 @@ export class HidingSpotManager {
           spot.height,
           color,
           1
-        ).setStrokeStyle(2, 0x000000);
+        ).setStrokeStyle(2, 0x000000)
+        .setInteractive();
       }
 
-      this.spots.push({
+      const spotData: HidingSpotSprite = {
         data: spot,
         sprite,
         isOpen: false,
+      };
+
+      // Add tap handler for tap-to-open
+      sprite.on('pointerdown', () => {
+        // Only open if it's the highlighted spot
+        if (this.highlightedSpot === spotData) {
+          this.toggleSpot(spotData);
+        }
       });
+
+      this.spots.push(spotData);
     });
   }
 

@@ -21,9 +21,12 @@ export class UIControls {
   }
 
   private createButtons(): void {
+    // Check if device has touch input
+    const isTouch = this.scene.sys.game.device.input.touch;
+    
     // 2x2 button cluster: Interact bottom-right, Shoot above it, Sneak bottom-left, Drop above Sneak
     const buttonConfigs = [
-      { id: 'interact', key: 'ui_btn_interact', pressedKey: 'ui_btn_interact_pressed', label: 'Interact', active: true },
+      { id: 'interact', key: 'ui_btn_interact', pressedKey: 'ui_btn_interact_pressed', label: isTouch ? 'Interact' : 'Interact (E)', active: true },
       { id: 'shoot', key: 'ui_btn_shoot_disabled', label: 'Shoot', active: false },
       { id: 'sneak', key: 'ui_btn_sneak', pressedKey: 'ui_btn_sneak_pressed', label: 'Sneak', active: false },
       { id: 'drop', key: 'ui_btn_drop', pressedKey: 'ui_btn_drop_pressed', label: 'Drop', active: false },
@@ -66,7 +69,7 @@ export class UIControls {
           .setStrokeStyle(2, config.active ? 0x2E5C8A : 0x444444, config.active ? 1 : 0.6);
         
         const text = this.scene.add.text(0, 0, config.label, {
-          fontSize: '10px',
+          fontSize: '12px',
           color: config.active ? '#ffffff' : '#888888',
         }).setOrigin(0.5);
 
