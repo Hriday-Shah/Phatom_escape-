@@ -1,13 +1,12 @@
 import Phaser from 'phaser';
-import { TextureKeys } from '../config/textureKeys';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
 
 export class UIControls {
   private scene: Phaser.Scene;
   private buttons: Map<string, Phaser.GameObjects.Container> = new Map();
-  private buttonSize = 60;
-  private buttonSpacing = 20;
-  private margin = 20; // Minimum margin from edge
+  private interactButtonSize = 70;
+  private smallButtonSize = 50;
+  private margin = 20;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -19,36 +18,57 @@ export class UIControls {
   }
 
   private createButtons(): void {
-    const buttonConfigs = [
-      { id: 'interact', label: 'E', enabled: true },
-      { id: 'drop', label: 'Drop', enabled: false },
-      { id: 'sneak', label: 'Sneak', enabled: false },
-      { id: 'shoot', label: 'Shoot', enabled: false },
+    // Large interact button
+    const interactContainer = this.scene.add.container(0, 0)
+      .setScrollFactor(0)
+      .setDepth(1000);
+
+    const interactBg = this.scene.add.circle(0, 0, this.interactButtonSize / 2, 0x4A90E2, 0.7);
+    const interactBorder = this.scene.add.circle(0, 0, this.interactButtonSize / 2)
+      .setStrokeStyle(3, 0x2E5C8A, 1);
+    
+    const interactText = this.scene.add.text(0, -5, 'Interact', {
+      fontSize: '14px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    
+    const interactKey = this.scene.add.text(0, 10, '(E)', {
+      fontSize: '11px',
+      color: '#cccccc',
+    }).setOrigin(0.5);
+
+    interactBg.setInteractive({ useHandCursor: true });
+    interactBg.on('pointerdown', () => {
+      this.scene.events.emit('interact');
+    });
+
+    interactContainer.add([interactBg, interactBorder, interactText, interactKey]);
+    this.buttons.set('interact', interactContainer);
+
+    // Small disabled buttons
+    const smallButtons = [
+      { id: 'drop', label: 'Drop' },
+      { id: 'sneak', label: 'Sneak' },
+      { id: 'shoot', label: 'Shoot' },
     ];
 
-    buttonConfigs.forEach((config) => {
+    smallButtons.forEach((config) => {
       const container = this.scene.add.container(0, 0)
         .setScrollFactor(0)
         .setDepth(1000);
 
-      const button = this.scene.add.image(0, 0, 
-        config.enabled ? TextureKeys.BUTTON : TextureKeys.BUTTON_DISABLED
-      ).setInteractive(config.enabled ? undefined : { enabled: false });
-
+      const bg = this.scene.add.circle(0, 0, this.smallButtonSize / 2, 0x666666, 0.4);
+      const border = this.scene.add.circle(0, 0, this.smallButtonSize / 2)
+        .setStrokeStyle(2, 0x444444, 0.6);
+      
       const text = this.scene.add.text(0, 0, config.label, {
-        fontSize: '16px',
-        color: config.enabled ? '#ffffff' : '#888888',
-        fontStyle: 'bold',
+        fontSize: '10px',
+        color: '#888888',
       }).setOrigin(0.5);
 
-      container.add([button, text]);
+      container.add([bg, border, text]);
       this.buttons.set(config.id, container);
-
-      if (config.enabled && config.id === 'interact') {
-        button.on('pointerdown', () => {
-          this.scene.events.emit('interact');
-        });
-      }
     });
   }
 
@@ -56,19 +76,39 @@ export class UIControls {
     const width = this.scene.scale.width;
     const height = this.scene.scale.height;
     const insets = SafeAreaManager.getInsets();
+    const isLandscape = width > height;
     
-    // Position in bottom-right, offset by safe area
     const rightMargin = this.margin + insets.right;
     const bottomMargin = this.margin + insets.bottom;
-
-    let yOffset = 0;
-    this.buttons.forEach((container) => {
-      container.setPosition(
-        width - rightMargin,
-        height - bottomMargin - yOffset
+    
+    // Position interact button bottom-right
+    const interactX = width - rightMargin - this.interactButtonSize / 2;
+    const interactY = height - bottomMargin - this.interactButtonSize / 2;
+    this.buttons.get('interact')?.setPosition(interactX, interactY);
+    
+    if (isLandscape) {
+      // Landscape: compact 2x2 cluster above interact
+      const spacing = this.smallButtonSize + 10;
+      this.buttons.get('drop')?.setPosition(interactX - spacing, interactY - spacing);
+      this.buttons.get('sneak')?.setPosition(interactX, interactY - spacing * 1.5);
+      this.buttons.get('shoot')?.setPosition(interactX + spacing, interactY - spacing);
+    } else {
+      // Portrait: arc above interact
+      const arcRadius = this.interactButtonSize + 20;
+      const angleStep = Math.PI / 4;
+      this.buttons.get('drop')?.setPosition(
+        interactX - arcRadius * Math.cos(angleStep),
+        interactY - arcRadius * Math.sin(angleStep)
       );
-      yOffset += this.buttonSize + this.buttonSpacing;
-    });
+      this.buttons.get('sneak')?.setPosition(
+        interactX,
+        interactY - arcRadius
+      );
+      this.buttons.get('shoot')?.setPosition(
+        interactX + arcRadius * Math.cos(angleStep),
+        interactY - arcRadius * Math.sin(angleStep)
+      );
+    }
   }
 
   public resize(): void {

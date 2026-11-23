@@ -31,6 +31,15 @@ export class GameScene extends Phaser.Scene {
     // Set world bounds
     this.physics.world.setBounds(0, 0, houseLayout.width, houseLayout.height);
 
+    // Add background (dark floor outside house)
+    this.add.rectangle(
+      houseLayout.width / 2,
+      houseLayout.height / 2,
+      houseLayout.width,
+      houseLayout.height,
+      0x1a1a1a
+    ).setDepth(-10);
+
     // Create the house
     this.createRooms();
     this.createWalls();
@@ -45,9 +54,10 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.player, this.doorGroup);
 
     // Setup camera with dynamic zoom based on screen size
-    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
     this.updateCameraZoom();
     this.cameras.main.setBounds(0, 0, houseLayout.width, houseLayout.height);
+    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    this.cameras.main.centerOn(this.player.x, this.player.y);
 
     // Create hiding spot manager
     this.hidingSpotManager = new HidingSpotManager(this, houseLayout.hidingSpots);
@@ -99,6 +109,11 @@ export class GameScene extends Phaser.Scene {
     const zoom = Math.max(0.8, Math.min(2.0, targetZoom));
     
     this.cameras.main.setZoom(zoom);
+    
+    // Recenter on player if it exists
+    if (this.player) {
+      this.cameras.main.centerOn(this.player.x, this.player.y);
+    }
   }
 
   private createRooms(): void {
@@ -279,5 +294,6 @@ export class GameScene extends Phaser.Scene {
     // Update UI
     this.uiControls.resize();
     this.hidingSpotManager.resize();
+    this.joystick.resize();
   }
 }

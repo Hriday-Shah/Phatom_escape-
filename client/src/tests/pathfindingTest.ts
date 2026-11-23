@@ -156,6 +156,28 @@ class PathfindingValidator {
     return false;
   }
 
+  public countRoomCells(roomId: string, reachableCells: Set<string>): number {
+    const room = houseLayout.rooms.find((r) => r.id === roomId);
+    if (!room) return 0;
+
+    let count = 0;
+    const roomGridStart = this.worldToGrid(room.x + PLAYER_RADIUS, room.y + PLAYER_RADIUS);
+    const roomGridEnd = this.worldToGrid(
+      room.x + room.width - PLAYER_RADIUS,
+      room.y + room.height - PLAYER_RADIUS
+    );
+
+    for (let gy = roomGridStart.y; gy <= roomGridEnd.y; gy++) {
+      for (let gx = roomGridStart.x; gx <= roomGridEnd.x; gx++) {
+        if (reachableCells.has(`${gx},${gy}`)) {
+          count++;
+        }
+      }
+    }
+
+    return count;
+  }
+
   private checkEscapes(reachableCells: Set<string>): string[] {
     const escapes: string[] = [];
     
@@ -199,6 +221,15 @@ class PathfindingValidator {
 
     console.log(`Found ${reachableCells.size} reachable cells`);
 
+    // Show per-room reachable cell counts
+    console.log('\nPer-room reachable cell counts:');
+    const allRooms = [...houseLayout.rooms];
+    allRooms.forEach((room) => {
+      const count = this.countRoomCells(room.id, reachableCells);
+      console.log(`  ${room.name.padEnd(15)} (${room.id.padEnd(10)}): ${count.toString().padStart(5)} cells`);
+    });
+    console.log('');
+
     // Check for escapes outside the house
     console.log('Checking for escapes outside house boundary...');
     const escapes = this.checkEscapes(reachableCells);
@@ -219,18 +250,20 @@ class PathfindingValidator {
     const expectedBlocked = ['bedroom'];
 
     for (const roomId of expectedReachable) {
-      if (!this.isRoomReachable(roomId, reachableCells)) {
+      const count = this.countRoomCells(roomId, reachableCells);
+      if (count === 0) {
         const room = houseLayout.rooms.find((r) => r.id === roomId);
         errors.push(`Room "${room?.name}" (${roomId}) is NOT reachable from spawn!`);
       } else {
-        console.log(`✓ Room "${roomId}" is reachable`);
+        console.log(`✓ Room "${roomId}" is reachable (${count} cells)`);
       }
     }
 
     for (const roomId of expectedBlocked) {
-      if (this.isRoomReachable(roomId, reachableCells)) {
+      const count = this.countRoomCells(roomId, reachableCells);
+      if (count > 0) {
         const room = houseLayout.rooms.find((r) => r.id === roomId);
-        errors.push(`Room "${room?.name}" (${roomId}) should be locked but is reachable!`);
+        errors.push(`Room "${room?.name}" (${roomId}) should be locked but has ${count} reachable cells!`);
       } else {
         console.log(`✓ Room "${roomId}" is correctly blocked`);
       }
