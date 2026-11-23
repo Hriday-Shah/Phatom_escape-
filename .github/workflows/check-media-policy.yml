@@ -1,0 +1,36 @@
+name: Media Policy Check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  check-media:
+    name: Validate Media Policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Run media policy check
+        run: npm run check:media
+
+      - name: Report results
+        if: failure()
+        run: |
+          echo "❌ Media policy violation detected!"
+          echo ""
+          echo "Rules:"
+          echo "  - PNG files only allowed in client/public/assets/"
+          echo "  - Photos/videos blocked everywhere"
+          echo "  - Exception: docs/floor-plan.svg"
+          echo ""
+          echo "See output above for details."
+          exit 1

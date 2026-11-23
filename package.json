@@ -11,7 +11,8 @@
   "scripts": {
     "dev": "npm run dev -w client",
     "build": "npm run build -w client",
-    "preview": "npm run preview -w client"
+    "preview": "npm run preview -w client",
+    "check:media": "node scripts/check-media.mjs"
   },
   "engines": {
     "node": ">=18.0.0"
