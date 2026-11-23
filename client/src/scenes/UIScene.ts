@@ -103,6 +103,13 @@ export class UIScene extends Phaser.Scene {
     this.promptTimer?.remove(false);
     this.promptTimer = null;
     this.hidingSpotPrompt.setVisible(false);
+    this.stackDoorMessage();
+  }
+
+  /** Bottom edge (CSS px) of the visible prompt, or 0 when it is hidden. */
+  public getPromptBottom(): number {
+    if (!this.hidingSpotPrompt.visible) return 0;
+    return this.hidingSpotPrompt.y + this.hidingSpotPrompt.height;
   }
 
   public showDoorMessage(text: string, duration?: number): void {
@@ -119,9 +126,13 @@ export class UIScene extends Phaser.Scene {
     }
   }
 
-  /** Keep the door message just below the prompt, using the prompt's CURRENT height (multi-line safe). */
+  /**
+   * Door message slot: just below the prompt (using its CURRENT height, multi-line safe)
+   * while the prompt is visible, else the top slot where the prompt would be (QA R4-4).
+   */
   private stackDoorMessage(): void {
-    this.doorMessageText.setPosition(this.hidingSpotPrompt.x, this.hidingSpotPrompt.y + this.hidingSpotPrompt.height + 8);
+    const p = this.hidingSpotPrompt;
+    this.doorMessageText.setPosition(p.x, p.visible ? p.y + p.height + 8 : p.y);
   }
 
   private onResize(): void {
