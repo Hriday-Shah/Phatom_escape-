@@ -87,37 +87,41 @@ export const houseLayout: HouseLayout = {
     { x: 390, y: 370, width: 40, height: 10 }, // bottom right
     { x: 420, y: 140, width: 10, height: 240 }, // right
     
-    // Entrance walls
+    // Entrance walls (opening to living at x=430, y=386-484)
     { x: 150, y: 380, width: 10, height: 110 }, // left
     { x: 150, y: 380, width: 140, height: 10 }, // top left
     { x: 350, y: 380, width: 80, height: 10 }, // top right
     { x: 150, y: 480, width: 140, height: 10 }, // bottom left
     { x: 380, y: 480, width: 50, height: 10 }, // bottom right
-    { x: 420, y: 380, width: 10, height: 110 }, // right (partial, opens to living)
+    { x: 420, y: 380, width: 10, height: 6 }, // right top (before opening)
+    { x: 420, y: 484, width: 10, height: 6 }, // right bottom (after opening)
     
-    // Living/Dining outer walls
-    { x: 430, y: 100, width: 10, height: 390 }, // left
+    // Living/Dining outer walls (opening to entrance at x=430, y=386-484; opening to foyer at x=800-810, y=240-300)
+    { x: 430, y: 100, width: 10, height: 286 }, // left top (before entrance opening)
+    { x: 430, y: 484, width: 10, height: 6 }, // left bottom (after entrance opening)
     { x: 430, y: 100, width: 110, height: 10 }, // top left
     { x: 700, y: 100, width: 110, height: 10 }, // top right
-    { x: 800, y: 100, width: 10, height: 190 }, // right top (to foyer opening)
-    { x: 800, y: 300, width: 10, height: 190 }, // right bottom (from foyer opening)
+    { x: 800, y: 100, width: 10, height: 140 }, // right top (before foyer opening)
+    { x: 800, y: 300, width: 10, height: 190 }, // right bottom (after foyer opening)
     { x: 430, y: 480, width: 370, height: 10 }, // bottom
     
-    // Bathroom walls
+    // Bathroom walls (door opening at x=900-950, y=224-236)
     { x: 810, y: 100, width: 160, height: 10 }, // top
     { x: 810, y: 100, width: 10, height: 130 }, // left
-    { x: 810, y: 220, width: 90, height: 10 }, // bottom left
-    { x: 950, y: 220, width: 20, height: 10 }, // bottom right
+    { x: 810, y: 220, width: 90, height: 10 }, // bottom left (before door)
+    { x: 950, y: 220, width: 20, height: 10 }, // bottom right (after door)
     { x: 960, y: 100, width: 10, height: 130 }, // right
     
-    // Foyer walls
-    { x: 810, y: 230, width: 10, height: 80 }, // left
-    { x: 810, y: 300, width: 20, height: 10 }, // bottom left
-    { x: 890, y: 300, width: 80, height: 10 }, // bottom right
+    // Foyer walls (opening to living at x=800-810, y=240-300; opening to kitchen at x=830-890, y=300-310)
+    { x: 810, y: 230, width: 10, height: 10 }, // left top (before living opening)
+    { x: 810, y: 300, width: 10, height: 10 }, // left bottom (after living opening, before kitchen opening)
+    { x: 810, y: 300, width: 20, height: 10 }, // bottom left (before kitchen opening)
+    { x: 890, y: 300, width: 80, height: 10 }, // bottom right (after kitchen opening)
     { x: 960, y: 230, width: 10, height: 80 }, // right
     
-    // Kitchen walls
-    { x: 810, y: 310, width: 210, height: 10 }, // top (partial opening from foyer)
+    // Kitchen walls (opening to foyer at x=830-890, y=310)
+    { x: 810, y: 310, width: 20, height: 10 }, // top left (before foyer opening)
+    { x: 890, y: 310, width: 130, height: 10 }, // top right (after foyer opening)
     { x: 810, y: 310, width: 10, height: 250 }, // left
     { x: 810, y: 550, width: 210, height: 10 }, // bottom
     { x: 1010, y: 310, width: 10, height: 250 }, // right
