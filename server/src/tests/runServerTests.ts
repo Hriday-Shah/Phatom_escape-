@@ -173,7 +173,7 @@ test('drawers: validated, idempotent, synced state', () => {
   h.setDrawer('s0', { id: 'kitchen_d1', open: false });
   assert.deepEqual(h.openDrawers(), []);
   for (let i = 0; i < 300; i++) h.setDrawer('s0', { id: `d${i}`, open: true });
-  assert.equal(h.openDrawers().length, 256);
+  assert.equal(h.openDrawers().length, 255); // + kitchen_d1 (closed) = MAX_DRAWERS ids
 });
 
 test('rate limiter: burst then sustained rate', () => {

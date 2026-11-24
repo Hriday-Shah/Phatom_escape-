@@ -13,9 +13,20 @@ import {
   saveSoundOn,
 } from './settings';
 import { LobbyScreen } from '../lobby/LobbyScreen';
-import { ColourId, LobbySettings, LocalLobbyService } from '../lobby/lobby';
+import { ColourId, LobbyService, LobbySettings, LocalLobbyService } from '../lobby/lobby';
+import { ColyseusLobbyService, GameLink, JoinError } from '../net/ColyseusLobbyService';
+import { JOIN_FAILURE_TEXT } from '../net/protocol';
 
-export interface StartInfo { nickname: string; colour?: ColourId; settings?: LobbySettings; }
+export interface StartInfo {
+  nickname: string; colour?: ColourId; settings?: LobbySettings;
+  /** Online room (trial): the connection the game keeps using; absent offline. */
+  net?: GameLink;
+}
+
+const ENDED_TEXT = {
+  kicked: 'The host removed you from the room.',
+  disconnected: 'Lost the connection to the game server.',
+};
 
 export interface HomeCallbacks {
   /** The host started the game from the lobby (stage 1: the single-player house). */
@@ -41,6 +52,10 @@ export class HomeScreen {
   private lastOpener: HTMLElement | null = null;
   private lastByKeyboard = false;
   private lobby: LobbyScreen | null = null;
+  /** Online trial: the game server for this tab (?server=...), null = offline local mode. */
+  private server: string | null = null;
+  private busy = false;
+  private homeMessage = this.el('pe-home-message');
   private current: View = 'main';
   private ac = new AbortController();
 
@@ -76,8 +91,10 @@ export class HomeScreen {
   }
 
   /** Show the homepage; `room` pre-fills the join code (?room=CODE); `lobby` opens a debug lobby. */
-  open(opts: { room?: string | null; lobby?: 'host' | 'player' | null } = {}): void {
+  open(opts: { room?: string | null; lobby?: 'host' | 'player' | null; server?: string | null } = {}): void {
     this.root.hidden = false;
+    this.server = opts.lobby ? null : opts.server ?? null; // debug lobbies stay local
+    this.el('pe-online-status').textContent = this.server ? 'Online: rooms are on the game server from your invite link.' : '';
     // The homepage is the base entry; views push on top of it.
     history.replaceState({ ...(history.state ?? {}), [HISTORY_KEY]: 'main' }, '');
     this.show('main');
@@ -137,22 +154,61 @@ export class HomeScreen {
   // ---- lobby ----
 
   private openLobby(role: 'host' | 'player', debugEntry = false): void {
+    if (this.busy) return;
+    this.homeMessage.textContent = '';
     const name = displayNickname(this.nickname.value);
     saveNickname(cleanNickname(this.nickname.value));
+    if (this.server && !debugEntry) { void this.openOnline(role, name, this.server); return; }
     // Stage 1: local room. The debug entries add placeholder players; a real Create is just you
     // (a joined room needs a placeholder host to follow).
     const svc = role === 'host'
       ? LocalLobbyService.create(name, { placeholders: debugEntry ? 2 : 0 })
       : LocalLobbyService.joinLocal(name, isFullRoomCode(this.roomCode.value) ? this.roomCode.value : 'DEBUG1', { placeholders: debugEntry ? 1 : 0 });
+    this.showLobby(svc, null);
+  }
+
+  /** Online trial: create / join on the server; friendly messages when it fails. */
+  private async openOnline(role: 'host' | 'player', name: string, server: string): Promise<void> {
+    const msgEl = role === 'host' ? this.homeMessage : this.joinMessage;
+    this.setBusy(true);
+    this.homeMessage.textContent = ''; msgEl.textContent = role === 'host' ? 'Creating room…' : 'Joining room…';
+    try {
+      const svc = role === 'host'
+        ? await ColyseusLobbyService.create(server, name)
+        : await ColyseusLobbyService.join(server, this.roomCode.value, name);
+      msgEl.textContent = '';
+      this.setBusy(false);
+      this.showLobby(svc, server);
+    } catch (e) {
+      this.setBusy(false);
+      if (role === 'player') this.renderJoin();
+      msgEl.textContent = JOIN_FAILURE_TEXT[e instanceof JoinError ? e.reason : 'unreachable'];
+    }
+  }
+
+  private showLobby(svc: LobbyService, server: string | null): void {
     this.lobby?.destroy();
     this.lobby = new LobbyScreen(svc, {
       onLeave: () => {
         this.lobby = null;
         if (history.state?.[HISTORY_KEY] === 'lobby') history.back(); else this.show('main');
       },
-      onStart: (self, settings) => this.cb.onStartGame({ nickname: self.nickname, colour: self.colour, settings }),
-    });
+      onStart: (self, settings) => this.cb.onStartGame({
+        nickname: self.nickname, colour: self.colour, settings, net: svc instanceof ColyseusLobbyService ? svc : undefined,
+      }),
+      onEnded: (reason) => {
+        this.lobby = null;
+        if (history.state?.[HISTORY_KEY] === 'lobby') history.back(); else this.show('main');
+        this.homeMessage.textContent = ENDED_TEXT[reason];
+      },
+    }, server);
     this.go('lobby');
+  }
+
+  private setBusy(b: boolean): void {
+    this.busy = b;
+    (this.el('pe-create-room') as HTMLButtonElement).disabled = b;
+    this.joinBtn.disabled = b || !isFullRoomCode(this.roomCode.value);
   }
 
   private join(): void {
@@ -185,7 +241,7 @@ export class HomeScreen {
   /** Join is enabled only with a full 6-character code. */
   private renderJoin(): void {
     const full = isFullRoomCode(this.roomCode.value);
-    this.joinBtn.disabled = !full;
+    this.joinBtn.disabled = !full || this.busy;
     this.joinMessage.textContent = full ? '' : 'Enter a 6-character code to join.';
   }
 
