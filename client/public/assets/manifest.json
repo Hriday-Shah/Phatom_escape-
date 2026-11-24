@@ -948,8 +948,8 @@
     190,
     36
    ],
-   "status": "unused",
-   "note": "UNUSED: stove 45x18 + kitchen_drawer 50x18 fill the counter"
+   "status": "approved",
+   "note": "Cropped for the empty L-corner kitchen counter (south run + east-wall corner); not a search spot"
   },
   {
    "key": "kitchen_drawer_base",

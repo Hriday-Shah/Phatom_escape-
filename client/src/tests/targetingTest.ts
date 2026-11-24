@@ -12,28 +12,27 @@ import {
 import { FacingFilter } from '../logic/facingFilter';
 
 /** Walk lines just in front of each multi-section unit (player centre touching the front). */
-// `handover`: past this coordinate, facing into the SE corner (right / down-right) picks
-// kitchen sink door 1 (the corner section) instead of the section in front.
+// `handover` is unused now (the enlarged kitchen has no corner section) but kept in the
+// type so a future corner can hook the same walk check.
 const LINES: { unit: string; axis: 'x' | 'y'; fixed: number; from: number; to: number; into: keyof typeof FACING_VECTORS; handover?: number }[] = [
   { unit: 'closet_drawers', axis: 'x', fixed: 316, from: 98, to: 210, into: 'down' },
-  { unit: 'kitchen_sink_cabinet', axis: 'x', fixed: 498, from: 892, to: 948, into: 'down', handover: 937 },
+  { unit: 'kitchen_sink_cabinet', axis: 'x', fixed: 548, from: 892, to: 1006, into: 'down' },
   { unit: 'sideboard', axis: 'y', fixed: 744, from: 357, to: 449, into: 'right' },
   { unit: 'tv_unit', axis: 'y', fixed: 744, from: 139, to: 189, into: 'right' },
   { unit: 'microwave_unit', axis: 'y', fixed: 870, from: 376, to: 454, into: 'left' },
-  { unit: 'stove_drawers', axis: 'y', fixed: 958, from: 336, to: 410, into: 'right' },
+  { unit: 'stove_drawers', axis: 'y', fixed: 1028, from: 336, to: 410, into: 'right' },
   { unit: 'sofa', axis: 'y', fixed: 506, from: 144, to: 236, into: 'left' },
   { unit: 'sink_cabinet', axis: 'x', fixed: 174, from: 836, to: 864, into: 'down' },
   { unit: 'wall_shelf', axis: 'x', fixed: 142, from: 909, to: 941, into: 'up' },
   // R9-1 front groups (separate spots sharing one front; `unit` is the FRONT_GROUPS key).
   { unit: 'study_drawers', axis: 'y', fixed: 142, from: 166, to: 296, into: 'left' },
-  { unit: 'stove_counter', axis: 'y', fixed: 958, from: 336, to: 465, into: 'right' },
+  { unit: 'stove_counter', axis: 'y', fixed: 1028, from: 336, to: 494, into: 'right' },
   { unit: 'sofa_row', axis: 'y', fixed: 506, from: 144, to: 320, into: 'left' },
 ];
 /** Is `t` part of line unit `u` (a sectioned unit id or a front group key)? */
 const inUnit = (t: Interactable | null | undefined, u: string) => !!t && (t.unitId === u || frontKey(t) === u);
 
 export function runTargetingTest(): void {
-  const r92: string[] = [];
   console.log('=== TARGETING TEST (R7-1) ===');
   const items = buildInteractables(houseLayout.hidingSpots);
   const blockers = sightBlockers(houseLayout);
@@ -104,7 +103,7 @@ export function runTargetingTest(): void {
     ['closet_drawers', 'x', 316, 100, 210, { x: Math.SQRT1_2, y: Math.SQRT1_2 }],
     ['sofa', 'y', 506, 144, 236, { x: -Math.SQRT1_2, y: Math.SQRT1_2 }],
     ['sideboard', 'y', 744, 357, 449, { x: Math.SQRT1_2, y: Math.SQRT1_2 }],
-    ['kitchen_sink_cabinet', 'x', 498, 892, 937, { x: Math.SQRT1_2, y: Math.SQRT1_2 }],
+    ['kitchen_sink_cabinet', 'x', 548, 892, 1006, { x: Math.SQRT1_2, y: Math.SQRT1_2 }],
     ['study_drawers', 'y', 142, 166, 296, { x: -Math.SQRT1_2, y: Math.SQRT1_2 }],
     ['study_drawers', 'y', 142, 166, 296, { x: 0, y: 1 }],
   ] as const) {
@@ -158,44 +157,20 @@ export function runTargetingTest(): void {
   }
   // R9-1 audit: in the fridge / sink corner, facing the fridge picks the fridge, facing the sink the sink.
   for (const [f, want] of [[{ x: -1, y: 0 }, 'fridge'], [{ x: 0, y: -1 }, 'fridge'], [{ x: 0, y: 1 }, 'kitchen_sink_cabinet_d4'], [{ x: 1, y: 0 }, 'kitchen_sink_cabinet_d4']] as const) {
-    const t = selectTarget(884, 498, f, items, blockers, null)?.id;
-    if (t !== want) errors.push(`fridge/sink corner (884,498) facing ${f.x},${f.y}: ${t} (want ${want})`);
+    const t = selectTarget(884, 548, f, items, blockers, null)?.id;
+    if (t !== want) errors.push(`fridge/sink corner (884,548) facing ${f.x},${f.y}: ${t} (want ${want})`);
   }
-  // QA R9-2: re-aiming in small steps past the keep window releases the corner (the facing
-  // filter tracks small changes). Start on the corner at its diagonal, then turn 2.5 deg at a
-  // time (each held 5 frames, a release between) towards and past the keep edge, both ways.
-  for (const [id, x, y, centre] of [['kitchen_sink_cabinet_d1', 958, 498, 45]] as const) {
-    for (const dir of [1, -1]) {
-      const f = new FacingFilter(); const r0 = (centre * Math.PI) / 180; f.set(Math.cos(r0), Math.sin(r0));
-      let cur: string | null = selectTarget(x, y, f.facing, items, blockers, CORNER_SECTIONS[id].neighbour)?.id ?? null;
-      if (cur !== id) { errors.push(`R9-2 ${id}: not picked at ${centre}`); continue; }
-      let lastHeld = centre;
-      for (let off = 2.5; off <= 50; off += 2.5) {
-        const a = ((centre + dir * off) * Math.PI) / 180;
-        for (let i = 0; i < 5; i++) { f.update({ x: Math.cos(a), y: Math.sin(a) }); cur = selectTarget(x, y, f.facing, items, blockers, cur)?.id ?? null; }
-        if (cur === id) lastHeld = centre + dir * off;
-      }
-      if (Math.abs(lastHeld - centre) > 30 + 1e-9) errors.push(`R9-2 ${id}: still held at ${((lastHeld % 360) + 360) % 360} deg (keep edge ${((centre + dir * 30) % 360 + 360) % 360})`);
-      r92.push(`${id} ${dir > 0 ? '+' : '-'}: last held ${((lastHeld % 360) + 360) % 360} deg`);
-    }
+  // The enlarged kitchen has no corner sections (sink door 1 is straight-on reachable).
+  if (Object.keys(CORNER_SECTIONS).length === 0) {
+    console.log('✓ R9-2: no corner sections in the enlarged kitchen (sink d1 is straight-on)');
+  } else {
+    errors.push(`CORNER_SECTIONS has ${Object.keys(CORNER_SECTIONS).join(', ')} but this test has no standpoints for them`);
   }
-  if (!errors.some((e) => e.startsWith('R9-2'))) console.log(`✓ R9-2: small re-aims release the corner at its ±30° keep edge (${r92.join(', ')})`);
-  // Corner windows: the whole diagonal octant (+-22.5 deg) picks the corner, outside it the neighbour.
-  for (const [id, x, y, centre] of [['kitchen_sink_cabinet_d1', 958, 498, 45]] as const) {
-    const c = CORNER_SECTIONS[id];
-    for (let deg = centre - 40; deg <= centre + 40; deg += 2.5) {
-      const r = (deg * Math.PI) / 180, f = { x: Math.cos(r), y: Math.sin(r) };
-      const t = selectTarget(x, y, f, items, blockers, c.neighbour)?.id;
-      const inWin = Math.abs(deg - centre) <= 22.5;
-      if (inWin && t !== id) errors.push(`corner ${id} at ${deg} deg: ${t}`);
-      if (!inWin && t === id) errors.push(`corner ${id} steals at ${deg} deg`);
-    }
-  }
-  // Corner sections still selectable diagonally from the neighbour's standpoint.
-  for (const [id, c] of Object.entries(CORNER_SECTIONS)) {
-    const pos = [958, 498];
-    const t = selectTarget(pos[0], pos[1], c, items, blockers, c.neighbour);
-    if (t?.id !== id) errors.push(`corner ${id} not picked diagonally from ${pos}: ${t?.id}`);
+  // Sink door 1 is reachable straight-on from in front of it (no longer a corner).
+  {
+    const t = selectTarget(995, 548, FACING_VECTORS.down, items, blockers, null)?.id;
+    if (t !== 'kitchen_sink_cabinet_d1') errors.push(`sink d1 straight-on at (995,548): ${t}`);
+    else console.log('✓ sink door 1 is targeted straight-on from (995,548) facing down');
   }
   if (errors.length) {
     errors.slice(0, 30).forEach((e) => console.log(`✗ ${e}`));
@@ -203,6 +178,6 @@ export function runTargetingTest(): void {
   }
   console.log(`✓ ${LINES.length} units / front groups walked both ways, facing along, into and both diagonals: section in front, no jumps or reversals`);
   console.log('✓ QA repro (closet d1, tap right) stays on d1; corner sections picked diagonally');
-  console.log('✓ R8-1: diagonal hold-and-release along the closet, sofa, sideboard and kitchen sink cabinet keeps the section in front; corner octants pick only the corner');
+  console.log('✓ R8-1: diagonal hold-and-release along the closet, sofa, sideboard and kitchen sink cabinet keeps the section in front');
   console.log('✅ TARGETING TEST PASSED');
 }
