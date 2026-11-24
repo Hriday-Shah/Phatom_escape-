@@ -1,6 +1,6 @@
 /** Server room-logic unit tests (npm test -w server). */
 import assert from 'node:assert/strict';
-import { HouseLogic, MAX_ELAPSED_MS, RateLimiter, SPEED_JITTER_PX, SPEED_SLACK, parse } from '../houseLogic';
+import { HouseLogic, maxPhantoms, MAX_ELAPSED_MS, RateLimiter, SPEED_JITTER_PX, SPEED_SLACK, parse } from '../houseLogic';
 import { DEFAULT_SETTINGS, MAX_PLAYERS, PLAYER_COLOURS, SETTING_LIMITS } from '../../../client/src/lobby/lobby';
 import { PLAYER_SPEED } from '../../../client/src/config/physicsConfig';
 import { originAllowed } from '../origins';
@@ -61,7 +61,7 @@ test('ready is per player and validated', () => {
   assert.equal(h.setReady('s1', { ready: 'yes' }).ok, false);
   assert.equal(h.setReady('s1', { ready: true }).ok, true);
   assert.equal(pl(h, 's1').ready, true);
-  assert.equal(pl(h, 's0').ready, false);
+  assert.equal(pl(h, 's0').ready, true); // host counts as ready (R11)
   assert.equal(h.setReady('ghost', { ready: true }).ok, false);
 });
 
@@ -76,7 +76,7 @@ test('settings, kick and start are host-only', () => {
 });
 
 test('settings are validated and clamped server-side', () => {
-  const h = room(1);
+  const h = room(4); // 4 players: the Phantom cap (R11) is 3 = the setting's max
   const ph = SETTING_LIMITS.phantoms;
   assert.equal(h.updateSettings('s0', { patch: { phantoms: 99 } }).ok, true);
   assert.equal(h.snapshot().settings.phantoms, ph.max);
@@ -194,6 +194,34 @@ test('join options and origins', () => {
   assert.ok(!originAllowed('https://evil.example'));
   assert.ok(!originAllowed('https://hriday-shah.github.io.evil.example'));
   assert.ok(!originAllowed('http://localhost.evil.example'));
+});
+
+test('R11: host always counts as ready (also after migration)', () => {
+  const h = room(3);
+  assert.equal(pl(h, 's0').ready, true);
+  assert.equal(h.setReady('s0', { ready: false }).ok, true);
+  assert.equal(pl(h, 's0').ready, true);
+  assert.equal(pl(h, 's1').ready, false);
+  h.leave('s0');
+  assert.equal(pl(h, 's1').ready, true, 'new host is ready');
+  assert.equal(pl(h, 's2').ready, false);
+});
+
+test('R11: Phantoms capped at max(1, players - 1)', () => {
+  assert.deepEqual([1, 2, 3, 4, 8].map(maxPhantoms), [1, 1, 2, 3, 7]);
+  const h = room(1);
+  h.updateSettings('s0', { patch: { phantoms: 3 } });
+  assert.equal(h.snapshot().settings.phantoms, 1, 'alone: 1');
+  h.join('s1', {}); h.join('s2', {});
+  h.updateSettings('s0', { patch: { phantoms: 3 } });
+  assert.equal(h.snapshot().settings.phantoms, 2, '3 players: 2');
+  h.join('s3', {});
+  h.updateSettings('s0', { patch: { phantoms: 3 } });
+  assert.equal(h.snapshot().settings.phantoms, 3);
+  h.leave('s3'); h.leave('s2');
+  assert.equal(h.snapshot().settings.phantoms, 1, 'players leaving lower it');
+  h.join('s4', {}); h.kick('s0', { id: h.playerId('s4') });
+  assert.equal(h.snapshot().settings.phantoms, 1);
 });
 
 console.log(`\n✅ ${n} server tests passed`);

@@ -81,6 +81,9 @@ export const parse = {
   },
 };
 
+/** R11: at most one Phantom fewer than the players (and at least 1). */
+export function maxPhantoms(players: number): number { return Math.max(1, players - 1); }
+
 interface Track { pose: Pose; at: number; dirty: boolean }
 
 export class HouseLogic {
@@ -120,6 +123,7 @@ export class HouseLogic {
       try { id = this.lobby.add(nickname, colour).id; } catch { return { ok: false, error: 'full' }; }
     }
     this.bySession.set(session, id);
+    this.capPhantoms();
     return { ok: true, playerId: id };
   }
 
@@ -130,6 +134,14 @@ export class HouseLogic {
     this.bySession.delete(session);
     this.poses.delete(id);
     if (this.lobby?.state.players.some((p) => p.id === id)) this.lobby.leave(id);
+    this.capPhantoms();
+  }
+
+  /** Keep the Phantoms setting within maxPhantoms(players) as players come and go. */
+  private capPhantoms(): void {
+    const st = this.lobby?.state;
+    if (!st || !st.players.length) return;
+    st.settings.phantoms = Math.min(st.settings.phantoms, maxPhantoms(st.players.length));
   }
 
   private act(session: string, f: (lobby: LobbyRoom, id: string) => LobbyResult): LobbyResult {
@@ -141,15 +153,20 @@ export class HouseLogic {
     const c = parse.colour(msg); if (!c) return { ok: false, error: 'bad-setting' };
     return this.act(session, (l, id) => l.setColour(id, c));
   }
+  /** R11: the host always counts as ready (pressing Start is its "ready"); its own toggle is a no-op. */
   setReady(session: string, msg: unknown): LobbyResult {
     const r = parse.ready(msg); if (r === null) return { ok: false, error: 'bad-setting' };
+    if (this.lobby && this.bySession.get(session) === this.lobby.hostId) return { ok: true };
     return this.act(session, (l, id) => l.setReady(id, r));
   }
   updateSettings(session: string, msg: unknown): LobbyResult {
     const patch = parse.settings(msg); if (!patch) return { ok: false, error: 'bad-setting' };
     return this.act(session, (l, id) => {
       if (id !== l.hostId) return { ok: false, error: 'not-host' };
-      return validSettings(l.state.settings, patch) ? l.updateSettings(id, patch) : { ok: false, error: 'bad-setting' };
+      if (!validSettings(l.state.settings, patch)) return { ok: false, error: 'bad-setting' };
+      const r = l.updateSettings(id, patch);
+      this.capPhantoms();
+      return r;
     });
   }
   /** Host only. On success returns the kicked player's session so the room can disconnect it. */
@@ -220,7 +237,7 @@ export class HouseLogic {
     if (!s) return { code: this.code, hostId: '', players: [], settings: {} as LobbySettings, started: false };
     return {
       code: s.code, hostId: s.hostId, started: s.started, settings: { ...s.settings },
-      players: s.players.map((p) => ({ id: p.id, nickname: p.nickname, colour: p.colour, isHost: p.isHost, ready: p.ready })),
+      players: s.players.map((p) => ({ id: p.id, nickname: p.nickname, colour: p.colour, isHost: p.isHost, ready: p.isHost || p.ready })),
     };
   }
 }
