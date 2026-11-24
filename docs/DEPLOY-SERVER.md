@@ -39,7 +39,7 @@ Runner-up, Fly.io: always on and no sleep at all, but its free allowance needs a
   - `PORT`: set by the host (Render: 10000); 2567 locally.
   - `ALLOWED_ORIGINS`: comma-separated browser origins; default `https://hriday-shah.github.io,localhost`
     (`localhost` = any localhost port). The Blueprint sets `https://hriday-shah.github.io` only.
-  - `RECONNECT_SECONDS`: how long a dropped player's seat is kept (default 45).
+  - `RECONNECT_SECONDS`: how long a dropped player's seat is kept (default 30).
 - `GET /health` → `{ok, rooms, players, uptime}` (the host's health check).
 - Graceful shutdown: on `SIGTERM` (deploys, restarts) rooms are disposed and clients get a clean
   close; the process exits within 10 s.
@@ -76,7 +76,7 @@ An unset variable expands to an empty string, so the line is safe to add before 
    `main` → Render reads `render.yaml` and shows **phantom-escape-server** (Free, Singapore) →
    **Apply** / **Deploy Blueprint**. (Manual alternative: New → Web Service → the repo → Language
    *Docker* → Region *Singapore* → Instance type *Free* → Health Check Path `/health` → env vars
-   `ALLOWED_ORIGINS=https://hriday-shah.github.io`, `RECONNECT_SECONDS=45`.)
+   `ALLOWED_ORIGINS=https://hriday-shah.github.io`, `RECONNECT_SECONDS=30`.)
 3. Wait for the first deploy to say **Live**, then copy the service URL from the top of the page,
    e.g. `https://phantom-escape-server-xxxx.onrender.com`. Check `https://…onrender.com/health`
    shows `{"ok":true,…}`.

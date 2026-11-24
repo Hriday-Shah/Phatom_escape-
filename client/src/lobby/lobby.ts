@@ -271,6 +271,11 @@ export class LobbyRoom {
 
 /** Placeholder players for the stage-1 preview (and the ?lobby= debug entries). */
 export const PLACEHOLDER_HOST_NAME = 'Demo host';
+/** "Demo host", or "Demo host 2", ... if that is taken (e.g. your own nickname, R12-7). */
+export function placeholderHostName(taken: readonly string[]): string {
+  if (!taken.includes(PLACEHOLDER_HOST_NAME)) return PLACEHOLDER_HOST_NAME;
+  for (let n = 2; ; n++) { const name = `${PLACEHOLDER_HOST_NAME} ${n}`; if (!taken.includes(name)) return name; }
+}
 /** "Demo player 2", "Demo player 3", ... skipping any name already in the room (always unique). */
 export function placeholderName(taken: readonly string[]): string {
   for (let n = 2; ; n++) { const name = `Demo player ${n}`; if (!taken.includes(name)) return name; }
@@ -304,9 +309,10 @@ export class LocalLobbyService implements LobbyService {
   static joinLocal(nickname: string, code: string, opts: { placeholders?: number } = {}): LocalLobbyService {
     const room = new LobbyRoom(code, 'Host', undefined);
     room.state.players[0].placeholder = true;
-    room.state.players[0].nickname = PLACEHOLDER_HOST_NAME;
+    // Placeholders are named before you join, so your own nickname is reserved up front (R12-7).
+    room.state.players[0].nickname = placeholderHostName([nickname]);
     for (let i = 0; i < (opts.placeholders ?? 0); i++) {
-      const p = room.add(placeholderName(room.state.players.map((q) => q.nickname)), undefined, true);
+      const p = room.add(placeholderName([nickname, ...room.state.players.map((q) => q.nickname)]), undefined, true);
       p.ready = true;
     }
     const svc = new LocalLobbyService(room, '');

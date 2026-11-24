@@ -26,4 +26,4 @@ services:
         value: https://hriday-shah.github.io
       # Seconds a dropped player's seat is kept.
       - key: RECONNECT_SECONDS
-        value: "45"
+        value: "30"

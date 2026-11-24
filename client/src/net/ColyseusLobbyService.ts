@@ -5,7 +5,7 @@
  * (not host, colour taken) answer at once so the screen behaves like the offline one.
  *
  * Drops: when the connection is lost without a deliberate Leave, this reconnects with the
- * room's reconnection token (the server keeps the seat ~45 s), reporting `onStatus`
+ * room's reconnection token (the server keeps the seat ~30 s), reporting `onStatus`
  * ('reconnecting' / 'connected'); when that fails, `onEnd('lost')`. The token is also kept in
  * sessionStorage so reloading the tab rejoins the same seat (`ColyseusLobbyService.resume`).
  */

@@ -24,6 +24,9 @@ export interface StartInfo {
   net?: ColyseusLobbyService;
 }
 
+/** Join with no game server (R12-4). */
+export const OFFLINE_JOIN_TEXT = 'This room is on another device — ask the host for their online invite link.';
+
 const ENDED_TEXT = {
   kicked: 'The host removed you from the room.',
   lost: "Connection lost: couldn't get back into the room in time.",
@@ -186,6 +189,8 @@ export class HomeScreen {
     const name = displayNickname(this.nickname.value);
     saveNickname(cleanNickname(this.nickname.value));
     if (this.server && !debugEntry) { void this.openOnline(role, name, this.server); return; }
+    // R12-4: offline there is no room to join (a room lives on its host's device): never fake one.
+    if (role === 'player' && !debugEntry) { this.joinMessage.textContent = OFFLINE_JOIN_TEXT; return; }
     // Stage 1: local room. The debug entries add placeholder players; a real Create is just you
     // (a joined room needs a placeholder host to follow).
     const svc = role === 'host'
@@ -259,6 +264,7 @@ export class HomeScreen {
       }),
       onEnded: (reason) => {
         this.lobby = null;
+        this.lastOpener = this.el('pe-create-room'); // R12-8: kicked / lost -> focus Create room
         if (history.state?.[HISTORY_KEY] === 'lobby') history.back(); else this.show('main');
         this.homeMessage.textContent = ENDED_TEXT[reason];
       },

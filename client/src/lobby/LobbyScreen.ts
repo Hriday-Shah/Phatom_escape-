@@ -132,6 +132,11 @@ export class LobbyScreen {
     }
     // Online rooms are real: replace the offline "only on this device" notice.
     if (server) $('pe-lobby-notice').textContent = 'Online trial room: friends with the invite link can join (up to 8).';
+    // R12-4: an offline room is only on this device; an invite link would lead nowhere.
+    const copy = $<HTMLButtonElement>('pe-lobby-copy');
+    copy.disabled = !server;
+    if (!server) { share.hidden = true; this.copyStatus.textContent = 'Offline room: invites need the online game (a game server).'; }
+    else this.copyStatus.textContent = '';
     this.render(this.svc.getState());
   }
 

@@ -3,7 +3,7 @@
  *   GET /health        -> {ok, rooms, players, uptime}
  *   GET /rooms/CODE    -> {status: 'open' | 'full' | 'started' | 'missing'} (friendly join errors)
  *   /matchmake/...     -> Colyseus (create 'house', joinById CODE)
- * Env: PORT (default 2567), ALLOWED_ORIGINS (origins.ts), RECONNECT_SECONDS (default 45).
+ * Env: PORT (default 2567), ALLOWED_ORIGINS (origins.ts), RECONNECT_SECONDS (default 30).
  * SIGTERM / SIGINT: graceful shutdown (rooms are disposed, clients get a clean close).
  */
 import http from 'node:http';

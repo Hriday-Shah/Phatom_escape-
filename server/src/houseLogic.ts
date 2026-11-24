@@ -33,7 +33,7 @@ const SPOT_ID = /^[A-Za-z0-9_-]{1,48}$/;
 /** At most this many distinct spot ids per room (the house has far fewer). */
 export const MAX_SPOTS = 256;
 /** A dropped player keeps their seat (colour, host) this long while reconnecting. */
-export const RECONNECT_SECONDS = Number(process.env.RECONNECT_SECONDS) > 0 ? Number(process.env.RECONNECT_SECONDS) : 45;
+export const RECONNECT_SECONDS = Number(process.env.RECONNECT_SECONDS) > 0 ? Number(process.env.RECONNECT_SECONDS) : 30;
 /** Any position outside this box is refused (the house is well inside it). */
 export const WORLD_LIMIT = 6000;
 /** Speed sanity: allowed distance = speed x elapsed x SLACK + JITTER (elapsed capped). */

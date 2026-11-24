@@ -18,7 +18,7 @@ export const CLOSE_KICKED = 4001;
 export const CLOSE_FLOOD = 4002;
 
 /** The server holds a dropped player's seat this long (server RECONNECT_SECONDS default). */
-export const RECONNECT_WINDOW_MS = 45_000;
+export const RECONNECT_WINDOW_MS = 32_000; // the server keeps the seat 30 s (RECONNECT_SECONDS), plus a little slack
 /** Time between reconnection attempts. */
 export const RECONNECT_RETRY_MS = 2_000;
 

@@ -10,8 +10,8 @@ const el = (id: string) => document.getElementById(id);
 
 export function showReconnecting(): void {
   const o = el('pe-net-overlay'); if (!o) return;
-  el('pe-net-title')!.textContent = 'Reconnecting…';
-  el('pe-net-detail')!.textContent = 'Your connection dropped. Your place in the room is kept for a little while.';
+  el('pe-net-title')!.textContent = 'Connection lost: reconnecting…';
+  el('pe-net-detail')!.textContent = 'Your place in the room is kept for about 30 seconds.';
   el('pe-net-home')!.hidden = true;
   o.dataset.state = 'reconnecting';
   o.hidden = false;
@@ -20,7 +20,7 @@ export function showReconnecting(): void {
 export function hideOverlay(): void { const o = el('pe-net-overlay'); if (o) o.hidden = true; }
 
 const END_TEXT: Record<EndReason, [string, string]> = {
-  lost: ['Connection lost', "Couldn't get back into the room in time."],
+  lost: ['Connection lost', "Couldn't reconnect in time. The game goes on without you."],
   closed: ['Room closed', 'The game server closed the room.'],
   kicked: ['Removed from the room', 'The host removed you from the room.'],
 };

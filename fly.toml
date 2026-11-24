@@ -11,7 +11,7 @@ kill_timeout = 30
 [env]
   PORT = "8080"
   ALLOWED_ORIGINS = "https://hriday-shah.github.io"
-  RECONNECT_SECONDS = "45"
+  RECONNECT_SECONDS = "30"
 
 [http_service]
   internal_port = 8080
