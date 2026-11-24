@@ -1,12 +1,12 @@
 import Phaser from 'phaser';
-import { cssSize } from '../config/display';
+import { cssSize, gameDpr } from '../config/display';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { computeShellLayout, ShellLayout } from './shellLayout';
 
 /** The shell layout for the window right now (CSS px), shared by ShellScene, GameScene and UIScene. */
 export function currentShellLayout(scene: Phaser.Scene): ShellLayout {
   const { width, height } = cssSize(scene);
-  return computeShellLayout(width, height, SafeAreaManager.getInsets());
+  return computeShellLayout(width, height, SafeAreaManager.getInsets(), gameDpr(scene));
 }
 
 /** Zoom a full-window camera so 1 scene unit = 1 CSS px, origin at the top-left. */

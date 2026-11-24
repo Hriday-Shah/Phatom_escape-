@@ -25,6 +25,8 @@ export interface Interactable extends Rect {
    */
   rangeMode: 'center' | 'edge';
   range: number;
+  /** The whole unit's layout rect (sections sit inside it); its front is what the player touches. */
+  unitRect: Rect;
 }
 
 /** Max distance (world px) from the player centre to a section rect. Player radius is 16. */
@@ -62,7 +64,7 @@ export function buildInteractables(spots: HidingSpot[]): Interactable[] {
       out.push({
         id: spot.id, unitId: spot.id, name: spot.name, drawer: 0, type: spot.type,
         x: spot.x, y: spot.y, width: spot.width, height: spot.height,
-        rangeMode: 'center', range: spot.interactRange,
+        rangeMode: 'center', range: spot.interactRange, unitRect: spot,
       });
       continue;
     }
@@ -70,6 +72,7 @@ export function buildInteractables(spots: HidingSpot[]): Interactable[] {
       out.push({
         id: `${spot.id}_d${s.drawer}`, unitId: spot.id, name: s.label, drawer: s.drawer, type: spot.type,
         ...sectionRect(spot, s), rangeMode: 'edge', range: SECTION_RANGE,
+        unitRect: { x: spot.x, y: spot.y, width: spot.width, height: spot.height },
       });
     }
   }
@@ -130,21 +133,116 @@ export function targetScore(px: number, py: number, facing: { x: number; y: numb
   return distanceToRect(px, py, it) + FACING_WEIGHT * (1 - facingDot(px, py, facing, it));
 }
 
+/** Player within this many px of a unit's front counts as touching it (player radius 16). */
+export const FRONT_TOUCH = 22;
 /**
- * The one spot the player targets: among eligible spots (in range, line of sight), those in
- * the facing cone first; within the chosen group the lowest targetScore (nearest, facing breaks
- * near-ties). Same function in the game (HidingSpotManager) and the reachability test.
+ * Hysteresis (world px): the current section is kept until another section's centre is this
+ * much closer to the player's centre (front rule), or another spot scores this much better
+ * (cone rule).
+ */
+export const HYSTERESIS = 6;
+/**
+ * Facing that counts as diagonal into a unit (cos 20..70 deg off its front normal). Only then
+ * does the facing cone decide; straight-on and sideways facings use the section in front.
+ */
+const DIAGONAL_MIN = Math.cos((70 * Math.PI) / 180);
+const DIAGONAL_MAX = Math.cos((20 * Math.PI) / 180);
+/**
+ * Corner sections no player can stand straight in front of (the kitchen sink cabinet fills the
+ * corner below / above them). They are picked by facing diagonally into the corner; the game
+ * shows a faint hint outline on them while the player targets the neighbouring section.
+ */
+export const CORNER_SECTIONS: Record<string, { x: number; y: number; neighbour: string }> = {
+  microwave_unit_d4: { x: D, y: -D, neighbour: 'microwave_unit_d3' },
+  stove_drawers_d3: { x: D, y: D, neighbour: 'stove_drawers_d2' },
+};
+
+const unitCache = new WeakMap<Interactable[], Map<string, { box: Rect; sections: Interactable[] }>>();
+function sectionedUnits(items: Interactable[]): Map<string, { box: Rect; sections: Interactable[] }> {
+  let m = unitCache.get(items);
+  if (m) return m;
+  const by = new Map<string, Interactable[]>();
+  for (const it of items) if (it.drawer > 0) (by.get(it.unitId) ?? by.set(it.unitId, []).get(it.unitId)!).push(it);
+  m = new Map([...by].map(([id, secs]) => [id, { box: secs[0].unitRect, sections: secs }]));
+  unitCache.set(items, m);
+  return m;
+}
+
+/**
+ * Front rule: when the player touches or faces a multi-section unit from straight in front of
+ * it (its centre projects onto the unit's front), the section the centre projects onto wins,
+ * with HYSTERESIS px of stickiness at section edges. Returns undefined when it does not apply
+ * (not in front, or facing diagonally into the unit: the cone rule handles corners).
+ */
+function frontSection(
+  px: number, py: number, facing: { x: number; y: number }, items: Interactable[], blockers: Rect[],
+  current: Interactable | null,
+): Interactable | undefined {
+  // Rank: touching before merely facing, then most squarely faced, then nearest.
+  let best: Interactable | undefined;
+  let bestKey = Infinity;
+  for (const [unitId, { box, sections }] of sectionedUnits(items)) {
+    const d = distanceToRect(px, py, box);
+    if (d > SECTION_RANGE) continue;
+    const tol = current?.unitId === unitId ? HYSTERESIS : 0;
+    const inX = px >= box.x - tol && px <= box.x + box.width + tol;
+    const inY = py >= box.y - tol && py <= box.y + box.height + tol;
+    if (inX === inY) continue; // off a corner (or inside): not in front
+    const n = inX ? { x: 0, y: py < box.y ? 1 : -1 } : { x: px < box.x ? 1 : -1, y: 0 };
+    const fd = facing.x * n.x + facing.y * n.y;
+    if (d > FRONT_TOUCH && fd < 0.5) continue; // neither touching nor facing it
+    if (fd > DIAGONAL_MIN && fd < DIAGONAL_MAX) return undefined; // diagonal: cone decides
+    const c = inX ? px : py;
+    const span = (it: Interactable) => (inX ? [it.x, it.x + it.width] : [it.y, it.y + it.height]);
+    // The section in front: its span contains c (else the nearest span).
+    let pick: Interactable | undefined;
+    let bd = Infinity;
+    for (const it of sections) {
+      const [a, b] = span(it);
+      const dd = c < a ? a - c : c > b ? c - b : 0;
+      if (dd < bd) { bd = dd; pick = it; }
+    }
+    // Hysteresis: keep the current section until the new one's centre is HYSTERESIS px closer
+    // to the player's centre than the current one's (switches HYSTERESIS/2 px past the edge,
+    // so a section whose span ends at a wall-limited reach is still reachable).
+    if (pick && current?.unitId === unitId && pick !== current) {
+      const mid = (it: Interactable) => { const [a, b] = span(it); return (a + b) / 2; };
+      if (Math.abs(c - mid(current)) - Math.abs(c - mid(pick)) < HYSTERESIS) pick = current;
+    }
+    if (!pick || !isEligible(px, py, pick, blockers)) continue;
+    const key = (d <= FRONT_TOUCH ? 0 : 100) - fd * 10 + d / 100;
+    if (key < bestKey) { best = pick; bestKey = key; }
+  }
+  return best;
+}
+
+/**
+ * The one spot the player targets.
+ * 1. Front rule (frontSection): touching / facing a multi-section unit from straight in front,
+ *    the section in front of the player's centre wins (sideways nudges never jump ahead).
+ * 2. Otherwise, among eligible spots (in range, line of sight), those in the facing cone first;
+ *    within the chosen group the lowest targetScore (nearest, facing breaks near-ties).
+ * `currentId` (the target last frame) adds hysteresis: it is kept until another spot is
+ * clearly better (HYSTERESIS px). Same function in the game (HidingSpotManager) and the
+ * reachability test.
  */
 export function selectTarget(
   px: number, py: number, facing: { x: number; y: number }, items: Interactable[], blockers: Rect[],
+  currentId: string | null = null,
 ): Interactable | null {
+  const current = currentId ? items.find((it) => it.id === currentId) ?? null : null;
+  const front = frontSection(px, py, facing, items, blockers, current);
+  if (front) return front;
   let best: Interactable | null = null;
-  let bestKey = Infinity;
+  let bestKey = Infinity, curKey = Infinity;
   for (const it of items) {
     if (!isEligible(px, py, it, blockers)) continue;
     const inCone = facingDot(px, py, facing, it) >= FACING_CONE_COS;
     const key = targetScore(px, py, facing, it) + (inCone ? 0 : 1e6);
+    if (it === current) curKey = key;
     if (key < bestKey) { best = it; bestKey = key; }
   }
+  if (current && best !== current && curKey < Infinity && (curKey >= 1e6) === (bestKey >= 1e6)
+    && curKey - bestKey < HYSTERESIS) return current;
   return best;
 }

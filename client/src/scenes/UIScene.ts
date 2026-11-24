@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { snapToDevice } from '../ui/shellLayout';
 import { VirtualJoystick } from '../objects/VirtualJoystick';
 import { UIControls } from '../objects/UIControls';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
@@ -135,11 +136,12 @@ export class UIScene extends Phaser.Scene {
    */
   private stackDoorMessage(): void {
     const p = this.hidingSpotPrompt, d = this.doorMessageText;
-    // Centred, but with the left edge on a whole CSS px so the text stays crisp.
-    const snap = (t: Phaser.GameObjects.Text) => t.setX(Math.round(this.promptCenterX - t.width / 2) + t.width / 2);
+    // Centred, but with the left edge on a whole device px so the text stays crisp.
+    const dpr = gameDpr(this);
+    const snap = (t: Phaser.GameObjects.Text) => t.setX(snapToDevice(this.promptCenterX - t.width / 2, dpr) + t.width / 2);
     snap(p);
     snap(d);
-    d.setY(p.visible ? p.y + p.height + 8 : p.y);
+    d.setY(snapToDevice(p.visible ? p.y + p.height + 8 : p.y, dpr));
   }
 
   private promptCenterX = 0;
@@ -167,8 +169,8 @@ export class UIScene extends Phaser.Scene {
       t.setWordWrapWidth(Math.max(120, narrow ? scr.w - pad * 4 : usable), true);
     }
     const top = narrow ? slot.y + slot.height + pad : scr.y + pad * 2;
-    this.promptCenterX = Math.round(scr.x + scr.w / 2);
-    this.hidingSpotPrompt.setPosition(this.promptCenterX, Math.round(top));
+    this.promptCenterX = snapToDevice(scr.x + scr.w / 2, dpr);
+    this.hidingSpotPrompt.setPosition(this.promptCenterX, snapToDevice(top, dpr));
     this.stackDoorMessage();
   }
 }

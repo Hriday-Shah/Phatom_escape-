@@ -3,7 +3,7 @@ import { HidingSpot, houseLayout } from '../data/houseLayout';
 import { DRAWER_UNITS, DrawerUnit, baseTextureKey, sectionOpenTextureKey } from '../data/drawerSlices';
 import { HIDING_SPOT_TEXTURES } from '../utils/artHelpers';
 import {
-  Interactable, Rect, buildInteractables, isEligible, selectTarget, sightBlockers,
+  CORNER_SECTIONS, Interactable, Rect, buildInteractables, isEligible, selectTarget, sightBlockers,
 } from '../logic/spotTargeting';
 
 /** One solid piece of furniture (one physics body in GameScene), drawn once. */
@@ -36,12 +36,17 @@ export class HidingSpotManager {
   /** Pulsing outline drawn around just the targeted spot / section. */
   private highlightGfx: Phaser.GameObjects.Graphics;
   private highlightTween: Phaser.Tweens.Tween | null = null;
+  /** Faint dotted outline on a corner section reachable only diagonally (see CORNER_SECTIONS). */
+  private cornerHintGfx: Phaser.GameObjects.Graphics;
+  private allItems: Interactable[];
 
   constructor(scene: Phaser.Scene, hidingSpots: HidingSpot[]) {
     this.scene = scene;
     this.highlightGfx = scene.add.graphics().setDepth(5).setVisible(false);
+    this.cornerHintGfx = scene.add.graphics().setDepth(5).setVisible(false);
     hidingSpots.forEach((spot) => this.units.set(spot.id, this.createUnit(spot)));
-    for (const it of buildInteractables(hidingSpots)) {
+    this.allItems = buildInteractables(hidingSpots);
+    for (const it of this.allItems) {
       this.spots.push({ data: it, unit: this.units.get(it.unitId)!, isOpen: false });
     }
   }
@@ -171,10 +176,36 @@ export class HidingSpotManager {
     const px = playerPosition.x, py = playerPosition.y;
     this.eligible.clear();
     for (const s of this.spots) if (isEligible(px, py, s.data, this.blockers)) this.eligible.add(s);
-    const best = selectTarget(px, py, facing, [...this.eligible].map((s) => s.data), []);
+    const best = selectTarget(px, py, facing, this.allItems, this.blockers, this.highlightedSpot?.data.id ?? null);
     const next = best ? this.spots.find((s) => s.data === best)! : null;
     if (next !== this.highlightedSpot) this.setHighlight(next);
+    this.updateCornerHint();
   }
+
+  /**
+   * Corner sections (microwave door 4, kitchen drawer 3) can't be faced straight on: while the
+   * neighbouring section is targeted and the corner one is in reach, a faint dotted outline on
+   * it hints that pushing diagonally into the corner picks it.
+   */
+  private updateCornerHint(): void {
+    const cur = this.highlightedSpot?.data.id;
+    const entry = Object.entries(CORNER_SECTIONS).find(([, c]) => c.neighbour === cur);
+    const corner = entry ? this.spots.find((s) => s.data.id === entry[0] && this.eligible.has(s)) : undefined;
+    const id = corner?.data.id ?? null;
+    if (id === this.cornerHintId) return;
+    this.cornerHintId = id;
+    const g = this.cornerHintGfx;
+    g.clear();
+    if (!corner) { g.setVisible(false); return; }
+    const { x, y, width, height } = corner.data;
+    g.fillStyle(0xFFE14D, 0.55);
+    // Dotted outline, 2x2 dots every 6 px, 2 px outside the section.
+    for (let dx = 0; dx <= width + 2; dx += 6) { g.fillRect(x - 2 + dx, y - 3, 2, 2); g.fillRect(x - 2 + dx, y + height + 1, 2, 2); }
+    for (let dy = 0; dy <= height + 2; dy += 6) { g.fillRect(x - 3, y - 2 + dy, 2, 2); g.fillRect(x + width + 1, y - 2 + dy, 2, 2); }
+    g.setVisible(true);
+  }
+
+  private cornerHintId: string | null = null;
 
   private setHighlight(spot: SpotState | null): void {
     this.clearHighlight();
