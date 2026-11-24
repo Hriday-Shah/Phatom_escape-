@@ -12,6 +12,10 @@ import { RemotePlayer } from '../objects/RemotePlayer';
 import { SEND_HZ } from './protocol';
 import { dirOf } from './dirOf';
 import { netToast } from './NetOverlay';
+import { houseLayout } from '../data/houseLayout';
+import { hasDebugFlag } from '../config/debugFlags';
+import { isDoorLocked } from '../data/colliders';
+import { hasLineOfSight, sightBlockers } from '../logic/spotTargeting';
 
 export interface NetPlayerSource { x: number; y: number; getBody(): Phaser.Physics.Arcade.Body; getFacing(): { x: number; y: number } }
 export interface NetSpots {
@@ -88,7 +92,11 @@ export class NetSync {
   private tick(): void {
     const now = performance.now();
     const list = [...this.remotes.values()];
-    for (const r of list) r.update(now);
+    const blockers = playerSightBlockers();
+    for (const r of list) {
+      r.update(now);
+      r.setSight(hasLineOfSight(this.me.x, this.me.y, r.x, r.y, blockers));
+    }
     staggerLabels(list);
     if (now < this.nextSend) return;
     this.nextSend = now + 1000 / SEND_HZ;
@@ -128,4 +136,13 @@ function staggerLabels(rs: RemotePlayer[]): void {
     const a = sorted[i - 1], b = sorted[i];
     if (Math.abs(a.x - b.x) < 80 && Math.abs(a.y - b.y) < 28) b.setLabelLift(12);
   }
+}
+
+/** Walls and locked doors block sight; furniture does not (same rule as targeting). */
+function playerSightBlockers(): { x: number; y: number; width: number; height: number }[] {
+  const debugUnlock = hasDebugFlag('unlock');
+  const doors = houseLayout.doors
+    .filter((d) => isDoorLocked(d.id, d.locked, debugUnlock))
+    .map((d) => ({ x: d.x, y: d.y, width: d.width, height: d.height }));
+  return [...sightBlockers(houseLayout), ...doors];
 }

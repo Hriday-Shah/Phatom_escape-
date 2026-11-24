@@ -6,6 +6,7 @@ export const MINIGAME_ALIASES: Record<string, MinigameId> = {
   slide: 'slide',
   maze: 'maze',
   lockpick: 'lockpick',
+  lock: 'lockpick',
   memory: 'memory',
   chase: 'chase',
   dotdash: 'chase',

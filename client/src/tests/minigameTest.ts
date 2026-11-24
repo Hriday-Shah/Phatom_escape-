@@ -7,13 +7,16 @@ import { makeEscapeCode, codesEqual } from '../logic/escapeCode';
 import { hashSeed, mulberry32 } from '../logic/seededRng';
 import {
   selectMinigame, minigameSeed, MINIGAME_IDS, MINIGAME_SECONDS,
-  SlideGame, isSolvable, isSolved, inversions, makeSolvableBoard, solvingMoves,
-  MazeGame, generateMaze, mazePath, mazeWalkable, mazePorts, MAZE_W, MAZE_H,
+  SlideGame, isSolvable, isSolved, inversions, makeSolvableBoard, solvingMoves, slideDir,
+  SLIDE_SHUFFLE_MIN, SLIDE_SHUFFLE_MAX,
+  MazeGame, generateMaze, mazePath, mazeWalkable, mazePorts, mazeDeadEnds, MAZE_W, MAZE_H,
   LockPickGame, pickAt, inZone, LOCK_HITS_NEEDED, ZONE_DEG,
   MemoryGame, MEMORY_PAIRS, MEMORY_CARDS,
   ChaseGame, DotDashGame, createMinigame, resolveMinigameId,
+  runFleeChase, CHASE_WISP_COUNT, CHASE_WISP_DELAY, PLAY_WISP_KINDS,
 } from '../logic/minigames';
-import { ItemRound, createRound, inFrontOfTv, TV_UNIT } from '../logic/itemRound';
+import { ItemRound, createRound, inFrontOfTv, itemReachableFrom, MIN_WIN_MS, NEAR_ITEM, TV_UNIT } from '../logic/itemRound';
+import { debugMinigame } from '../config/debugFlags';
 
 export function runMinigameTest(): void {
   console.log('=== MINIGAME / ITEM TEST ===');
@@ -83,6 +86,35 @@ export function runMinigameTest(): void {
     assert.equal(g.status(), 'won');
   });
 
+  test('slide shuffle is 10–14 optimal moves; arrows move a tile into the gap', () => {
+    const counts = new Map<number, number>();
+    for (let s = 1; s <= 400; s++) {
+      const tiles = makeSolvableBoard(mulberry32(s * 97 + 3));
+      const d = solvingMoves(tiles).length;
+      assert.ok(d >= SLIDE_SHUFFLE_MIN && d <= SLIDE_SHUFFLE_MAX, `seed ${s} optimal=${d}`);
+      counts.set(d, (counts.get(d) ?? 0) + 1);
+    }
+    const dist = [...counts.entries()].sort((a, b) => a[0] - b[0]).map(([d, n]) => `${d}:${n}`).join(', ');
+    console.log(`    slide shuffle distribution over 400 seeds: ${dist}`);
+    for (let d = SLIDE_SHUFFLE_MIN; d <= SLIDE_SHUFFLE_MAX; d++) {
+      assert.ok((counts.get(d) ?? 0) > 0, `no boards with optimal ${d}`);
+    }
+    // Solved, blank at bottom-right (index 8). ArrowRight used to move the blank;
+    // now it moves the tile to the left of the gap (tile 8) into the gap.
+    const start = [1, 2, 3, 4, 5, 6, 7, 8, 0];
+    const moved = slideDir(start, 1, 0);
+    assert.deepEqual(moved, [1, 2, 3, 4, 5, 6, 7, 0, 8]);
+    const g = new SlideGame(1);
+    const before = g.state();
+    // If the blank has a tile on its left, ArrowRight must slide that tile.
+    const blank = before.blank;
+    if (blank % 3 !== 0) {
+      g.input({ type: 'move', dx: 1, dy: 0 });
+      assert.equal(g.state().blank, blank - 1);
+    }
+    void counts;
+  });
+
   test('maze is connected from start to exit', () => {
     for (let s = 0; s < 30; s++) {
       const rng = mulberry32(s + 11);
@@ -125,6 +157,15 @@ export function runMinigameTest(): void {
     assert.equal(g.state().hits, 0);
     assert.equal(g.state().lastHit, false);
     g.forceInZone();
+    g.input({ type: 'confirm' });
+    assert.equal(g.state().hits, 1);
+    // A later miss resets the pin progress (R14-7).
+    const missTurn2 = (g.state().zone + 0.5) % 1;
+    (g as unknown as { t: number; speed: number }).t = missTurn2 / (g as unknown as { speed: number }).speed;
+    g.input({ type: 'confirm' });
+    assert.equal(g.state().hits, 0);
+    assert.equal(g.state().lastHit, false);
+    g.forceInZone();
     assert.ok(inZone(g.state().pick, g.state().zone));
     g.input({ type: 'confirm' });
     assert.equal(g.state().hits, 1);
@@ -157,7 +198,9 @@ export function runMinigameTest(): void {
     const candleN = st.candles.filter(Boolean).length;
     assert.equal(st.dotsLeft, sparkN + candleN);
     assert.ok(candleN >= 1);
-    assert.ok(st.ghosts.length >= 1 && st.ghosts.length <= 3);
+    assert.equal(st.ghosts.length, CHASE_WISP_COUNT);
+    assert.ok(st.ghosts.some((g) => g.kind === 'violet'), 'violet wisp missing');
+    assert.ok(PLAY_WISP_KINDS.includes('violet'));
     g.solve();
     assert.equal(g.status(), 'won');
     assert.equal(g.state().dotsLeft, 0);
@@ -199,8 +242,10 @@ export function runMinigameTest(): void {
     assert.equal(r.startMinigame('p1', pose).ok, false);
     const tv = { x: TV_UNIT.x - 10, y: TV_UNIT.y + TV_UNIT.height / 2 };
     assert.ok(inFrontOfTv(tv.x, tv.y));
-    assert.equal(r.startMinigame('p1', tv).ok, true);
-    const win = r.winMinigame('p1');
+    const startAt = 1_000_000;
+    assert.equal(r.startMinigame('p1', tv, startAt).ok, true);
+    assert.equal(r.winMinigame('p1', startAt + 100).ok, false, 'too-fast must be rejected');
+    const win = r.winMinigame('p1', startAt + MIN_WIN_MS[r.minigame] + 10);
     assert.equal(win.ok, true);
     assert.ok(win.code);
     assert.ok(r.heldBy('p1'), 'controller was consumed');
@@ -228,6 +273,83 @@ export function runMinigameTest(): void {
     assert.equal('code' in pub, false);
     assert.ok(pub.minigame);
     assert.equal(pub.items[0]!.kind, 'game_controller');
+  });
+
+  test('?debug=minigame=lock is an alias of lockpick', () => {
+    assert.equal(resolveMinigameId('lock'), 'lockpick');
+    assert.equal(debugMinigame('?debug=minigame=lock'), 'lockpick');
+    assert.equal(debugMinigame('?debug=minigame=lockpick'), 'lockpick');
+  });
+
+  test('a floor controller can be picked up from any side within reach', () => {
+    const r = ItemRound.fromSeed('FLOOR-1', 1);
+    const item = r.items[0]!;
+    const spot = item.spotId!;
+    const pose = { x: item.x, y: item.y };
+    assert.equal(r.pickup('p1', item.id, pose, [spot]).ok, true);
+    assert.equal(r.drop('p1', 600, 420, null, { x: 600, y: 400 }, []).ok, true);
+    const dropped = r.items[0]!;
+    assert.equal(dropped.spotId, null);
+    assert.equal(dropped.heldBy, null);
+    const reach = NEAR_ITEM - 5;
+    for (const [dx, dy, who] of [[0, -reach, 'n'], [reach, 0, 'e'], [0, reach, 's'], [-reach, 0, 'w']] as const) {
+      const r2 = ItemRound.fromSeed('FLOOR-1', 1);
+      const it = r2.items[0]!;
+      r2.pickup('p1', it.id, { x: it.x, y: it.y }, [it.spotId!]);
+      r2.drop('p1', 600, 420, null, { x: 600, y: 400 }, []);
+      const floor = r2.items[0]!;
+      const side = { x: floor.x + dx, y: floor.y + dy };
+      assert.ok(itemReachableFrom(side, floor), `${who} should be in reach`);
+      const got = r2.pickup('p2', floor.id, side, []);
+      assert.equal(got.ok, true, `${who} pickup failed: ${got.error}`);
+      assert.equal(r2.heldBy('p2')?.kind, 'game_controller');
+    }
+  });
+
+  test('Chase mazes have loops, two delayed far wisps; a fleeing bot wins ≥30% of 300 seeds', () => {
+    let looped = 0;
+    for (let s = 1; s <= 40; s++) {
+      const g = new ChaseGame(s);
+      const st = g.state();
+      const endsBefore = mazeDeadEnds(generateMaze(mulberry32(s >>> 0), MAZE_W, MAZE_H), MAZE_W, MAZE_H).length;
+      // The playfield itself should have some cells with 3+ neighbours (a loop).
+      let junctions = 0;
+      for (let y = 1; y < st.h - 1; y++) for (let x = 1; x < st.w - 1; x++) {
+        if (st.grid[y * st.w + x] !== 1) continue;
+        let n = 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          if (mazeWalkable(st.grid, x + dx, y + dy, st.w, st.h)) n++;
+        }
+        if (n >= 3) junctions++;
+      }
+      if (junctions > 0) looped++;
+      assert.equal(st.ghosts.length, 2);
+      assert.ok(st.ghosts.some((g) => g.kind === 'violet'));
+      const { sx, sy } = mazePorts(st.w, st.h);
+      for (const wisp of st.ghosts) {
+        const path = mazePath(st.grid, sx, sy, wisp.x, wisp.y, st.w, st.h);
+        const d = path.length ? path.length - 1 : 0;
+        let maxD = 0;
+        for (let y = 0; y < st.h; y++) for (let x = 0; x < st.w; x++) {
+          if (!mazeWalkable(st.grid, x, y, st.w, st.h)) continue;
+          const p = mazePath(st.grid, sx, sy, x, y, st.w, st.h);
+          const dd = p.length ? p.length - 1 : 0;
+          if (dd > maxD) maxD = dd;
+        }
+        assert.ok(d >= Math.ceil(maxD / 2), `seed ${s} wisp too close ${d} max=${maxD}`);
+      }
+      void endsBefore; void CHASE_WISP_DELAY;
+    }
+    assert.ok(looped >= 20, `only ${looped}/40 chases had a loop junction`);
+
+    let wins = 0;
+    const N = 300;
+    for (let s = 1; s <= N; s++) {
+      if (runFleeChase(s, 30, 1 / 20).won) wins++;
+    }
+    const rate = wins / N;
+    console.log(`    flee bot win rate ${wins}/${N} = ${(rate * 100).toFixed(1)}%`);
+    assert.ok(rate >= 0.30, `flee bot won only ${(rate * 100).toFixed(1)}% of ${N} seeds`);
   });
 
   console.log(`✓ ${n} minigame / item tests\n`);

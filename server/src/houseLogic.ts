@@ -207,12 +207,12 @@ export class HouseLogic {
   start(session: string): LobbyResult {
     if (this.started) return { ok: false, error: 'bad-setting' };
     const r = this.act(session, (l, id) => l.start(id));
-    if (r.ok) this.items = ItemRound.fromSeed(this.code, 1);
+    if (r.ok) this.items = ItemRound.fromServerRandom(1);
     return r;
   }
 
-  roundPublic(): RoundPublic | null { return this.items?.publicView() ?? null; }
-  itemList(): PublicItem[] { return this.items?.items.map((i) => ({ ...i })) ?? []; }
+  roundPublic(): RoundPublic | null { return this.items?.publicView(this.openSpots()) ?? null; }
+  itemList(): PublicItem[] { return this.items?.publicView(this.openSpots()).items ?? []; }
 
   private poseOf(playerId: string): { x: number; y: number } | null {
     const t = this.poses.get(playerId);
@@ -233,20 +233,28 @@ export class HouseLogic {
     if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
     if (!isObj(msg) || !finite(msg.x) || !finite(msg.y)) return { ok: false, error: 'bad-pos' };
     const spot = typeof msg.spotId === 'string' && SPOT_ID.test(msg.spotId) ? msg.spotId : null;
-    return this.items.drop(id, msg.x, msg.y, spot);
+    const pose = this.poseOf(id) ?? { x: 0, y: 0 };
+    return this.items.drop(id, msg.x, msg.y, spot, pose, this.openSpots());
   }
 
-  startMinigame(session: string): { ok: boolean; error?: string } {
+  startMinigame(session: string, now = Date.now()): { ok: boolean; error?: string } {
     const id = this.bySession.get(session);
     if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
     const pose = this.poseOf(id) ?? { x: 0, y: 0 };
-    return this.items.startMinigame(id, pose);
+    return this.items.startMinigame(id, pose, now);
   }
 
-  winMinigame(session: string): { ok: boolean; error?: string; code?: EscapeCode } {
+  cancelMinigame(session: string): { ok: boolean; error?: string } {
     const id = this.bySession.get(session);
     if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
-    return this.items.winMinigame(id);
+    this.items.cancelMinigame(id);
+    return { ok: true };
+  }
+
+  winMinigame(session: string, now = Date.now()): { ok: boolean; error?: string; code?: EscapeCode } {
+    const id = this.bySession.get(session);
+    if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
+    return this.items.winMinigame(id, now);
   }
 
 
