@@ -452,7 +452,7 @@ export class GameScene extends Phaser.Scene {
   private promptLift = 0;
 
   /** Most a prompt correction may move the camera per 60 Hz frame, in world px. */
-  static readonly CAMERA_STEP = 2;
+  static readonly CAMERA_STEP = 3;
 
   /** CSS px kept between the prompt's bottom edge and a highlighted spot. */
   static readonly PROMPT_CLEARANCE_CSS = 6;
