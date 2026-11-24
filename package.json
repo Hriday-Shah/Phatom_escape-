@@ -15,7 +15,8 @@
     "test": "npm run test -w client && npm run test -w server",
     "check:media": "node scripts/check-media.mjs",
     "server": "npm run start -w server",
-    "check:luminance": "node scripts/luminance-check.mjs"
+    "check:luminance": "node scripts/luminance-check.mjs",
+    "check:leak": "node scripts/leak-check.mjs"
   },
   "engines": {
     "node": ">=18.0.0"

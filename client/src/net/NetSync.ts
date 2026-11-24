@@ -87,7 +87,9 @@ export class NetSync {
 
   private tick(): void {
     const now = performance.now();
-    for (const r of this.remotes.values()) r.update(now);
+    const list = [...this.remotes.values()];
+    for (const r of list) r.update(now);
+    staggerLabels(list);
     if (now < this.nextSend) return;
     this.nextSend = now + 1000 / SEND_HZ;
     const v = this.me.getBody().velocity;
@@ -107,6 +109,7 @@ export class NetSync {
   }
 
   private destroyed = false;
+
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
@@ -114,5 +117,15 @@ export class NetSync {
     this.unsubs.forEach((u) => u());
     this.remotes.forEach((r) => r.destroy());
     this.remotes.clear();
+  }
+}
+
+/** Raise later labels when two remotes would print on top of each other (R13-2). */
+function staggerLabels(rs: RemotePlayer[]): void {
+  const sorted = [...rs].sort((a, b) => a.x - b.x || a.y - b.y);
+  for (const r of sorted) r.setLabelLift(0);
+  for (let i = 1; i < sorted.length; i++) {
+    const a = sorted[i - 1], b = sorted[i];
+    if (Math.abs(a.x - b.x) < 80 && Math.abs(a.y - b.y) < 28) b.setLabelLift(12);
   }
 }

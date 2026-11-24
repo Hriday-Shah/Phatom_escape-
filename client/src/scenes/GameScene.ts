@@ -13,6 +13,7 @@ import { gameDpr } from '../config/display';
 import { hasDebugFlag } from '../config/debugFlags';
 import { currentShellLayout, watchInsets } from '../ui/currentLayout';
 import { snappedCameraZoom } from '../logic/cameraZoom';
+import { onlineSpawnPoint } from '../logic/onlineSpawn';
 
 export { snappedCameraZoom };
 
@@ -130,13 +131,13 @@ export class GameScene extends Phaser.Scene {
       ...houseLayout.walls,
       ...houseLayout.doors.filter((d) => isDoorLocked(d.id, d.locked, debugUnlock)),
     ];
-    const furniture = [
+    const furniture = LIGHT_OCCLUDERS === 'furniture' ? [
       ...houseLayout.hidingSpots,
       ...houseLayout.furniture.filter((f) => f.blocking),
-    ];
-    const occluders = LIGHT_OCCLUDERS === 'furniture' ? [...wallsAndDoors, ...furniture] : wallsAndDoors;
-    const litRects = LIGHT_OCCLUDERS === 'furniture' ? furniture : [];
-    this.lightLayer = new LightLayer(this, GameScene.lightRadius(this.cache.json.get('artManifest')), occluders, litRects);
+    ] : [];
+    this.lightLayer = new LightLayer(
+      this, GameScene.lightRadius(this.cache.json.get('artManifest')), wallsAndDoors, furniture,
+    );
     // After Arcade has synced the body to the sprite (POST_UPDATE), so the light never lags.
     const sync = () => this.lightLayer?.update(this.player.x, this.player.y);
     this.events.on(Phaser.Scenes.Events.POST_UPDATE, sync);
@@ -391,14 +392,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Online: spread players around the spawn by their place in the room (a row of 4, two rows)
-   * so they don't all start on top of each other. Offline: the spawn as is.
+   * Online: spread players on a walkable grid around the spawn (label-width spacing).
+   * Offline, or a dev ?spawn=, uses the spawn as is.
    */
   private onlineSpawn(p: { x: number; y: number }): { x: number; y: number } {
     const net = this.registry.get('net') as GameLink | null | undefined;
     if (!net || new URLSearchParams(window.location.search).has('spawn')) return p;
     const i = Math.max(0, net.players().findIndex((q) => q.id === net.selfId));
-    return { x: p.x + ((i % 4) - 1.5) * 36, y: p.y + (i < 4 ? 0 : 26) };
+    return onlineSpawnPoint(p, i);
   }
 
   private getSpawnPoint(): { x: number; y: number } {
