@@ -60,8 +60,7 @@
   padding: var(--pe-pad);
   background: var(--pe-screen);
   border: var(--pe-border) solid var(--pe-outline);
-  outline: var(--pe-border) solid var(--pe-bezel);
-  outline-offset: calc(-2 * var(--pe-border));
+  box-shadow: inset 0 0 0 var(--pe-border) var(--pe-bezel);
   border-radius: var(--pe-radius);
 }
 
@@ -119,7 +118,11 @@
 #pe-home button:active { transform: translateY(1px); background: var(--pe-shell-dark); }
 #pe-home button.pe-primary { background: var(--pe-accent); }
 #pe-home button[aria-pressed='false'] { color: var(--pe-muted); }
+/* Focus ring only for keyboard focus (:focus-visible), never after a click or tap. */
+#pe-home :focus:not(:focus-visible) { outline: none; }
 #pe-home :focus-visible { outline: 3px solid var(--pe-focus); outline-offset: 2px; }
+#pe-home .pe-screen:focus { outline: none; } /* views get focus only to move it silently */
+#pe-home button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 #pe-join-message { min-height: 1.35em; margin: 0; color: var(--pe-muted); }
 

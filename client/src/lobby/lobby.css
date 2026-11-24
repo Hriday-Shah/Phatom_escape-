@@ -1,0 +1,70 @@
+/*
+ * Placeholder lobby (#pe-lobby). Uses the theme variables in home.css :root; the two lobby-only
+ * values are below. Restyle freely; behaviour only relies on the ids.
+ */
+:root {
+  --pe-swatch-size: 48px;       /* colour buttons / >= touch size */
+  --pe-ready: #7fd18b;          /* "Ready" text */
+}
+
+#pe-lobby { display: flex; flex-direction: column; gap: var(--pe-gap); }
+#pe-lobby-header { display: flex; flex-direction: column; gap: 4px; }
+#pe-lobby-title { margin: 0; }
+#pe-lobby-code-box { display: flex; flex-wrap: wrap; align-items: center; gap: var(--pe-gap); }
+#pe-lobby-code-label { color: var(--pe-muted); }
+#pe-lobby-code { font-size: 24px; letter-spacing: 0.15em; font-family: ui-monospace, Menlo, Consolas, monospace; }
+#pe-lobby-link { flex: 1 1 100%; }
+#pe-lobby-copy-status { margin: 0; color: var(--pe-muted); flex-basis: 100%; }
+#pe-lobby-copy-status:empty { display: none; }
+#pe-lobby-notice { margin: 0; }
+
+#pe-lobby-body { display: grid; gap: var(--pe-gap); grid-template-columns: 1fr; }
+@media (orientation: landscape) {
+  #pe-lobby-body { grid-template-columns: 1fr 1fr; align-items: start; }
+}
+#pe-lobby-side { display: flex; flex-direction: column; gap: var(--pe-gap); min-width: 0; }
+
+#pe-lobby-player-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pe-lobby-player {
+  display: flex; align-items: center; gap: 10px; min-height: calc(var(--pe-touch) + 4px);
+  padding: 0 10px; background: var(--pe-bezel); border: 2px solid var(--pe-outline); border-radius: var(--pe-radius);
+}
+.pe-lobby-player.pe-self { border-color: var(--pe-muted); }
+.pe-lobby-swatch { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--pe-swatch); border: 2px solid var(--pe-outline); }
+.pe-lobby-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-lobby-tags { display: flex; gap: 6px; flex: none; font-size: 14px; }
+.pe-lobby-host-badge { padding: 0 6px; border-radius: 4px; background: var(--pe-accent); color: var(--pe-button-text); }
+.pe-lobby-ready-state { color: var(--pe-muted); }
+.pe-lobby-ready-state[data-ready='true'] { color: var(--pe-ready); }
+#pe-home .pe-lobby-kick { flex: none; padding: 0 10px; margin-right: -10px; border-width: 0 0 0 2px; border-radius: 0 calc(var(--pe-radius) - 2px) calc(var(--pe-radius) - 2px) 0; }
+
+#pe-lobby-colours { border: 0; margin: 0; padding: 0; min-width: 0; }
+#pe-lobby-colours legend { padding: 0; margin-bottom: 4px; font-weight: 700; font-size: 18px; }
+#pe-lobby-colour-grid { display: grid; grid-template-columns: repeat(4, var(--pe-swatch-size)); gap: 8px; }
+#pe-home .pe-colour {
+  width: var(--pe-swatch-size); height: var(--pe-swatch-size); min-width: 0; padding: 0;
+  background: var(--pe-swatch); border: 3px solid var(--pe-outline);
+}
+#pe-home .pe-colour[aria-pressed='true'] { box-shadow: 0 0 0 3px var(--pe-text); }
+#pe-home .pe-colour:disabled { opacity: 0.25; cursor: not-allowed; }
+#pe-home .pe-colour:disabled::after { content: '×'; color: var(--pe-outline); font-size: 28px; line-height: 1; }
+
+#pe-lobby-host-settings { display: grid; grid-template-columns: auto 1fr; gap: 6px var(--pe-gap); align-items: center; }
+#pe-lobby-host-settings label { color: var(--pe-muted); }
+#pe-home select {
+  min-height: var(--pe-touch); padding: 0 8px; font: inherit; color: var(--pe-text);
+  background: var(--pe-bezel); border: 2px solid var(--pe-outline); border-radius: var(--pe-radius);
+}
+#pe-lobby-settings-readonly { display: grid; grid-template-columns: auto 1fr; gap: 4px var(--pe-gap); margin: 0; }
+#pe-lobby-settings-readonly dt { color: var(--pe-muted); }
+#pe-lobby-settings-readonly dd { margin: 0; }
+
+/* Actions stay reachable at the bottom of the scrolling screen. */
+#pe-lobby-actions {
+  position: sticky; bottom: calc(-1 * var(--pe-pad)); margin: 0 calc(-1 * var(--pe-pad)) calc(-1 * var(--pe-pad));
+  padding: var(--pe-gap) var(--pe-pad); background: var(--pe-screen); border-top: 2px solid var(--pe-bezel);
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--pe-gap);
+}
+#pe-lobby-actions > button { flex: 1 1 auto; }
+#pe-lobby-wait { margin: 0; flex: 1 1 12em; text-align: center; }
+#pe-lobby-ready[aria-pressed='true'] { color: var(--pe-ready); }
