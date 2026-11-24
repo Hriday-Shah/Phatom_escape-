@@ -117,7 +117,17 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
       } catch { return 'unreachable'; }
     }
     if (/locked/i.test(msg)) return 'full';
-    return /fetch|network|ECONN|offline|Failed/i.test(msg) || !msg ? 'unreachable' : 'unknown';
+    // Anything else: unreachable unless the server answers its health check.
+    return (await ColyseusLobbyService.reachable(server)) ? 'unknown' : 'unreachable';
+  }
+
+  private static async reachable(server: string): Promise<boolean> {
+    try {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 5000);
+      const r = await fetch(`${httpBase(server)}/health`, { cache: 'no-store', signal: ctl.signal });
+      clearTimeout(t);
+      return r.ok;
+    } catch { return false; }
   }
 
   // ---- LobbyService ----
