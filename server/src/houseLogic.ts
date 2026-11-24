@@ -11,10 +11,16 @@ import {
   ColourId, LobbyPlayer, LobbyResult, LobbyRoom, LobbySettings, MAX_PLAYERS, PLAYER_COLOURS, validSettings,
 } from '../../client/src/lobby/lobby';
 import { displayNickname } from '../../client/src/home/settings';
+import { randomBytes, randomInt } from 'node:crypto';
 import { PLAYER_SPEED } from '../../client/src/config/physicsConfig';
-import { ItemRound, RoundPublic } from '../../client/src/logic/itemRound';
+import { ItemRound, RoundPublic, createServerRoundFrom } from '../../client/src/logic/itemRound';
 import { EscapeCode } from '../../client/src/logic/escapeCode';
 import { PublicItem } from '../../client/src/logic/items';
+import { onlineSpawnSlots } from '../../client/src/logic/onlineSpawn';
+import {
+  canUseSpot, clampMove, hasLineOfSight, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, spotById,
+} from '../../client/src/logic/worldCollision';
+import type { PlayView } from '../../client/src/logic/minigames/replay';
 
 export type JoinError = 'full' | 'started';
 /** A lobby player as everyone sees it; `away` = dropped, the seat is kept while they reconnect. */
@@ -97,6 +103,8 @@ export class HouseLogic {
   private poses = new Map<string, Track>();
   /** Open / closed state of every hiding / search spot touched (drawers, sofa, bed, ...). */
   private spots = new Map<string, boolean>();
+  /** Who last opened each currently-open spot (they may see its contents). */
+  private spotOpener = new Map<string, string>();
   /** Dropped players (by session) whose seats are held for reconnection. */
   private away = new Set<string>();
   /** Movement corrections (speed sanity) since start, for logs / tests. */
@@ -204,15 +212,61 @@ export class HouseLogic {
     if (s) { this.bySession.delete(s); this.away.delete(s); this.poses.delete(target); }
     return { ok: true, session: s };
   }
-  start(session: string): LobbyResult {
+  start(session: string, now = Date.now()): LobbyResult {
     if (this.started) return { ok: false, error: 'bad-setting' };
     const r = this.act(session, (l, id) => l.start(id));
-    if (r.ok) this.items = ItemRound.fromServerRandom(1);
+    if (r.ok) {
+      // Independent CSPRNG streams: gameSeed (public, game + visuals) vs secret hex (never sent).
+      const gameSeed = randomInt(0, 0x1_0000_0000);
+      const secretHex = randomBytes(16).toString('hex');
+      this.items = new ItemRound(createServerRoundFrom(gameSeed, secretHex, 1));
+      // Official walkable spawns around the entrance — the first pos is not a free teleport.
+      const players = this.lobby?.state.players ?? [];
+      const slots = onlineSpawnSlots({ x: 300, y: 430 }, Math.max(players.length, 1));
+      players.forEach((p, i) => {
+        const s = slots[i % slots.length]!;
+        this.poses.set(p.id, { pose: { x: s.x, y: s.y, d: 0, m: 0 }, at: now, dirty: true });
+      });
+    }
     return r;
   }
 
-  roundPublic(): RoundPublic | null { return this.items?.publicView(this.openSpots()) ?? null; }
-  itemList(): PublicItem[] { return this.items?.publicView(this.openSpots()).items ?? []; }
+  /** Public round (game choice + seed). Items are omitted — send itemListFor per player (R15-3). */
+  roundPublic(): RoundPublic | null {
+    if (!this.items) return null;
+    return { minigame: this.items.minigame, gameSeed: this.items.gameSeed, items: [] };
+  }
+
+  /**
+   * Items this player may see (R15-3): always their held item; contents of a closed
+   * spot never; contents of an open spot only if they opened it or have line of
+   * sight to it; floor / held-by-other items only with line of sight.
+   */
+  itemListFor(playerId: string): PublicItem[] {
+    if (!this.items) return [];
+    const pose = this.poseOf(playerId);
+    if (!pose) return [];
+    const open = new Set(this.openSpots());
+    const blockers = losBlockers();
+    const out: PublicItem[] = [];
+    for (const item of this.items.items) {
+      if (item.heldBy === playerId) { out.push({ ...item }); continue; }
+      if (item.spotId) {
+        if (!open.has(item.spotId)) continue;
+        const spot = spotById(item.spotId);
+        if (!spot) continue;
+        const opener = this.spotOpener.get(item.spotId);
+        const canSee = opener === playerId || hasLineOfSight(pose.x, pose.y, spot.x + spot.width / 2, spot.y + spot.height / 2, blockers);
+        if (!canSee) continue;
+        out.push({ ...item });
+        continue;
+      }
+      const target = item.heldBy ? (this.poseOf(item.heldBy) ?? { x: item.x, y: item.y }) : { x: item.x, y: item.y };
+      if (!hasLineOfSight(pose.x, pose.y, target.x, target.y, blockers)) continue;
+      out.push({ ...item });
+    }
+    return out;
+  }
 
   private poseOf(playerId: string): { x: number; y: number } | null {
     const t = this.poses.get(playerId);
@@ -237,11 +291,23 @@ export class HouseLogic {
     return this.items.drop(id, msg.x, msg.y, spot, pose, this.openSpots());
   }
 
-  startMinigame(session: string, now = Date.now()): { ok: boolean; error?: string } {
+  startMinigame(session: string, now = Date.now()): { ok: boolean; error?: string; minigame?: string; gameSeed?: number; puzzle?: PlayView } {
     const id = this.bySession.get(session);
     if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
-    const pose = this.poseOf(id) ?? { x: 0, y: 0 };
+    const pose = this.poseOf(id);
+    if (!pose) return { ok: false, error: 'no-pose' };
     return this.items.startMinigame(id, pose, now);
+  }
+
+  /** Memory: reveal one card face to the player who flipped it (R15-2). */
+  inputMinigame(session: string, msg: unknown): { ok: boolean; error?: string; index?: number; face?: number } {
+    const id = this.bySession.get(session);
+    if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
+    if (!this.items.isPlaying(id)) return { ok: false, error: 'no-start' };
+    const index = isObj(msg) && finite(msg.index) ? Math.trunc(msg.index) : NaN;
+    const face = this.items.memoryFace(index);
+    if (face == null) return { ok: false, error: 'no-reveal' };
+    return { ok: true, index, face };
   }
 
   cancelMinigame(session: string): { ok: boolean; error?: string } {
@@ -251,40 +317,60 @@ export class HouseLogic {
     return { ok: true };
   }
 
-  winMinigame(session: string, now = Date.now()): { ok: boolean; error?: string; code?: EscapeCode } {
+  winMinigame(session: string, now = Date.now(), log?: unknown): { ok: boolean; error?: string; code?: EscapeCode } {
     const id = this.bySession.get(session);
     if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
-    return this.items.winMinigame(id, now);
+    return this.items.winMinigame(id, now, log, true);
+  }
+
+  /** Test-only: place a player at a walkable pose. Not a network message. */
+  setPoseForTest(session: string, pose: Pose, now = Date.now()): void {
+    const id = this.bySession.get(session);
+    if (!id) return;
+    this.poses.set(id, { pose: { ...pose }, at: now, dirty: true });
+  }
+
+  poseForTest(session: string): Pose | null {
+    const id = this.bySession.get(session);
+    if (!id) return null;
+    return this.poses.get(id)?.pose ?? null;
   }
 
 
   /**
-   * In-game movement. The first pose is taken as the spawn; later ones may move at most
-   * speed x elapsed (with slack); a longer jump is cut back to that distance along the way.
-   * Returns the pose kept, or null when dropped (not started / unknown player / invalid).
+   * In-game movement. Official spawns are set at start(). Later poses are speed-clamped
+   * and then collided against the same wall / furniture geometry the client uses (R15-4).
+   * A wall-crossing request is clamped to the last free point on the segment.
    */
   move(session: string, msg: unknown, now: number): Pose | null {
     const id = this.bySession.get(session);
     if (!id || !this.started) return null;
     const p = parse.pos(msg); if (!p) return null;
     const prev = this.poses.get(id);
-    if (prev) {
-      const dt = Math.min(MAX_ELAPSED_MS, Math.max(0, now - prev.at));
-      const max = (PLAYER_SPEED * dt / 1000) * SPEED_SLACK + SPEED_JITTER_PX;
-      const dx = p.x - prev.pose.x, dy = p.y - prev.pose.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist > max) {
-        const k = max / dist;
-        p.x = Math.round((prev.pose.x + dx * k) * 10) / 10;
-        p.y = Math.round((prev.pose.y + dy * k) * 10) / 10;
-        this.corrections++;
-      }
+    if (!prev) return null; // no free first-pose teleport; start() assigns a spawn
+    const dt = Math.min(MAX_ELAPSED_MS, Math.max(0, now - prev.at));
+    const max = (PLAYER_SPEED * dt / 1000) * SPEED_SLACK + SPEED_JITTER_PX;
+    const dx = p.x - prev.pose.x, dy = p.y - prev.pose.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > max) {
+      const k = max / dist;
+      p.x = Math.round((prev.pose.x + dx * k) * 10) / 10;
+      p.y = Math.round((prev.pose.y + dy * k) * 10) / 10;
+      this.corrections++;
     }
+    const blockers = movementBlockers(false);
+    const clamped = clampMove(prev.pose, p, blockers, PLAYER_BODY_RADIUS);
+    if (clamped.blocked) this.corrections++;
+    p.x = clamped.x;
+    p.y = clamped.y;
     this.poses.set(id, { pose: p, at: now, dirty: true });
     return p;
   }
 
-  /** Poses changed since the last call: [playerId, x, y, d, m][] (the broadcast tick). */
+  /**
+   * TODO(stage 3): per-player interest management for positions — broadcast only
+   * poses a client can actually see, instead of every pose to everyone.
+   */
   takeDirtyPoses(): [string, number, number, number, number][] {
     const out: [string, number, number, number, number][] = [];
     for (const [id, t] of this.poses) if (t.dirty) { t.dirty = false; out.push([id, t.pose.x, t.pose.y, t.pose.d, t.pose.m]); }
@@ -299,9 +385,14 @@ export class HouseLogic {
     const by = this.bySession.get(session);
     if (!by || !this.started || this.away.has(session)) return null;
     const d = parse.spot(msg); if (!d) return null;
-    if (!this.spots.has(d.id) && this.spots.size >= MAX_SPOTS) return null;
-    if (this.spots.get(d.id) === d.open) return null; // no change, nothing to broadcast
+    // Only real house spots (unknown ids such as kitchen_d1 are refused).
+    if (!spotById(d.id)) return null;
+    const pose = this.poseOf(by);
+    if (!pose || !canUseSpot(pose, d.id)) return null;
+    if (this.spots.get(d.id) === d.open) return null;
     this.spots.set(d.id, d.open);
+    if (d.open) this.spotOpener.set(d.id, by);
+    else this.spotOpener.delete(d.id);
     return { ...d, by };
   }
   /** Every open spot (the full state a (re)joining client applies; anything else is closed). */

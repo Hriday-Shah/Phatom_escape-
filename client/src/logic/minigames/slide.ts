@@ -153,9 +153,12 @@ export class SlideGame implements MinigameEngine<SlideState> {
   private tiles: number[];
   private won = false;
 
-  constructor(seed = 1) {
-    this.tiles = makeSolvableBoard(mulberry32(seed >>> 0));
+  constructor(seed = 1, tiles?: number[]) {
+    this.tiles = tiles ? tiles.slice() : makeSolvableBoard(mulberry32(seed >>> 0));
   }
+
+  static fromPuzzle(p: { tiles: number[] }): SlideGame { return new SlideGame(1, p.tiles); }
+  puzzle(): { tiles: number[] } { return { tiles: this.tiles.slice() }; }
 
   state(): SlideState { return { tiles: this.tiles.slice(), blank: this.tiles.indexOf(0) }; }
   status(): MinigameStatus { return this.won || isSolved(this.tiles) ? 'won' : 'playing'; }

@@ -28,13 +28,31 @@ export class MemoryGame implements MinigameEngine<MemoryState> {
   /** Cursor for keyboard selection. */
   cursor = 0;
 
-  constructor(seed = 1) {
-    const rng = mulberry32(seed >>> 0);
-    const ids: number[] = [];
-    for (let i = 0; i < MEMORY_PAIRS; i++) ids.push(i, i);
-    this.cards = shuffle(rng, ids);
+  constructor(seed = 1, cards?: number[]) {
+    if (cards) {
+      this.cards = cards.slice();
+    } else {
+      const rng = mulberry32(seed >>> 0);
+      const ids: number[] = [];
+      for (let i = 0; i < MEMORY_PAIRS; i++) ids.push(i, i);
+      this.cards = shuffle(rng, ids);
+    }
     this.faceUp = Array(MEMORY_CARDS).fill(false);
     this.matched = Array(MEMORY_CARDS).fill(false);
+  }
+
+  static fromPuzzle(p: { cards: number[] }): MemoryGame { return new MemoryGame(1, p.cards); }
+  puzzle(): { cards: number[] } { return { cards: this.cards.slice() }; }
+
+  /** Layout with unrevealed faces hidden (for the client play view). */
+  maskedCards(): number[] {
+    return this.cards.map((c, i) => (this.faceUp[i] || this.matched[i]) ? c : -1);
+  }
+
+  /** Apply a server-side reveal of one card face (online). */
+  revealFace(index: number, face: number): void {
+    if (index < 0 || index >= MEMORY_CARDS) return;
+    this.cards[index] = face;
   }
 
   state(): MemoryState {

@@ -4,7 +4,10 @@ import { HouseLogic, MAX_ELAPSED_MS, RateLimiter, SPEED_JITTER_PX, SPEED_SLACK, 
 import { DEFAULT_SETTINGS, MAX_PLAYERS, maxPhantoms, PLAYER_COLOURS, SETTING_LIMITS } from '../../../client/src/lobby/lobby';
 import { PLAYER_SPEED } from '../../../client/src/config/physicsConfig';
 import { originAllowed, parseOrigins } from '../origins';
-import { MIN_WIN_MS, createRound } from '../../../client/src/logic/itemRound';
+import { randomBytes } from 'node:crypto';
+import { MIN_WIN_MS, createRound, createServerRoundFrom, hidingSpotList } from '../../../client/src/logic/itemRound';
+import { canUseSpot, clampDrop, losBlockers, movementBlockers, pointBlocked, spotById } from '../../../client/src/logic/worldCollision';
+import { solvingLog, replayWin, createPuzzle } from '../../../client/src/logic/minigames/replay';
 
 let n = 0;
 const test = (name: string, f: () => void) => { f(); n++; console.log(`  ✓ ${name}`); };
@@ -15,6 +18,32 @@ function room(players = 3): HouseLogic {
   return h;
 }
 const pl = (h: HouseLogic, s: string) => h.snapshot().players.find((p) => p.id === h.playerId(s))!;
+
+function beside(spotId: string): { x: number; y: number } {
+  const s = spotById(spotId);
+  if (!s) throw new Error(`no spot ${spotId}`);
+  const blockers = movementBlockers();
+  const cx = s.x + s.width / 2, cy = s.y + s.height / 2;
+  for (const d of [20, 28, 36, 48, 60, 70, 84]) {
+    for (const [dx, dy] of [[0, d], [0, -d], [d, 0], [-d, 0], [d, d], [-d, d], [d, -d], [-d, -d]]) {
+      const p = { x: cx + dx, y: cy + dy };
+      if (!pointBlocked(p.x, p.y, blockers) && canUseSpot(p, spotId)) return p;
+    }
+  }
+  throw new Error(`no walkable pose beside ${spotId}`);
+}
+
+function stand(h: HouseLogic, session: string, x: number, y: number, now = Date.now()): void {
+  h.setPoseForTest(session, { x, y, d: 0, m: 0 }, now);
+}
+
+function standAtSpot(h: HouseLogic, session: string, spotId: string, now = Date.now()): { x: number; y: number } {
+  const p = beside(spotId);
+  stand(h, session, p.x, p.y, now);
+  return p;
+}
+
+function winLog(h: HouseLogic) { return solvingLog(h.items!.puzzle); }
 
 console.log('Server room logic');
 
@@ -136,45 +165,67 @@ test('no joining once started; start only once', () => {
   assert.equal(h.start('s0').ok, false);
 });
 
-test('movement: only after start, validated, speed-sane', () => {
+
+test('movement: only after start, validated, speed-sane, official spawn', () => {
   const h = room(2);
   assert.equal(h.move('s1', { x: 10, y: 10 }, 0), null); // lobby: dropped
-  h.start('s0');
+  h.start('s0', 0);
+  const spawn = h.poseForTest('s1');
+  assert.ok(spawn, 'start() assigns an official spawn');
+  assert.ok(Math.hypot(spawn!.x - 300, spawn!.y - 430) < 200, `spawn ${spawn!.x},${spawn!.y}`);
   for (const bad of [{ x: 'a', y: 1 }, { x: 1 }, { x: NaN, y: 0 }, { x: 1e9, y: 0 }, null, [1, 2]]) assert.equal(h.move('s1', bad, 0), null);
-  assert.deepEqual(h.move('s1', { x: 100, y: 100, d: 2, m: 1 }, 1000), { x: 100, y: 100, d: 2, m: 1 });
-  // a normal step is kept
+  const jump = h.move('s1', { x: 100, y: 100, d: 2, m: 1 }, 50);
+  assert.ok(jump);
+  assert.ok(Math.hypot(jump!.x - 100, jump!.y - 100) > 20, 'must not teleport to (100,100) in 50 ms');
+  stand(h, 's1', 360, 435, 1000);
   const step = PLAYER_SPEED * 0.1;
-  assert.equal(h.move('s1', { x: 100 + step, y: 100, d: 9, m: 'x' }, 1100)!.x, 100 + step);
-  assert.equal(h.move('s1', { x: 100 + step, y: 100, d: 9 }, 1150)!.d, 0); // bad d -> 0
-  // a teleport is cut back to the allowed distance
-  const p = h.move('s1', { x: 5000, y: 100 }, 1250)!;
+  const mid = h.move('s1', { x: 360 + step, y: 435, d: 9, m: 'x' }, 1100)!;
+  assert.ok(Math.abs(mid.x - (360 + step)) < 1, `x=${mid.x}`);
+  assert.equal(h.move('s1', { x: mid.x, y: 435, d: 9 }, 1150)!.d, 0);
+  const p = h.move('s1', { x: 5000, y: 435 }, 1250)!;
   const allowed = PLAYER_SPEED * 0.1 * SPEED_SLACK + SPEED_JITTER_PX;
-  assert.ok(Math.abs(p.x - (100 + step + allowed)) < 0.2, `x=${p.x}`);
-  assert.equal(h.corrections, 1);
-  // a long pause allows at most MAX_ELAPSED_MS worth of walking
-  const q = h.move('s1', { x: -5000, y: 100 }, 60_000)!;
+  assert.ok(p.x - mid.x <= allowed + 0.2, `teleport x=${p.x} from ${mid.x}`);
+  assert.ok(h.corrections >= 1);
+  const q = h.move('s1', { x: -5000, y: 435 }, 60_000)!;
   assert.ok(p.x - q.x <= PLAYER_SPEED * MAX_ELAPSED_MS / 1000 * SPEED_SLACK + SPEED_JITTER_PX + 0.2);
   const dirty = h.takeDirtyPoses();
-  assert.equal(dirty.length, 1);
-  assert.equal(dirty[0][0], h.playerId('s1'));
+  assert.ok(dirty.length >= 1);
   assert.equal(h.takeDirtyPoses().length, 0);
 });
 
-test('spots (drawers, sofa, bed...): validated, idempotent, synced state', () => {
+
+test('R15-4: a wall-crossing move is clamped, not accepted', () => {
+  const h = room(1);
+  h.start('s0', 0);
+  stand(h, 's0', 360, 435, 1000);
+  const before = h.poseForTest('s0')!;
+  const hit = h.move('s0', { x: 360, y: 0, d: 0, m: 1 }, 2000)!;
+  assert.ok(hit.y > 50, `must not pass through the north walls (y=${hit.y})`);
+  assert.ok(hit.y <= before.y + 1);
+  assert.equal(pointBlocked(hit.x, hit.y, movementBlockers()), false);
+  assert.ok(h.corrections >= 1);
+});
+
+
+test('spots: unknown ids refused; open/close needs reach and line of sight', () => {
   const h = room(2);
-  assert.equal(h.setSpot('s0', { id: 'kitchen_d1', open: true }), null); // lobby: dropped
-  h.start('s0');
-  assert.deepEqual(h.setSpot('s1', { id: 'kitchen_d1', open: true }), { id: 'kitchen_d1', open: true, by: h.playerId('s1') });
-  assert.equal(h.setSpot('s0', { id: 'kitchen_d1', open: true }), null); // no change
+  assert.equal(h.setSpot('s0', { id: 'sofa_d1', open: true }), null); // lobby: dropped
+  h.start('s0', 0);
+  assert.equal(h.setSpot('s1', { id: 'kitchen_d1', open: true }), null, 'unknown id');
   assert.equal(h.setSpot('s0', { id: '<img onerror>', open: true }), null);
   assert.equal(h.setSpot('s0', { id: 'x'.repeat(100), open: true }), null);
   assert.equal(h.setSpot('s0', { id: 'bed', open: 1 }), null);
   assert.equal(h.setSpot('ghost', { id: 'bed', open: true }), null);
-  assert.deepEqual(h.openSpots(), ['kitchen_d1']);
-  h.setSpot('s0', { id: 'kitchen_d1', open: false });
+  assert.equal(h.setSpot('s0', { id: 'fridge', open: true }), null, 'too far / no LOS');
+  standAtSpot(h, 's0', 'sofa_d1', 2000);
+  const opened = h.setSpot('s0', { id: 'sofa_d1', open: true });
+  assert.deepEqual(opened, { id: 'sofa_d1', open: true, by: h.playerId('s0') });
+  assert.equal(h.setSpot('s0', { id: 'sofa_d1', open: true }), null);
+  assert.deepEqual(h.openSpots(), ['sofa_d1']);
+  h.setSpot('s0', { id: 'sofa_d1', open: false });
   assert.deepEqual(h.openSpots(), []);
   for (let i = 0; i < 300; i++) h.setSpot('s0', { id: `d${i}`, open: true });
-  assert.equal(h.openSpots().length, 255); // + kitchen_d1 (closed) = MAX_DRAWERS ids
+  assert.equal(h.openSpots().length, 0, 'fake ids never accumulate');
 });
 
 test('rate limiter: burst then sustained rate', () => {
@@ -264,17 +315,24 @@ test('stage 2: reconnection window runs out -> removed, host migrates; kicked wh
   assert.equal(h.canJoin(), 'started', 'new players still refused mid-game');
 });
 
+
 test('stage 2: spot state (sofa, bed, drawers) for a returning player; away players cannot act', () => {
   const h = room(2);
-  h.start('s0');
-  h.setSpot('s0', { id: 'sofa_d1', open: true });
-  h.setSpot('s0', { id: 'bed', open: true });
-  h.setSpot('s0', { id: 'kitchen_drawers_d2', open: true });
+  h.start('s0', 0);
+  standAtSpot(h, 's0', 'sofa_d1', 1000);
+  assert.ok(h.setSpot('s0', { id: 'sofa_d1', open: true }));
+  standAtSpot(h, 's0', 'bed', 2000);
+  assert.ok(h.setSpot('s0', { id: 'bed', open: true }));
+  standAtSpot(h, 's0', 'stove_drawers_d2', 3000);
+  assert.ok(h.setSpot('s0', { id: 'stove_drawers_d2', open: true }));
   h.drop('s1');
+  standAtSpot(h, 's1', 'fridge', 4000);
   assert.equal(h.setSpot('s1', { id: 'fridge', open: true }), null, 'away: ignored');
-  h.setSpot('s0', { id: 'bed', open: false }); // closed while s1 was away
+  standAtSpot(h, 's0', 'bed', 5000);
+  h.setSpot('s0', { id: 'bed', open: false });
   h.reconnect('s1');
-  assert.deepEqual(h.openSpots().sort(), ['kitchen_drawers_d2', 'sofa_d1']);
+  assert.deepEqual(h.openSpots().sort(), ['sofa_d1', 'stove_drawers_d2']);
+  standAtSpot(h, 's1', 'fridge', 6000);
   assert.ok(h.setSpot('s1', { id: 'fridge', open: true }));
 });
 
@@ -295,121 +353,182 @@ test('starting a room hides the controller; the public view omits it and the cod
   assert.equal(sameA && sameB && a.items.code.join() === fromCode.code.join() && b.items!.code.join() === fromCode.code.join(), false);
 });
 
+
 test('pickup, TV minigame, private code reveal, controller is not consumed', () => {
   const h = room(2);
   assert.equal(h.start('s0').ok, true);
+  // R15-8: pin the controller far from the TV so startMinigame fails before walking there.
+  h.items!.placeControllerForTest('study_drawer_1');
   const item = h.items!.items[0]!;
   const spot = item.spotId!;
-  h.move('s0', { x: item.x, y: item.y, d: 0, m: 0 }, Date.now());
+  assert.equal(spot, 'study_drawer_1');
+  standAtSpot(h, 's0', spot, Date.now());
   assert.equal(h.setSpot('s0', { id: spot, open: true })?.open, true);
-  assert.equal(h.roundPublic()!.items.length, 1, 'open spot reveals the controller');
+  assert.equal(h.roundPublic()!.items.length, 0, 'round snapshot never carries spot contents');
+  assert.equal(h.itemListFor(h.playerId('s0')!).length, 1, 'opener sees the controller');
   assert.equal(h.pickup('s0', { id: item.id }).ok, true);
-  assert.equal(h.itemList()[0].heldBy, h.playerId('s0'));
-  // Not at the TV yet.
-  assert.equal(h.startMinigame('s0').ok, false);
-  h.move('s0', { x: 750, y: 165, d: 0, m: 0 }, Date.now() + 500);
-  // Movement is speed-limited; step toward the TV over several updates if needed.
-  let now = Date.now() + 500;
-  for (let i = 0; i < 30; i++) {
-    now += 200;
-    h.move('s0', { x: 750, y: 165, d: 2, m: 1 }, now);
-  }
-  const pose = h.allPoses().find((p) => p[0] === h.playerId('s0'))!;
-  // If still far, the start may fail; place a last acceptably close pose with a long dt.
-  now += 1000;
-  h.move('s0', { x: 750, y: 165, d: 2, m: 0 }, now);
+  assert.equal(h.itemListFor(h.playerId('s0')!)[0].heldBy, h.playerId('s0'));
+  assert.equal(h.startMinigame('s0').ok, false, 'must fail before walking to the TV');
+  stand(h, 's0', 750, 165, Date.now() + 500);
   const startAt = Date.now();
   const start = h.startMinigame('s0', startAt);
-  assert.equal(start.ok, true, `start at ${pose[1]},${pose[2]} -> ${start.error}`);
-  const tooFast = h.winMinigame('s0', startAt + 50);
+  assert.equal(start.ok, true, start.error);
+  assert.ok(start.puzzle, 'server sends a play view');
+  const tooFast = h.winMinigame('s0', startAt + 50, winLog(h));
   assert.equal(tooFast.ok, false);
   assert.equal(tooFast.error, 'too-fast');
-  const win = h.winMinigame('s0', startAt + MIN_WIN_MS[h.items!.minigame] + 20);
-  assert.equal(win.ok, true);
+  const empty = h.winMinigame('s0', startAt + MIN_WIN_MS[h.items!.minigame] + 20, []);
+  assert.equal(empty.ok, false, 'zero-input log must be rejected');
+  const win = h.winMinigame('s0', startAt + MIN_WIN_MS[h.items!.minigame] + 20, winLog(h));
+  assert.equal(win.ok, true, win.error);
   assert.ok(win.code);
-  assert.equal(h.itemList()[0].heldBy, h.playerId('s0'), 'controller consumed');
+  assert.equal(h.itemListFor(h.playerId('s0')!)[0].heldBy, h.playerId('s0'), 'controller kept');
   assert.equal(h.items!.knowsCode(h.playerId('s0')!), true);
   assert.equal(h.items!.knowsCode(h.playerId('s1')!), false);
-  // Winner can retry (still holding it).
   assert.equal(h.startMinigame('s0').ok, true);
 });
+
 
 test('anti-cheat: win without a start is rejected; a second win needs a new start', () => {
   const h = room(2);
   assert.equal(h.start('s0').ok, true);
+  h.items!.placeControllerForTest('study_drawer_1');
   const item = h.items!.items[0]!;
-  h.move('s0', { x: item.x, y: item.y, d: 0, m: 0 }, Date.now());
+  standAtSpot(h, 's0', item.spotId!, Date.now());
   h.setSpot('s0', { id: item.spotId!, open: true });
   assert.equal(h.pickup('s0', { id: item.id }).ok, true);
-  let now = Date.now();
-  for (let i = 0; i < 40; i++) { now += 200; h.move('s0', { x: 750, y: 165, d: 2, m: 1 }, now); }
-  now += 1000;
-  h.move('s0', { x: 750, y: 165, d: 2, m: 0 }, now);
-  assert.equal(h.winMinigame('s0', now).ok, false);
-  assert.equal(h.winMinigame('s0', now).error, 'no-start');
+  stand(h, 's0', 750, 165, Date.now() + 1000);
+  const now = Date.now() + 2000;
+  assert.equal(h.winMinigame('s0', now, winLog(h)).ok, false);
+  assert.equal(h.winMinigame('s0', now, winLog(h)).error, 'no-start');
   const t0 = now + 10;
   assert.equal(h.startMinigame('s0', t0).ok, true);
-  const ok = h.winMinigame('s0', t0 + MIN_WIN_MS[h.items!.minigame] + 20);
-  assert.equal(ok.ok, true);
-  // Re-sending win without a new start does not reveal the code again.
-  const again = h.winMinigame('s0', t0 + MIN_WIN_MS[h.items!.minigame] + 40);
+  const ok = h.winMinigame('s0', t0 + MIN_WIN_MS[h.items!.minigame] + 20, winLog(h));
+  assert.equal(ok.ok, true, ok.error);
+  const again = h.winMinigame('s0', t0 + MIN_WIN_MS[h.items!.minigame] + 40, winLog(h));
   assert.equal(again.ok, false);
   assert.equal(again.error, 'no-start');
 });
 
+
 test('anti-cheat: itemDrop is limited to reach and to open floor or open spots, not the closed bed', () => {
   const h = room(2);
   assert.equal(h.start('s0').ok, true);
+  h.items!.placeControllerForTest('study_drawer_1');
   const item = h.items!.items[0]!;
   const t0 = Date.now();
-  h.move('s0', { x: item.x, y: item.y, d: 0, m: 0 }, t0);
+  standAtSpot(h, 's0', item.spotId!, t0);
   h.setSpot('s0', { id: item.spotId!, open: true });
   assert.equal(h.pickup('s0', { id: item.id }).ok, true);
-  // Walk toward the TV (750, 165) so the server pose is known.
-  let now = t0;
-  for (let i = 0; i < 40; i++) { now += 200; h.move('s0', { x: 750, y: 165, d: 2, m: 1 }, now); }
-  now += 1000;
-  h.move('s0', { x: 750, y: 165, d: 2, m: 0 }, now);
-  const pose = h.allPoses().find((p) => p[0] === h.playerId('s0'))!;
+  stand(h, 's0', 750, 165, t0 + 1000);
+  const pose = h.poseForTest('s0')!;
   const far = h.dropItem('s0', { x: -500, y: 99999, spotId: 'bed' });
   assert.equal(far.ok, false, 'closed bed across the house must be rejected');
-  const floor = h.dropItem('s0', { x: pose[1] + 10, y: pose[2] + 10, spotId: null });
+  const floor = h.dropItem('s0', { x: pose.x + 10, y: pose.y + 10, spotId: null });
   assert.equal(floor.ok, true, floor.error);
   const dropped = h.items!.items[0]!;
   assert.equal(dropped.heldBy, null);
   assert.equal(dropped.spotId, null);
-  // A second player standing next to the floor item can pick it up (any side).
-  let now2 = now;
-  for (let i = 0; i < 40; i++) { now2 += 200; h.move('s1', { x: dropped.x, y: dropped.y, d: 0, m: 1 }, now2); }
-  now2 += 1000;
-  h.move('s1', { x: dropped.x, y: dropped.y + 20, d: 0, m: 0 }, now2);
+  stand(h, 's1', dropped.x, dropped.y + 20, t0 + 2000);
   const got = h.pickup('s1', { id: dropped.id });
   assert.equal(got.ok, true, got.error);
-  assert.equal(h.itemList().find((i) => i.id === dropped.id)?.heldBy, h.playerId('s1'));
+  assert.equal(h.itemListFor(h.playerId('s1')!).find((i) => i.id === dropped.id)?.heldBy, h.playerId('s1'));
 });
+
 
 test('a disconnect drop leaves the controller on the floor, pick-up-able by someone else', () => {
   const h = room(2);
   assert.equal(h.start('s0').ok, true);
+  h.items!.placeControllerForTest('study_drawer_1');
   const item = h.items!.items[0]!;
   const t0 = Date.now();
-  h.move('s0', { x: item.x, y: item.y, d: 0, m: 0 }, t0);
+  standAtSpot(h, 's0', item.spotId!, t0);
   h.setSpot('s0', { id: item.spotId!, open: true });
   assert.equal(h.pickup('s0', { id: item.id }).ok, true);
-  let now = t0;
-  for (let i = 0; i < 20; i++) { now += 200; h.move('s0', { x: 600, y: 420, d: 0, m: 1 }, now); }
-  now += 1000;
-  h.move('s0', { x: 600, y: 420, d: 0, m: 0 }, now);
+  stand(h, 's0', 600, 420, t0 + 1000);
   h.leave('s0');
   const floor = h.items!.items[0]!;
   assert.equal(floor.heldBy, null);
   assert.equal(floor.spotId, null);
-  let now2 = now;
-  for (let i = 0; i < 40; i++) { now2 += 200; h.move('s1', { x: floor.x, y: floor.y, d: 0, m: 1 }, now2); }
-  now2 += 1000;
-  h.move('s1', { x: floor.x - 15, y: floor.y, d: 1, m: 0 }, now2);
+  stand(h, 's1', floor.x - 15, floor.y, t0 + 2000);
   const got = h.pickup('s1', { id: floor.id });
   assert.equal(got.ok, true, got.error);
+});
+
+
+test('R15-1: paper code and controller spot do not depend on gameSeed', () => {
+  const seed = 0xC0FFEE;
+  const secrets = new Set<string>();
+  for (let i = 0; i < 80; i++) {
+    const r = createServerRoundFrom(seed, randomBytes(16).toString('hex'));
+    assert.equal(r.gameSeed, seed);
+    secrets.add(`${r.code.join()}:${r.items[0]!.spotId}`);
+  }
+  assert.ok(secrets.size >= 50, `same gameSeed produced only ${secrets.size} distinct secrets`);
+  const rooms = new Set<string>();
+  for (let i = 0; i < 60; i++) {
+    const h = room(1);
+    assert.ok(h.start('s0').ok);
+    rooms.add(`${h.items!.gameSeed}:${h.items!.code.join()}:${h.items!.items[0]!.spotId}`);
+  }
+  assert.equal(rooms.size, 60, '60 rooms should not collide on seed+secrets');
+});
+
+test('R15-2: a win must replay; empty and forged logs are rejected', () => {
+  const h = room(1);
+  h.start('s0');
+  h.items!.placeControllerForTest('study_drawer_1');
+  standAtSpot(h, 's0', 'study_drawer_1');
+  h.setSpot('s0', { id: 'study_drawer_1', open: true });
+  assert.ok(h.pickup('s0', { id: h.items!.items[0]!.id }).ok);
+  stand(h, 's0', 750, 165);
+  const t0 = 10_000;
+  assert.ok(h.startMinigame('s0', t0).ok);
+  const min = MIN_WIN_MS[h.items!.minigame] + 20;
+  assert.equal(h.winMinigame('s0', t0 + min, []).error, 'no-play');
+  assert.equal(h.winMinigame('s0', t0 + min, [{ t: 0, action: { type: 'confirm' } }]).ok, false);
+  const log = winLog(h);
+  assert.ok(log.length > 0);
+  assert.equal(replayWin(h.items!.puzzle, log).ok, true);
+  const win = h.winMinigame('s0', t0 + min, log);
+  assert.equal(win.ok, true, win.error);
+});
+
+test('R15-3: spot contents go only to the opener or to players who can see the spot', () => {
+  const h = room(2);
+  h.start('s0', 0);
+  h.items!.placeControllerForTest('study_drawer_1');
+  standAtSpot(h, 's0', 'study_drawer_1', 1000);
+  assert.ok(h.setSpot('s0', { id: 'study_drawer_1', open: true }));
+  const opener = h.itemListFor(h.playerId('s0')!);
+  assert.equal(opener.length, 1);
+  assert.equal(opener[0]!.spotId, 'study_drawer_1');
+  // Other player stays at the entrance spawn — a wall blocks the study.
+  const other = h.itemListFor(h.playerId('s1')!);
+  assert.equal(other.length, 0, 'remote player must not receive hidden contents');
+  // Walk the other player beside the open spot: they can now see it.
+  standAtSpot(h, 's1', 'study_drawer_1', 2000);
+  assert.equal(h.itemListFor(h.playerId('s1')!).length, 1);
+});
+
+test('R15-10: clamping a far drop to reach must not go through a wall', () => {
+  const origin = { x: 360, y: 435 };
+  const dest = { x: 360, y: 40 }; // north, through walls
+  const c = clampDrop(origin, dest, 90, losBlockers());
+  assert.ok(c.y > 100, `drop must stop before the wall (y=${c.y})`);
+  // And still within reach.
+  assert.ok(Math.hypot(c.x - origin.x, c.y - origin.y) <= 90 + 0.5);
+  const h = room(1);
+  h.start('s0', 0);
+  h.items!.placeControllerForTest('study_drawer_1');
+  standAtSpot(h, 's0', 'study_drawer_1', 1000);
+  h.setSpot('s0', { id: 'study_drawer_1', open: true });
+  assert.ok(h.pickup('s0', { id: h.items!.items[0]!.id }).ok);
+  stand(h, 's0', 360, 435, 2000);
+  const r = h.dropItem('s0', { x: 360, y: 40, spotId: null });
+  assert.equal(r.ok, true, r.error);
+  const dropped = h.items!.items[0]!;
+  assert.ok(dropped.y > 100, `server drop y=${dropped.y}`);
 });
 
 console.log(`\n✅ ${n} server tests passed`);

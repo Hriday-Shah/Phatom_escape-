@@ -56,6 +56,18 @@ export interface ChaseState {
 
 export type DotDashState = ChaseState;
 
+/** Initial chase layout the server holds and the client plays (R15-2). */
+export interface ChasePuzzle {
+  grid: number[];
+  dots: boolean[];
+  candles: boolean[];
+  dotsLeft: number;
+  dotsTotal: number;
+  player: Actor;
+  ghosts: Wisp[];
+  wispWait: number;
+}
+
 /** 4-bit autotile: frame = N + 2E + 4S + 8W, where a set bit means that neighbour is a wall (or off-board). */
 export function wallAutotile(grid: number[], x: number, y: number, w: number, h: number): number {
   const isWall = (cx: number, cy: number) => cx < 0 || cy < 0 || cx >= w || cy >= h || grid[cy * w + cx] === 0;
@@ -90,7 +102,7 @@ export class ChaseGame implements MinigameEngine<ChaseState> {
   private dots: boolean[];
   private candles: boolean[];
   private dotsLeft: number;
-  readonly dotsTotal: number;
+  readonly dotsTotal!: number;
   private player: Actor;
   private ghosts: Wisp[];
   private queued: { dx: number; dy: number } = { dx: 0, dy: 0 };
@@ -101,8 +113,22 @@ export class ChaseGame implements MinigameEngine<ChaseState> {
   private ghostThink = 0;
 
   private wispWait = CHASE_WISP_DELAY;
+  private initial!: ChasePuzzle;
 
-  constructor(seed = 1, ghostCount = CHASE_WISP_COUNT) {
+  constructor(seed = 1, ghostCount = CHASE_WISP_COUNT, puzzle?: ChasePuzzle) {
+    if (puzzle) {
+      this.rng = mulberry32(1);
+      this.grid = puzzle.grid.slice();
+      this.dots = puzzle.dots.slice();
+      this.candles = puzzle.candles.slice();
+      this.dotsLeft = puzzle.dotsLeft;
+      (this as { dotsTotal: number }).dotsTotal = puzzle.dotsTotal;
+      this.player = { ...puzzle.player };
+      this.ghosts = puzzle.ghosts.map((g) => ({ ...g }));
+      this.wispWait = puzzle.wispWait;
+      this.initial = this.capture();
+      return;
+    }
     this.rng = mulberry32(seed >>> 0);
     this.grid = punchDeadEndLoops(generateMaze(this.rng, this.w, this.h), this.rng, this.w, this.h);
     const { sx, sy, ex, ey } = mazePorts(this.w, this.h);
@@ -152,6 +178,35 @@ export class ChaseGame implements MinigameEngine<ChaseState> {
     this.dotsLeft = this.dots.filter(Boolean).length + this.candles.filter(Boolean).length;
     this.dotsTotal = this.dotsLeft;
     this.wispWait = CHASE_WISP_DELAY;
+    this.initial = this.capture();
+  }
+
+  private capture(): ChasePuzzle {
+    return {
+      grid: this.grid.slice(),
+      dots: this.dots.slice(),
+      candles: this.candles.slice(),
+      dotsLeft: this.dotsLeft,
+      dotsTotal: this.dotsTotal,
+      player: { ...this.player },
+      ghosts: this.ghosts.map((g) => ({ ...g })),
+      wispWait: this.wispWait,
+    };
+  }
+
+  static fromPuzzle(p: ChasePuzzle): ChaseGame { return new ChaseGame(1, p.ghosts.length, p); }
+  puzzle(): ChasePuzzle {
+    const p = this.initial;
+    return {
+      grid: p.grid.slice(),
+      dots: p.dots.slice(),
+      candles: p.candles.slice(),
+      dotsLeft: p.dotsTotal,
+      dotsTotal: p.dotsTotal,
+      player: { ...p.player },
+      ghosts: p.ghosts.map((g) => ({ ...g })),
+      wispWait: p.wispWait,
+    };
   }
 
   state(): ChaseState {

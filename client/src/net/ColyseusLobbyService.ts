@@ -18,6 +18,7 @@ import {
 } from './protocol';
 import type { EscapeCode } from '../logic/escapeCode';
 import type { RoundPublic } from '../logic/itemRound';
+import type { LogEvent, PlayView } from '../logic/minigames/replay';
 import { httpBase } from './serverConfig';
 
 /** kicked by the host; lost = could not reconnect in time; closed = the server closed the room. */
@@ -51,11 +52,14 @@ export interface GameLink {
   sendItemPickup(id: string): void;
   sendItemDrop(x: number, y: number, spotId?: string | null): void;
   sendMinigameStart(): void;
-  sendMinigameWin(): void;
+  sendMinigameWin(log: LogEvent[]): void;
   sendMinigameClose(): void;
+  sendMinigameInput(index: number): void;
   onRound(cb: (r: RoundPublic) => void): () => void;
   onItems(cb: (items: ItemPayload[]) => void): () => void;
   onCodeReveal(cb: (code: EscapeCode) => void): () => void;
+  onMinigameStartOk(cb: (m: { minigame: string; gameSeed: number; puzzle: PlayView }) => void): () => void;
+  onMinigameReveal(cb: (m: { index: number; face: number }) => void): () => void;
 }
 
 type Listener<T extends unknown[]> = (...a: T) => void;
@@ -109,6 +113,8 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   private roundEv = new Emitter<[RoundPublic]>();
   private itemsEv = new Emitter<[ItemPayload[]]>();
   private codeEv = new Emitter<[EscapeCode]>();
+  private startOkEv = new Emitter<[{ minigame: string; gameSeed: number; puzzle: PlayView }]>();
+  private revealEv = new Emitter<[{ index: number; face: number }]>();
 
   private constructor(room: Room, readonly server: string, first: First) {
     this.state = { ...first.lobby, selfId: first.selfId };
@@ -142,6 +148,12 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
       }
     });
     room.onMessage('codeReveal', (m: { code: EscapeCode }) => { if (m?.code) this.codeEv.emit(m.code); });
+    room.onMessage('minigameStartOk', (m: { minigame: string; gameSeed: number; puzzle: PlayView }) => {
+      if (m?.puzzle) this.startOkEv.emit(m);
+    });
+    room.onMessage('minigameReveal', (m: { index: number; face: number }) => {
+      if (m && Number.isFinite(m.index) && Number.isFinite(m.face)) this.revealEv.emit(m);
+    });
     room.onMessage('hb', () => {});
     this.watch(room);
     room.onLeave((code) => {
@@ -360,9 +372,12 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   sendItemPickup(id: string): void { if (!this.left) this.room.send('itemPickup', { id }); }
   sendItemDrop(x: number, y: number, spotId?: string | null): void { if (!this.left) this.room.send('itemDrop', { x, y, spotId: spotId ?? null }); }
   sendMinigameStart(): void { if (!this.left) this.room.send('minigameStart', {}); }
-  sendMinigameWin(): void { if (!this.left) this.room.send('minigameWin', {}); }
+  sendMinigameWin(log: LogEvent[]): void { if (!this.left) this.room.send('minigameWin', { log }); }
   sendMinigameClose(): void { if (!this.left) this.room.send('minigameClose', {}); }
+  sendMinigameInput(index: number): void { if (!this.left) this.room.send('minigameInput', { index }); }
   onRound(cb: (r: RoundPublic) => void): () => void { return this.roundEv.on(cb); }
   onItems(cb: (items: ItemPayload[]) => void): () => void { return this.itemsEv.on(cb); }
   onCodeReveal(cb: (code: EscapeCode) => void): () => void { return this.codeEv.on(cb); }
+  onMinigameStartOk(cb: (m: { minigame: string; gameSeed: number; puzzle: PlayView }) => void): () => void { return this.startOkEv.on(cb); }
+  onMinigameReveal(cb: (m: { index: number; face: number }) => void): () => void { return this.revealEv.on(cb); }
 }

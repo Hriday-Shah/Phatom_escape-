@@ -10,13 +10,14 @@ import {
   SlideGame, isSolvable, isSolved, inversions, makeSolvableBoard, solvingMoves, slideDir,
   SLIDE_SHUFFLE_MIN, SLIDE_SHUFFLE_MAX,
   MazeGame, generateMaze, mazePath, mazeWalkable, mazePorts, mazeDeadEnds, MAZE_W, MAZE_H,
-  LockPickGame, pickAt, inZone, LOCK_HITS_NEEDED, ZONE_DEG,
+  LockPickGame, pickAt, inZone, LOCK_HITS_NEEDED, ZONE_DEG, HIT_WINDOW_S, LOCK_MISS_COOLDOWN_S,
   MemoryGame, MEMORY_PAIRS, MEMORY_CARDS,
   ChaseGame, DotDashGame, createMinigame, resolveMinigameId,
   runFleeChase, CHASE_WISP_COUNT, CHASE_WISP_DELAY, PLAY_WISP_KINDS,
 } from '../logic/minigames';
 import { ItemRound, createRound, inFrontOfTv, itemReachableFrom, MIN_WIN_MS, NEAR_ITEM, TV_UNIT } from '../logic/itemRound';
 import { debugMinigame } from '../config/debugFlags';
+import { createPuzzle, replayWin, solvingLog } from '../logic/minigames/replay';
 
 export function runMinigameTest(): void {
   console.log('=== MINIGAME / ITEM TEST ===');
@@ -135,7 +136,8 @@ export function runMinigameTest(): void {
   });
 
   test('lock-pick hit windows and three hits win; misses do not consume the controller path', () => {
-    assert.equal(ZONE_DEG, 30);
+    assert.equal(HIT_WINDOW_S, 0.2);
+    assert.ok(Math.abs(ZONE_DEG - HIT_WINDOW_S * 0.65 * 360) < 1e-6);
     const g = new LockPickGame(4);
     assert.equal(g.state().needed, LOCK_HITS_NEEDED);
     // Official path: forceInZone + confirm three times wins.
@@ -156,19 +158,25 @@ export function runMinigameTest(): void {
     g.input({ type: 'confirm' });
     assert.equal(g.state().hits, 0);
     assert.equal(g.state().lastHit, false);
+    g.tick?.(LOCK_MISS_COOLDOWN_S + 0.01);
     g.forceInZone();
     g.input({ type: 'confirm' });
     assert.equal(g.state().hits, 1);
-    // A later miss resets the pin progress (R14-7).
+    g.forceInZone();
+    g.input({ type: 'confirm' });
+    assert.equal(g.state().hits, 2);
+    // A miss costs 1 hit (not a full reset) after the miss cooldown (R15-7).
+    g.tick?.(LOCK_MISS_COOLDOWN_S + 0.01);
     const missTurn2 = (g.state().zone + 0.5) % 1;
     (g as unknown as { t: number; speed: number }).t = missTurn2 / (g as unknown as { speed: number }).speed;
     g.input({ type: 'confirm' });
-    assert.equal(g.state().hits, 0);
-    assert.equal(g.state().lastHit, false);
-    g.forceInZone();
-    assert.ok(inZone(g.state().pick, g.state().zone));
-    g.input({ type: 'confirm' });
     assert.equal(g.state().hits, 1);
+    assert.equal(g.state().lastHit, false);
+    g.tick?.(LOCK_MISS_COOLDOWN_S + 0.01);
+    g.forceInZone();
+    assert.ok(inZone(g.state().pick, g.state().zone, g.widthDeg?.() ?? ZONE_DEG));
+    g.input({ type: 'confirm' });
+    assert.equal(g.state().hits, 2);
     assert.equal(g.status(), 'playing');
     void pickAt;
   });
@@ -244,9 +252,11 @@ export function runMinigameTest(): void {
     assert.ok(inFrontOfTv(tv.x, tv.y));
     const startAt = 1_000_000;
     assert.equal(r.startMinigame('p1', tv, startAt).ok, true);
-    assert.equal(r.winMinigame('p1', startAt + 100).ok, false, 'too-fast must be rejected');
-    const win = r.winMinigame('p1', startAt + MIN_WIN_MS[r.minigame] + 10);
-    assert.equal(win.ok, true);
+    const log = solvingLog(r.puzzle);
+    assert.equal(r.winMinigame('p1', startAt + 100, log).ok, false, 'too-fast must be rejected');
+    assert.equal(r.winMinigame('p1', startAt + MIN_WIN_MS[r.minigame] + 10, []).ok, false, 'empty log');
+    const win = r.winMinigame('p1', startAt + MIN_WIN_MS[r.minigame] + 10, log);
+    assert.equal(win.ok, true, win.error);
     assert.ok(win.code);
     assert.ok(r.heldBy('p1'), 'controller was consumed');
     assert.equal(r.knowsCode('p1'), true);
@@ -287,7 +297,9 @@ export function runMinigameTest(): void {
     const spot = item.spotId!;
     const pose = { x: item.x, y: item.y };
     assert.equal(r.pickup('p1', item.id, pose, [spot]).ok, true);
-    assert.equal(r.drop('p1', 600, 420, null, { x: 600, y: 400 }, []).ok, true);
+    // Open hallway around the entrance (no wall between the drop and a 85 px approach).
+    const floorAt = { x: 550, y: 250 };
+    assert.equal(r.drop('p1', floorAt.x, floorAt.y, null, { x: 550, y: 250 }, []).ok, true);
     const dropped = r.items[0]!;
     assert.equal(dropped.spotId, null);
     assert.equal(dropped.heldBy, null);
@@ -296,7 +308,7 @@ export function runMinigameTest(): void {
       const r2 = ItemRound.fromSeed('FLOOR-1', 1);
       const it = r2.items[0]!;
       r2.pickup('p1', it.id, { x: it.x, y: it.y }, [it.spotId!]);
-      r2.drop('p1', 600, 420, null, { x: 600, y: 400 }, []);
+      r2.drop('p1', floorAt.x, floorAt.y, null, { x: 550, y: 250 }, []);
       const floor = r2.items[0]!;
       const side = { x: floor.x + dx, y: floor.y + dy };
       assert.ok(itemReachableFrom(side, floor), `${who} should be in reach`);
@@ -350,6 +362,68 @@ export function runMinigameTest(): void {
     const rate = wins / N;
     console.log(`    flee bot win rate ${wins}/${N} = ${(rate * 100).toFixed(1)}%`);
     assert.ok(rate >= 0.30, `flee bot won only ${(rate * 100).toFixed(1)}% of ${N} seeds`);
+  });
+
+
+  test('R15-2: solving logs replay to a win for every minigame; empty logs fail', () => {
+    for (const id of MINIGAME_IDS) {
+      const snap = createPuzzle(id, 7);
+      assert.equal(replayWin(snap, []).ok, false);
+      const log = solvingLog(snap);
+      const r = replayWin(snap, log);
+      assert.equal(r.ok, true, `${id}: ${r.error} (log ${log.length})`);
+    }
+  });
+
+  test('R15-7: a touch-like press with 80–120 ms latency can win in about 10 s; mashing fails', () => {
+    const speed = new LockPickGame(3).puzzle().speed;
+    // Timed presses: wait until the pick is in the first half of the window, then delay 100 ms.
+    const g = LockPickGame.fromPuzzle({ speed, zones: new LockPickGame(3).puzzle().zones });
+    let t = 0;
+    const dt = 1 / 60;
+    const latency = 0.100;
+    let queued: number | null = null;
+    let presses = 0;
+    while (t < 10 && g.status() === 'playing') {
+      g.tick?.(dt);
+      t += dt;
+      if (queued != null) {
+        queued -= dt;
+        if (queued <= 0) {
+          g.input({ type: 'confirm' });
+          presses++;
+          queued = null;
+        }
+        continue;
+      }
+      if (inZone(g.state().pick, g.state().zone, g.widthDeg())) {
+        // Fire once we have just entered (avoid mashing).
+        queued = latency;
+      }
+    }
+    console.log(`    touch-sim: status=${g.status()} hits=${g.state().hits} t=${t.toFixed(2)}s presses=${presses}`);
+    assert.equal(g.status(), 'won');
+    assert.ok(t <= 10.05, `touch win took ${t.toFixed(2)}s`);
+
+    const mash = LockPickGame.fromPuzzle({ speed, zones: new LockPickGame(3).puzzle().zones });
+    let mt = 0;
+    let mashPresses = 0;
+    const interval = 0.060;
+    let until = 0;
+    while (mashPresses < 40 && mash.status() === 'playing') {
+      const step = Math.min(dt, Math.max(0.001, until));
+      mash.tick?.(step);
+      mt += step;
+      until -= step;
+      if (until <= 1e-6) {
+        mash.input({ type: 'confirm' });
+        mashPresses++;
+        until = interval;
+      }
+    }
+    console.log(`    mash-sim: status=${mash.status()} hits=${mash.state().hits} presses=${mashPresses} t=${mt.toFixed(2)}s`);
+    assert.notEqual(mash.status(), 'won');
+    assert.ok(mash.state().hits < LOCK_HITS_NEEDED);
   });
 
   console.log(`✓ ${n} minigame / item tests\n`);

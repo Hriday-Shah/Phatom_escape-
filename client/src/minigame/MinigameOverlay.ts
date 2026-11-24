@@ -4,9 +4,10 @@ import { CODE_COLOURS, CODE_GLYPH } from '../logic/escapeCode';
 import { qaHooksAllowed } from '../config/debugFlags';
 import {
   createMinigame, MINIGAME_SECONDS, MinigameEngine, MinigameId, MinigameInput, MinigameStatus,
-  MEMORY_FACES, wallAutotile,
+  MEMORY_FACES, MemoryGame, wallAutotile,
 } from '../logic/minigames';
 import type { ChaseState, LockPickState, MazeState, MemoryState, SlideState } from '../logic/minigames';
+import { engineFromSnapshot, type LogEvent, type PlayView } from '../logic/minigames/replay';
 import { ArtCache, MG_ART_KEYS, drawNineSlice, mgUrl } from './art';
 
 export interface MinigameHooks {
@@ -14,6 +15,8 @@ export interface MinigameHooks {
   joystick(): { x: number; y: number };
   onWin(): void;
   onClose(): void;
+  /** Online memory: ask the server to reveal a card face (R15-2). */
+  requestReveal?(index: number): void;
 }
 
 const ART_H = 120;
@@ -44,6 +47,9 @@ export class MinigameOverlay {
   private deadlineAt = 0;
   private lastTs = 0;
   private prevFocus: HTMLElement | null = null;
+  private log: LogEvent[] = [];
+  private logStartedAt = 0;
+  private pendingReveal: number | null = null;
   private raf = 0;
   private ended: MinigameStatus = 'playing';
   private moveRepeat = 0;
@@ -125,6 +131,9 @@ export class MinigameOverlay {
     this.hooks = hooks;
     this.id = id;
     this.engine = createMinigame(id, seed);
+    this.log = [];
+    this.logStartedAt = performance.now();
+    this.pendingReveal = null;
     this.ended = 'playing';
     this.remaining = seconds;
     this.deadlineAt = performance.now() + seconds * 1000;
@@ -145,6 +154,59 @@ export class MinigameOverlay {
     this.raf = requestAnimationFrame((t) => this.loop(t));
     this.focusInto();
     this.expose();
+  }
+
+  /** Open from a server-authored puzzle (memory faces withheld until reveal). */
+  openWithPuzzle(view: PlayView, hooks: MinigameHooks, seconds = MINIGAME_SECONDS): void {
+    this.close(false);
+    this.hooks = hooks;
+    this.id = view.id;
+    if (view.id === 'memory') {
+      this.engine = MemoryGame.fromPuzzle({ cards: Array(view.n).fill(-1) });
+    } else {
+      this.engine = engineFromSnapshot(view);
+    }
+    this.log = [];
+    this.logStartedAt = performance.now();
+    this.pendingReveal = null;
+    this.ended = 'playing';
+    this.remaining = seconds;
+    this.deadlineAt = performance.now() + seconds * 1000;
+    this.lastTs = 0;
+    this.moveRepeat = 0;
+    this.flashUntil = 0;
+    this.lastDir = { dx: 1, dy: 0 };
+    this.wispDirs.clear();
+    this.memoryCursor = false;
+    this.el.dataset.game = view.id;
+    this.el.dataset.status = 'playing';
+    this.el.hidden = false;
+    this.attachChrome();
+    this.statusEl.textContent = '';
+    this.render(true);
+    this.paintChrome();
+    this.bind();
+    this.raf = requestAnimationFrame((t) => this.loop(t));
+    this.focusInto();
+    this.expose();
+  }
+
+  getLog(): LogEvent[] { return this.log.map((e) => ({ t: e.t, action: e.action })); }
+
+  /** Apply a server-revealed memory face, then complete the pending flip. */
+  revealFace(index: number, face: number): void {
+    if (!this.engine || this.id !== 'memory') return;
+    (this.engine as MemoryGame).revealFace(index, face);
+    if (this.pendingReveal === index) {
+      this.pendingReveal = null;
+      this.stamp({ type: 'tap', index });
+      this.engine.input({ type: 'tap', index });
+      this.afterInput();
+    }
+  }
+
+  private stamp(action: LogEvent['action']): void {
+    this.log.push({ t: Math.max(0, Math.round(performance.now() - this.logStartedAt)), action });
   }
 
   /** USE / Enter / Space. */
@@ -193,6 +255,17 @@ export class MinigameOverlay {
       this.lastDir = { dx: Math.sign(action.dx) || this.lastDir.dx, dy: action.dx ? 0 : Math.sign(action.dy) };
       if (this.id === 'memory') this.memoryCursor = true;
     }
+    if (this.id === 'memory' && this.hooks?.requestReveal) {
+      let index: number | null = null;
+      if (action.type === 'tap' && action.index != null) index = action.index;
+      else if (action.type === 'confirm') index = (this.engine as MemoryGame).cursor;
+      if (index != null) {
+        this.pendingReveal = index;
+        this.hooks.requestReveal(index);
+        return; // wait for minigameReveal before flipping
+      }
+    }
+    this.stamp(action);
     this.engine.input(action);
     this.afterInput();
   }
@@ -203,6 +276,7 @@ export class MinigameOverlay {
     if (this.id === 'memory' && mem.locked && !this.memoryWait) {
       this.memoryWait = window.setTimeout(() => {
         this.memoryWait = null;
+        this.stamp({ type: 'flipBack' });
         (this.engine as { flipBack?: () => void })?.flipBack?.();
         this.render();
         this.expose();
@@ -298,8 +372,14 @@ export class MinigameOverlay {
   private restoreFocus(): void {
     const el = this.prevFocus;
     this.prevFocus = null;
-    if (el && document.contains(el) && typeof el.focus === 'function') {
-      try { el.focus({ preventScroll: true }); } catch { /* ignore */ }
+    const inDoc = el && document.contains(el) && typeof el.focus === 'function' && !this.el.contains(el);
+    if (inDoc) {
+      try { el.focus({ preventScroll: true }); return; } catch { /* fall through */ }
+    }
+    const canvas = document.querySelector('canvas');
+    if (canvas instanceof HTMLElement) {
+      if (canvas.tabIndex < 0) canvas.tabIndex = 0;
+      try { canvas.focus({ preventScroll: true }); } catch { /* ignore */ }
     }
   }
 
