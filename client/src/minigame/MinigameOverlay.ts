@@ -1,6 +1,7 @@
 import './minigame.css';
 import type { EscapeCode } from '../logic/escapeCode';
-import { CODE_COLOURS } from '../logic/escapeCode';
+import { CODE_COLOURS, CODE_GLYPH } from '../logic/escapeCode';
+import { qaHooksAllowed } from '../config/debugFlags';
 import {
   createMinigame, MINIGAME_SECONDS, MinigameEngine, MinigameId, MinigameInput, MinigameStatus,
   MEMORY_FACES, wallAutotile,
@@ -40,7 +41,9 @@ export class MinigameOverlay {
   private engine: MinigameEngine | null = null;
   private hooks: MinigameHooks | null = null;
   private remaining = 0;
+  private deadlineAt = 0;
   private lastTs = 0;
+  private prevFocus: HTMLElement | null = null;
   private raf = 0;
   private ended: MinigameStatus = 'playing';
   private moveRepeat = 0;
@@ -64,14 +67,18 @@ export class MinigameOverlay {
     this.el.setAttribute('aria-modal', 'true');
     this.el.innerHTML = `
       <div id="pe-minigame-panel">
-        <canvas id="pe-minigame-chrome" width="112" height="120"></canvas>
         <div id="pe-minigame-stage"></div>
         <button id="pe-minigame-close" type="button" aria-label="Close"><img alt=""></button>
         <div id="pe-minigame-status"></div>
       </div>`;
     document.body.appendChild(this.el);
     this.stage = this.el.querySelector('#pe-minigame-stage')!;
-    this.chrome = this.el.querySelector('#pe-minigame-chrome')!;
+    // Keep the chrome canvas off-DOM while the popup is closed so the game
+    // page has only the Phaser canvas (stage-2 E2E counts document canvases).
+    this.chrome = document.createElement('canvas');
+    this.chrome.id = 'pe-minigame-chrome';
+    this.chrome.width = 112;
+    this.chrome.height = 120;
     this.statusEl = this.el.querySelector('#pe-minigame-status')!;
     this.closeBtn = this.el.querySelector('#pe-minigame-close')!;
     this.closeImg = this.closeBtn.querySelector('img')!;
@@ -88,7 +95,7 @@ export class MinigameOverlay {
 
   isOpen(): boolean { return !this.el.hidden; }
   currentId(): MinigameId | null { return this.id; }
-  remainingMs(): number { return Math.max(0, this.remaining * 1000); }
+  remainingMs(): number { return this.deadlineAt ? Math.max(0, this.deadlineAt - performance.now()) : Math.max(0, this.remaining * 1000); }
   status(): MinigameStatus { return this.engine?.status() ?? this.ended; }
 
   /** Place the popup inside the shell's game screen (CSS px), centred. */
@@ -120,6 +127,7 @@ export class MinigameOverlay {
     this.engine = createMinigame(id, seed);
     this.ended = 'playing';
     this.remaining = seconds;
+    this.deadlineAt = performance.now() + seconds * 1000;
     this.lastTs = 0;
     this.moveRepeat = 0;
     this.flashUntil = 0;
@@ -129,11 +137,13 @@ export class MinigameOverlay {
     this.el.dataset.game = id;
     this.el.dataset.status = 'playing';
     this.el.hidden = false;
+    this.attachChrome();
     this.statusEl.textContent = '';
     this.render(true);
     this.paintChrome();
     this.bind();
     this.raf = requestAnimationFrame((t) => this.loop(t));
+    this.focusInto();
     this.expose();
   }
 
@@ -149,6 +159,8 @@ export class MinigameOverlay {
     this.raf = 0;
     if (this.memoryWait) { clearTimeout(this.memoryWait); this.memoryWait = null; }
     this.el.hidden = true;
+    this.chrome.remove();
+    this.stage.replaceChildren();
     delete this.el.dataset.game;
     delete this.el.dataset.status;
     this.engine = null;
@@ -156,6 +168,7 @@ export class MinigameOverlay {
     const hooks = this.hooks;
     this.hooks = null;
     this.clearExpose();
+    this.restoreFocus();
     if (notify) hooks?.onClose();
   }
 
@@ -170,6 +183,7 @@ export class MinigameOverlay {
   /** QA: expire the timer now (retry path). */
   expire(): void {
     this.remaining = 0;
+    this.deadlineAt = performance.now();
     this.onTimeout();
   }
 
@@ -211,13 +225,13 @@ export class MinigameOverlay {
     const dt = Math.min(0.05, (ts - this.lastTs) / 1000);
     this.lastTs = ts;
     if (this.ended === 'playing') {
-      this.remaining -= dt;
+      this.remaining = this.remainingMs() / 1000;
       this.engine.tick?.(dt);
       this.pollJoystick(dt);
       const st = this.engine.status();
       if (st === 'won') this.finish('won');
       else if (st === 'lost') this.finish('lost');
-      else if (this.remaining <= 0) this.onTimeout();
+      else if (this.remainingMs() <= 0) this.onTimeout();
       if (this.id === 'lockpick' || this.id === 'chase') this.render();
     }
     this.paintChrome();
@@ -270,10 +284,42 @@ export class MinigameOverlay {
     }
   }
 
+  private focusables(): HTMLElement[] {
+    const list = [this.closeBtn, ...this.stage.querySelectorAll<HTMLElement>('button:not([disabled])')];
+    return list.filter((el) => !!el && !el.hidden && (el.offsetParent !== null || el === this.closeBtn));
+  }
+
+  private focusInto(): void {
+    this.prevFocus = (document.activeElement instanceof HTMLElement) ? document.activeElement : null;
+    const first = this.focusables()[0] ?? this.closeBtn;
+    first.focus({ preventScroll: true });
+  }
+
+  private restoreFocus(): void {
+    const el = this.prevFocus;
+    this.prevFocus = null;
+    if (el && document.contains(el) && typeof el.focus === 'function') {
+      try { el.focus({ preventScroll: true }); } catch { /* ignore */ }
+    }
+  }
+
   private bind(): void {
     const onKey = (e: KeyboardEvent) => {
       if (this.el.hidden) return;
       if (e.key === 'Escape') { e.preventDefault(); this.close(); return; }
+      if (e.key === 'Tab') {
+        const items = this.focusables();
+        if (!items.length) { e.preventDefault(); return; }
+        const first = items[0]!, last = items[items.length - 1]!;
+        const active = document.activeElement;
+        if (e.shiftKey && (active === first || !this.el.contains(active))) {
+          e.preventDefault(); last.focus(); return;
+        }
+        if (!e.shiftKey && (active === last || !this.el.contains(active))) {
+          e.preventDefault(); first.focus(); return;
+        }
+        return;
+      }
       if (this.ended !== 'playing') return;
       const map: Record<string, MinigameInput> = {
         ArrowUp: { type: 'move', dx: 0, dy: -1 }, ArrowDown: { type: 'move', dx: 0, dy: 1 },
@@ -289,15 +335,31 @@ export class MinigameOverlay {
       e.preventDefault();
       this.send(a);
     };
-    window.addEventListener('keydown', onKey);
-    this.unsubs.push(() => window.removeEventListener('keydown', onKey));
+    window.addEventListener('keydown', onKey, true);
+    const onFocusIn = (e: FocusEvent) => {
+      if (this.el.hidden) return;
+      const t = e.target as Node | null;
+      if (t && !this.el.contains(t)) {
+        const first = this.focusables()[0] ?? this.closeBtn;
+        first.focus({ preventScroll: true });
+      }
+    };
+    document.addEventListener('focusin', onFocusIn);
+    this.unsubs.push(() => window.removeEventListener('keydown', onKey, true));
+    this.unsubs.push(() => document.removeEventListener('focusin', onFocusIn));
   }
 
   private unbind(): void { this.unsubs.forEach((u) => u()); this.unsubs = []; }
 
   private screenW(): number { return this.artW - 16; }
 
+  private attachChrome(): void {
+    if (this.chrome.isConnected) return;
+    this.el.querySelector('#pe-minigame-panel')!.insertBefore(this.chrome, this.stage);
+  }
+
   private paintChrome(): void {
+    if (!this.el.hidden) this.attachChrome();
     const ctx = this.chrome.getContext('2d');
     if (!ctx) return;
     const w = this.artW, h = ART_H;
@@ -379,6 +441,16 @@ export class MinigameOverlay {
         board.appendChild(cell);
       }
       this.stage.appendChild(board);
+      let sx = 0, sy = 0, swiped = false;
+      board.addEventListener('pointerdown', (e: PointerEvent) => { sx = e.clientX; sy = e.clientY; swiped = false; });
+      board.addEventListener('pointerup', (e: PointerEvent) => {
+        const dx = e.clientX - sx, dy = e.clientY - sy;
+        if (Math.hypot(dx, dy) < 20) return;
+        swiped = true;
+        if (Math.abs(dx) >= Math.abs(dy)) this.send({ type: 'move', dx: Math.sign(dx), dy: 0 });
+        else this.send({ type: 'move', dx: 0, dy: Math.sign(dy) });
+      });
+      board.addEventListener('click', (e) => { if (swiped) { e.stopPropagation(); swiped = false; } }, true);
     }
     const solved = s.tiles.every((v, i) => v === (i === 8 ? 0 : i + 1)) || this.ended === 'won';
     [...board.children].forEach((el, i) => {
@@ -511,6 +583,20 @@ export class MinigameOverlay {
     } else if (s.flash && performance.now() >= this.flashUntil) {
       (this.engine as { clearFlash?: () => void })?.clearFlash?.();
     }
+    ctx.save();
+    ctx.fillStyle = '#f4f1ea';
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`${s.hits}/${s.needed}`, 2, 2);
+    const pip = 4, gap = 2;
+    let px = 2, py = 12;
+    for (let i = 0; i < s.needed; i++) {
+      ctx.fillStyle = i < s.hits ? '#5fd3e6' : '#3b3a44';
+      ctx.fillRect(px, py, pip, pip);
+      px += pip + gap;
+    }
+    ctx.restore();
   }
 
   private renderChase(s: ChaseState, rebuild: boolean): void {
@@ -603,6 +689,7 @@ export class MinigameOverlay {
   }
 
   private expose(): void {
+    if (!qaHooksAllowed()) return;
     (window as unknown as { __PE_MINIGAME__?: unknown }).__PE_MINIGAME__ = {
       id: this.id,
       status: this.ended === 'playing' ? (this.engine?.status() ?? 'playing') : this.ended,
@@ -664,12 +751,18 @@ export class CodeReveal {
     this.modal.style.width = `${Math.round(screen.w)}px`;
     this.modal.style.height = `${Math.round(screen.h)}px`;
     this.modal.style.justifyContent = 'center';
-    // HUD under the item slot, inside the screen.
-    const top = slot ? slot.y + slot.height + 6 : screen.y + 8;
-    const right = slot ? (screen.x + screen.w) - (slot.x + slot.width) : 8;
+    // HUD under the item slot, clamped inside the game screen (R14-10, 393 px wide).
+    const slotW = 18, gap = 3, pad = 4;
+    const hudW = 4 * slotW + 3 * gap + pad;
+    let left = slot ? slot.x + slot.width - hudW : screen.x + screen.w - hudW - 6;
+    left = Math.max(screen.x + 4, Math.min(left, screen.x + screen.w - hudW - 4));
+    let top = slot ? slot.y + slot.height + 4 : screen.y + 8;
+    if (top + 22 > screen.y + screen.h - 4) top = Math.max(screen.y + 4, (slot ? slot.y - 24 : screen.y + 8));
     this.hud.style.position = 'fixed';
+    this.hud.style.left = `${Math.round(left)}px`;
+    this.hud.style.right = 'auto';
     this.hud.style.top = `${Math.round(top)}px`;
-    this.hud.style.right = `${Math.round(right)}px`;
+    this.hud.style.maxWidth = `${Math.round(Math.max(0, screen.x + screen.w - left - 4))}px`;
   }
 
   reveal(code: EscapeCode, showModal = true): void {
@@ -680,7 +773,9 @@ export class CodeReveal {
         const s = document.createElement('span');
         s.className = 'pe-code-slot';
         s.style.background = '#' + CODE_COLOURS[c].toString(16).padStart(6, '0');
-        s.title = c;
+        s.title = `${c} (${CODE_GLYPH[c]})`;
+        s.setAttribute('aria-label', `${c} ${CODE_GLYPH[c]}`);
+        s.textContent = CODE_GLYPH[c];
         root.appendChild(s);
       }
     };
@@ -691,10 +786,16 @@ export class CodeReveal {
       this.modal.hidden = false;
       (this.modal.querySelector('#pe-code-close') as HTMLButtonElement).focus();
     }
-    (window as unknown as { __PE_CODE__?: EscapeCode }).__PE_CODE__ = code;
+    if (qaHooksAllowed()) (window as unknown as { __PE_CODE__?: EscapeCode }).__PE_CODE__ = code;
   }
 
   hideModal(): void { this.modal.hidden = true; }
 
-  destroy(): void { this.modal.remove(); this.hud.remove(); }
+  destroy(): void {
+    this.modal.remove();
+    this.hud.remove();
+    this.code = null;
+    const w = window as unknown as { __PE_CODE__?: EscapeCode };
+    delete w.__PE_CODE__;
+  }
 }

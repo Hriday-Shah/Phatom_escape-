@@ -15,12 +15,22 @@ export type DebugMinigameName = 'slide' | 'maze' | 'lockpick' | 'memory' | 'chas
 
 const DEBUG_MINIGAME_IDS: readonly DebugMinigameName[] = ['slide', 'maze', 'lockpick', 'memory', 'chase'];
 
-/** `?debug=minigame=slide` (also works in a comma list). `dotdash` is an alias of `chase`. */
+/** True in a Vite dev server, or when any `?debug=` flag is present (including `minigame=`). */
+export function qaHooksAllowed(search?: string): boolean {
+  try {
+    const env = (import.meta as { env?: { DEV?: boolean } }).env;
+    if (env?.DEV) return true;
+  } catch { /* not a Vite bundle */ }
+  return debugFlags(search).size > 0;
+}
+
+/** `?debug=minigame=slide` (also works in a comma list). `dotdash` → chase, `lock` → lockpick. */
 export function debugMinigame(search?: string): DebugMinigameName | null {
   for (const f of debugFlags(search)) {
     const m = /^minigame=(.+)$/.exec(f);
     if (!m) continue;
     if (m[1] === 'dotdash') return 'chase';
+    if (m[1] === 'lock') return 'lockpick';
     if ((DEBUG_MINIGAME_IDS as readonly string[]).includes(m[1])) return m[1] as DebugMinigameName;
   }
   return null;

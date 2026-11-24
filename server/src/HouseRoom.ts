@@ -5,7 +5,7 @@
  * Protocol (JSON messages, no Colyseus schema state):
  *   client -> server: colour {colour} | ready {ready} | settings {patch} | kick {id} | start {}
  *                     | pos {x, y, d, m} | spot {id, open}   (any hiding / search spot)
- *                     | itemPickup {id} | itemDrop {x, y, spotId} | minigameStart {} | minigameWin {}
+ *                     | itemPickup {id} | itemDrop {x, y, spotId} | minigameStart {} | minigameWin {} | minigameClose {}
  *   server -> client: welcome {selfId} | lobby PublicLobby | rejected {action, error}
  *                     | kicked {} | poses {p: [id, x, y, d, m][]} | spot {id, open, by}
  *                     | spots {open: id[]} (full state: anything not listed is closed) | left {id}
@@ -87,7 +87,11 @@ export class HouseRoom extends Room {
     this.onMessage('spot', (client, msg) => {
       if (!this.allow(client, 'act')) return;
       const d = this.logic.setSpot(client.sessionId, msg);
-      if (d) this.broadcast('spot', d);
+      if (d) {
+        this.broadcast('spot', d);
+        // Opening a spot may reveal a hidden item; never send closed-spot contents.
+        this.broadcast('items', { items: this.logic.itemList() });
+      }
     });
     // Heartbeat: the client's dead-connection check (and, on hosts that sleep when no inbound
     // traffic arrives, e.g. Render free, what keeps the service awake while anyone is connected).
@@ -115,6 +119,10 @@ export class HouseRoom extends Room {
       // The paper code is sent only to the winner, never broadcast.
       if (r.ok && r.code) client.send('codeReveal', { code: r.code });
       else if (!r.ok) client.send('rejected', { action: 'minigameWin', error: r.error });
+    });
+    this.onMessage('minigameClose', (client) => {
+      if (!this.allow(client, 'act')) return;
+      this.logic.cancelMinigame(client.sessionId);
     });
     // Anything else is ignored.
     this.onMessage('*', () => {});

@@ -55,6 +55,49 @@ export function generateMaze(rng: Rng, w = MAZE_W, h = MAZE_H): number[] {
   return grid;
 }
 
+/** Open cells with exactly one open neighbour (a corridor dead end). */
+export function mazeDeadEnds(grid: number[], w = MAZE_W, h = MAZE_H): [number, number][] {
+  const out: [number, number][] = [];
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    if (grid[idx(x, y, w)] !== 1) continue;
+    let n = 0;
+    for (const [dx, dy] of dirs) if (mazeWalkable(grid, x + dx, y + dy, w, h)) n++;
+    if (n === 1) out.push([x, y]);
+  }
+  return out;
+}
+
+/**
+ * Knock out 15–25% of the walls that close a dead end, creating loops.
+ * Only interior walls that already touch another open cell are removed, so the
+ * border stays solid. Used by Chase; the Maze dash stays a perfect tree.
+ */
+export function punchDeadEndLoops(grid: number[], rng: Rng, w = MAZE_W, h = MAZE_H, fraction?: number): number[] {
+  const next = grid.slice();
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+  const ends = mazeDeadEnds(next, w, h);
+  const walls: number[] = [];
+  const seen = new Set<number>();
+  for (const [x, y] of ends) {
+    for (const [dx, dy] of dirs) {
+      const wx = x + dx, wy = y + dy;
+      if (wx <= 0 || wy <= 0 || wx >= w - 1 || wy >= h - 1) continue;
+      const wi = idx(wx, wy, w);
+      if (next[wi] !== 0 || seen.has(wi)) continue;
+      // The wall must open onto another corridor (not just the dead end itself).
+      const opens = dirs.some(([ox, oy]) => !(ox === -dx && oy === -dy) && mazeWalkable(next, wx + ox, wy + oy, w, h));
+      if (!opens) continue;
+      seen.add(wi);
+      walls.push(wi);
+    }
+  }
+  const frac = fraction ?? (0.15 + rng() * 0.10);
+  const n = Math.max(1, Math.round(walls.length * frac));
+  for (const wi of shuffle(rng, walls).slice(0, Math.min(n, walls.length))) next[wi] = 1;
+  return next;
+}
+
 export function mazeWalkable(grid: number[], x: number, y: number, w = MAZE_W, h = MAZE_H): boolean {
   return x >= 0 && y >= 0 && x < w && y < h && grid[idx(x, y, w)] === 1;
 }

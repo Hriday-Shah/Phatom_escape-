@@ -169,6 +169,13 @@
   min-height: 44px;
   border-radius: 6px;
   border: 2px solid #f4f1ea;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 700 16px/1 system-ui, sans-serif;
+  color: #fff;
+  text-shadow: 0 1px 0 #000, 0 0 3px #000;
+  box-sizing: border-box;
 }
 #pe-code-close {
   min-width: 48px;
@@ -183,7 +190,17 @@
 }
 #pe-code-hud {
   display: flex;
-  gap: 4px;
+  gap: 3px;
   pointer-events: none;
+  flex-wrap: wrap;
+  z-index: 40;
+  box-sizing: border-box;
 }
-#pe-code-hud .pe-code-slot { width: 22px; height: 22px; min-width: 22px; min-height: 22px; }
+#pe-code-hud .pe-code-slot {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  font-size: 10px;
+  border-width: 1px;
+}

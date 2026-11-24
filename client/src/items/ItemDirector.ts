@@ -3,9 +3,9 @@
  * mini-game / paper-code overlays to GameScene.
  */
 import Phaser from 'phaser';
-import { debugItems, debugMinigame } from '../config/debugFlags';
+import { debugItems, debugMinigame, qaHooksAllowed } from '../config/debugFlags';
 import { artKeyFor, isController, itemLabel, type WorldItem } from '../logic/items';
-import { ItemRound, inFrontOfTv, TV_UNIT } from '../logic/itemRound';
+import { ItemRound, inFrontOfTv, itemReachableFrom, NEAR_ITEM, TV_UNIT } from '../logic/itemRound';
 import { MinigameId } from '../logic/minigames';
 import { CodeReveal, MinigameOverlay } from '../minigame/MinigameOverlay';
 import type { HidingSpotManager } from '../objects/HidingSpotManager';
@@ -73,12 +73,18 @@ export class ItemDirector {
     if (debugGame && this.round) {
       this.host.time.delayedCall(200, () => { this.place(); this.openMinigame(debugGame, true); this.place(); });
     }
+    this.exposeHooks();
+  }
+
+  private exposeHooks(): void {
+    if (!qaHooksAllowed()) return;
     const w = window as unknown as { __PE_ITEMS__?: unknown };
     w.__PE_ITEMS__ = {
       holding: () => this.holdingController(),
       atTv: () => this.atTv(),
       open: (id?: MinigameId) => this.openMinigame(id, true),
       knownCode: () => this.code.known(),
+      pickupFloor: () => this.tryPickupFloor(),
     };
   }
 
@@ -99,19 +105,53 @@ export class ItemDirector {
     return isController(this.round?.heldBy(this.selfId));
   }
 
+  private targetingTvDrawer(): boolean {
+    const id = this.host.hidingSpotManager.highlighted()?.data?.id;
+    return !!id && String(id).startsWith('tv_unit');
+  }
+
+  floorItemInReach(): WorldItem | undefined {
+    if (!this.round) return;
+    const pose = { x: this.host.player.x, y: this.host.player.y };
+    return this.round.items.find((i) => !i.heldBy && !i.spotId && itemReachableFrom(pose, i, NEAR_ITEM));
+  }
+
   /** Prompt to show instead of the hiding-spot name, or null. */
   promptOverride(): string | null {
     if (this.open) return null;
-    if (this.holdingController() && this.atTv()) {
-      const touch = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+    const touch = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+    // Holding the controller at the TV still lets you search the TV unit's drawers (R14-10).
+    if (this.holdingController() && this.atTv() && !this.targetingTvDrawer()) {
       return touch ? 'Use Game Controller' : '[E] Use Game Controller';
+    }
+    if (!this.round?.heldBy(this.selfId) && this.floorItemInReach()) {
+      const it = this.floorItemInReach()!;
+      const label = itemLabel(it);
+      return touch ? `Pick up ${label}` : `[E] Pick up ${label}`;
     }
     return null;
   }
 
   onUse(): boolean {
     if (this.overlay.isOpen()) { this.overlay.confirm(); return true; }
-    if (this.holdingController() && this.atTv()) { this.openMinigame(); return true; }
+    if (this.tryPickupFloor()) return true;
+    if (this.holdingController() && this.atTv() && !this.targetingTvDrawer()) {
+      this.openMinigame();
+      return true;
+    }
+    return false;
+  }
+
+  /** Pick up a floor item from any side within reach (R14-2). */
+  tryPickupFloor(): boolean {
+    if (!this.round) return false;
+    const item = this.floorItemInReach();
+    if (!item) return false;
+    const pose = { x: this.host.player.x, y: this.host.player.y };
+    const open = this.host.hidingSpotManager.openIds();
+    if (this.net) this.net.sendItemPickup(item.id);
+    const r = this.round.pickup(this.selfId, item.id, pose, open);
+    if (r.ok) { this.syncHeld(); this.syncSprites(); return true; }
     return false;
   }
 
@@ -124,8 +164,10 @@ export class ItemDirector {
     const y = this.host.player.y + f.y * 20;
     const hl = this.host.hidingSpotManager.highlighted();
     const into = hl?.isOpen ? hl.data.id : null;
+    const pose = { x: this.host.player.x, y: this.host.player.y };
+    const open = this.host.hidingSpotManager.openIds();
     if (this.net) this.net.sendItemDrop(x, y, into);
-    else this.round.drop(this.selfId, x, y, into);
+    else this.round.drop(this.selfId, x, y, into, pose, open);
     this.syncHeld();
     this.syncSprites();
     return true;
@@ -156,7 +198,11 @@ export class ItemDirector {
     this.overlay.open(game, this.round.gameSeed, {
       joystick: () => this.host.getUIScene().getJoystickDirection(),
       onWin: () => this.onWin(),
-      onClose: () => { this.opening = false; },
+      onClose: () => {
+        this.opening = false;
+        if (this.net && this.overlay.status() !== 'won') this.net.sendMinigameClose();
+        else this.round?.cancelMinigame(this.selfId);
+      },
     });
     this.opening = false;
     this.place();
@@ -280,5 +326,12 @@ export class ItemDirector {
     this.tvHighlight?.destroy();
     this.tvGlow?.destroy();
     this.tvBadge?.destroy();
+    this.tvHighlight = undefined;
+    this.tvGlow = undefined;
+    this.tvBadge = undefined;
+    this.round = null;
+    const w = window as unknown as { __PE_ITEMS__?: unknown; __PE_CODE__?: unknown };
+    delete w.__PE_ITEMS__;
+    delete w.__PE_CODE__;
   }
 }

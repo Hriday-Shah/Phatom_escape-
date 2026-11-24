@@ -1,4 +1,4 @@
-import { Rng, mulberry32, shuffle } from '../seededRng';
+import { Rng, mulberry32 } from '../seededRng';
 import { MinigameEngine, MinigameInput, MinigameStatus } from './types';
 
 /** 3x3 sliding puzzle. `tiles[i]` is 1..8, or 0 for the blank. Always solvable. */
@@ -26,21 +26,48 @@ export function isSolvable(tiles: number[]): boolean {
   return inversions(tiles) % 2 === 0;
 }
 
-export function makeSolvableBoard(rng: Rng): number[] {
-  let tiles = shuffle(rng, [1, 2, 3, 4, 5, 6, 7, 8, 0]);
-  if (!isSolvable(tiles)) {
-    // Swap two numbered tiles to flip the permutation's parity.
-    const a = tiles.findIndex((t) => t === 1);
-    const b = tiles.findIndex((t) => t === 2);
-    [tiles[a], tiles[b]] = [tiles[b]!, tiles[a]!];
+/** Inclusive range of optimal (shortest) moves used when shuffling a start board. */
+export const SLIDE_SHUFFLE_MIN = 10;
+export const SLIDE_SHUFFLE_MAX = 14;
+
+let boardsAtDepth: number[][][] | null = null;
+
+/** BFS from the solved board; `at[d]` is every position whose shortest path is d moves. */
+function boardsByDepth(maxMoves: number): number[][][] {
+  if (boardsAtDepth && boardsAtDepth.length > maxMoves) return boardsAtDepth;
+  const solved = [1, 2, 3, 4, 5, 6, 7, 8, 0];
+  const at: number[][][] = Array.from({ length: maxMoves + 1 }, () => []);
+  const seen = new Set<string>([solved.join(',')]);
+  const q: { t: number[]; d: number }[] = [{ t: solved, d: 0 }];
+  at[0]!.push(solved);
+  for (let i = 0; i < q.length; i++) {
+    const { t, d } = q[i]!;
+    if (d >= maxMoves) continue;
+    const blank = t.indexOf(0);
+    for (const n of neighbors(blank)) {
+      const next = t.slice();
+      [next[blank], next[n]] = [next[n]!, next[blank]!];
+      const k = next.join(',');
+      if (seen.has(k)) continue;
+      seen.add(k);
+      at[d + 1]!.push(next);
+      q.push({ t: next, d: d + 1 });
+    }
   }
-  if (isSolved(tiles)) {
-    // Don't start already solved: slide the blank left if possible, else right.
-    const b = tiles.indexOf(0);
-    const swap = b % 3 === 0 ? b + 1 : b - 1;
-    [tiles[b], tiles[swap]] = [tiles[swap]!, tiles[b]!];
-  }
-  return tiles;
+  boardsAtDepth = at;
+  return at;
+}
+
+/**
+ * A 3×3 8-puzzle shuffled so the shortest solution is 10–14 moves.
+ * Picks uniformly from the exact-depth BFS layer, so every length in range appears.
+ */
+export function makeSolvableBoard(rng: Rng, minMoves = SLIDE_SHUFFLE_MIN, maxMoves = SLIDE_SHUFFLE_MAX): number[] {
+  const at = boardsByDepth(maxMoves);
+  const depth = minMoves + Math.floor(rng() * (maxMoves - minMoves + 1));
+  const pool = at[depth] ?? [];
+  if (!pool.length) return [2, 3, 6, 1, 5, 8, 4, 7, 0];
+  return pool[Math.floor(rng() * pool.length)]!.slice();
 }
 
 function neighbors(blank: number): number[] {
@@ -62,13 +89,25 @@ export function slideAt(tiles: number[], index: number): number[] | null {
   return next;
 }
 
-/** Move the blank in direction (dx, dy); dx/dy in -1..1. */
+/**
+ * Move the numbered TILE in direction (dx, dy) into the gap.
+ * ArrowRight slides the tile to the left of the gap to the right (the blank
+ * moves left). This is the reverse of the earlier "move the blank" controls.
+ */
 export function slideDir(tiles: number[], dx: number, dy: number): number[] | null {
+  const sx = Math.sign(dx), sy = Math.sign(dy);
+  if ((sx && sy) || (!sx && !sy)) return null; // no diagonals / no-ops
+  // The tile that will move into the gap sits opposite the intended direction.
+  return slideDirBlank(tiles, -sx, -sy);
+}
+
+/** Move the blank in direction (dx, dy). Used internally and by tests that want the blank. */
+export function slideDirBlank(tiles: number[], dx: number, dy: number): number[] | null {
   const blank = tiles.indexOf(0);
   const c = blank % 3 + Math.sign(dx);
   const r = Math.floor(blank / 3) + Math.sign(dy);
   if (c < 0 || c > 2 || r < 0 || r > 2) return null;
-  if (Math.sign(dx) && Math.sign(dy)) return null; // no diagonals
+  if (Math.sign(dx) && Math.sign(dy)) return null;
   if (!dx && !dy) return null;
   return slideAt(tiles, r * 3 + c);
 }

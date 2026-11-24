@@ -1,5 +1,5 @@
 import { mulberry32, randInt } from '../seededRng';
-import { generateMaze, idx, mazePath, mazePorts, mazeWalkable, MAZE_H, MAZE_W } from './maze';
+import { generateMaze, idx, mazePath, mazePorts, mazeWalkable, punchDeadEndLoops, MAZE_H, MAZE_W } from './maze';
 import { MinigameEngine, MinigameInput } from './types';
 
 export const CHASE_W = MAZE_W;
@@ -8,14 +8,20 @@ export const DOTDASH_W = CHASE_W;
 export const DOTDASH_H = CHASE_H;
 /** Player / wisp speed in cells per second. */
 export const CHASE_SPEED = 4;
-export const CHASE_WISP_SPEED = 2.4;
+/** Slow enough, with loops and a start delay, that a fleeing bot survives ≥30% of seeds (R14-1). */
+export const CHASE_WISP_SPEED = 1.1;
 export const DOTDASH_SPEED = CHASE_SPEED;
 export const DOTDASH_GHOST_SPEED = CHASE_WISP_SPEED;
 export const FRIGHTENED_SECONDS = 6;
 export const FRIGHTENED_FLASH_SECONDS = 2;
 export const CANDLE_COUNT = 2;
+export const CHASE_WISP_COUNT = 2;
+/** Seconds before wisps start moving. */
+export const CHASE_WISP_DELAY = 1.5;
 export type WispKind = 'ember' | 'violet' | 'pale';
 export const WISP_KINDS: WispKind[] = ['ember', 'violet', 'pale'];
+/** Play uses two wisps and always keeps the violet one. */
+export const PLAY_WISP_KINDS: WispKind[] = ['violet', 'ember'];
 
 export interface Actor {
   x: number;
@@ -94,9 +100,11 @@ export class ChaseGame implements MinigameEngine<ChaseState> {
   private rng: () => number;
   private ghostThink = 0;
 
-  constructor(seed = 1, ghostCount = 3) {
+  private wispWait = CHASE_WISP_DELAY;
+
+  constructor(seed = 1, ghostCount = CHASE_WISP_COUNT) {
     this.rng = mulberry32(seed >>> 0);
-    this.grid = generateMaze(this.rng, this.w, this.h);
+    this.grid = punchDeadEndLoops(generateMaze(this.rng, this.w, this.h), this.rng, this.w, this.h);
     const { sx, sy, ex, ey } = mazePorts(this.w, this.h);
     this.grid[idx(sx, sy, this.w)] = 1;
     this.grid[idx(ex, ey, this.w)] = 1;
@@ -107,31 +115,43 @@ export class ChaseGame implements MinigameEngine<ChaseState> {
     this.dots = this.grid.map((cell, i) => cell === 1 && i !== idx(sx, sy, this.w));
     this.candles = new Array(this.w * this.h).fill(false);
     this.player = { x: sx, y: sy, fx: 0, fy: 0, dx: 0, dy: 0 };
-    const n = Math.max(1, Math.min(3, ghostCount));
+    const n = Math.max(1, Math.min(CHASE_WISP_COUNT, ghostCount));
     this.ghosts = [];
-    const opens: [number, number][] = [];
+    const opens: { x: number; y: number; d: number }[] = [];
+    let maxD = 0;
     for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) {
-      if (mazeWalkable(this.grid, x, y, this.w, this.h) && !(x === sx && y === sy)) opens.push([x, y]);
+      if (!mazeWalkable(this.grid, x, y, this.w, this.h) || (x === sx && y === sy)) continue;
+      const path = mazePath(this.grid, sx, sy, x, y, this.w, this.h);
+      const d = path.length ? path.length - 1 : 0;
+      opens.push({ x, y, d });
+      if (d > maxD) maxD = d;
     }
-    const far = opens.slice().sort((a, b) => (b[0] + b[1]) - (a[0] + a[1]));
+    const half = Math.max(1, Math.ceil(maxD / 2));
+    const farEnough = opens.filter((c) => c.d >= half).sort((a, b) => b.d - a.d);
+    const pool = farEnough.length >= n ? farEnough : opens.slice().sort((a, b) => b.d - a.d);
+    const kinds = n === 1 ? (['violet'] as WispKind[]) : PLAY_WISP_KINDS;
+    const used = new Set<string>();
     for (let i = 0; i < n; i++) {
-      const [x, y] = far[Math.min(i * 3, far.length - 1)] ?? [ex, ey];
-      this.dots[idx(x, y, this.w)] = false;
-      this.ghosts.push({ x, y, fx: 0, fy: 0, dx: 0, dy: 0, kind: WISP_KINDS[i % WISP_KINDS.length]!, dead: 0 });
+      const cell = pool.find((c) => !used.has(`${c.x},${c.y}`)) ?? { x: ex, y: ey, d: maxD };
+      used.add(`${cell.x},${cell.y}`);
+      this.dots[idx(cell.x, cell.y, this.w)] = false;
+      this.ghosts.push({ x: cell.x, y: cell.y, fx: 0, fy: 0, dx: 0, dy: 0, kind: kinds[i % kinds.length]!, dead: 0 });
     }
-    // Candles (power dots) on far open cells that still have a spark.
+    // Candles: prefer mid-distance open cells (not next to a wisp spawn).
+    const mid = opens.slice().sort((a, b) => Math.abs(a.d - half) - Math.abs(b.d - half));
     let placed = 0;
-    for (const [x, y] of far) {
+    for (const c of mid) {
       if (placed >= CANDLE_COUNT) break;
-      const i = idx(x, y, this.w);
+      const i = idx(c.x, c.y, this.w);
       if (!this.dots[i]) continue;
-      if (this.ghosts.some((g) => g.x === x && g.y === y)) continue;
+      if (this.ghosts.some((g) => g.x === c.x && g.y === c.y)) continue;
       this.candles[i] = true;
       this.dots[i] = false;
       placed += 1;
     }
     this.dotsLeft = this.dots.filter(Boolean).length + this.candles.filter(Boolean).length;
     this.dotsTotal = this.dotsLeft;
+    this.wispWait = CHASE_WISP_DELAY;
   }
 
   state(): ChaseState {
@@ -172,11 +192,18 @@ export class ChaseGame implements MinigameEngine<ChaseState> {
     this.survived += dt;
     if (this.frightened > 0) this.frightened = Math.max(0, this.frightened - dt);
     this.advance(this.player, CHASE_SPEED, dt, true);
+    if (this.wispWait > 0) this.wispWait = Math.max(0, this.wispWait - dt);
     for (const g of this.ghosts) {
       if (g.dead > 0) {
         g.dead = Math.max(0, g.dead - dt);
         if (g.dead === 0) this.respawn(g);
       }
+    }
+    if (this.wispWait > 0) {
+      this.eat();
+      this.resolveTouches();
+      if (this.dotsLeft <= 0 && this.result === 'playing') this.result = 'won';
+      return;
     }
     this.ghostThink -= dt;
     if (this.ghostThink <= 0) {
@@ -311,6 +338,46 @@ export class ChaseGame implements MinigameEngine<ChaseState> {
     this.player.dy = 0;
     if (this.dotsLeft <= 0 && this.result === 'playing') this.result = 'won';
   }
+}
+
+/** Neighbour that maximises the minimum path-distance to every living wisp, never stepping closer if a safer step exists. */
+export function fleeChaseStep(
+  grid: number[], px: number, py: number, wisps: { x: number; y: number }[], w: number, h: number,
+): [number, number] {
+  const opts = neighbors(grid, px, py, w, h);
+  if (!opts.length) return [0, 0];
+  const minDist = (x: number, y: number): number => {
+    if (!wisps.length) return 99;
+    let best = 99;
+    for (const g of wisps) {
+      const path = mazePath(grid, x, y, g.x, g.y, w, h);
+      const d = path.length ? path.length - 1 : 99;
+      if (d < best) best = d;
+    }
+    return best;
+  };
+  const here = minDist(px, py);
+  const scored = opts.map(([dx, dy]) => ({ dx, dy, d: minDist(px + dx, py + dy) }));
+  const safe = scored.filter((s) => s.d >= here);
+  const pool = (safe.length ? safe : scored).slice().sort((a, b) => b.d - a.d);
+  return [pool[0]!.dx, pool[0]!.dy];
+}
+
+/** Run a flee-only bot for `seconds`. Returns whether it survived (or ate every spark). */
+export function runFleeChase(seed: number, seconds = 30, dt = 1 / 30): { won: boolean; survived: number; status: 'playing' | 'won' | 'lost' } {
+  const game = new ChaseGame(seed);
+  const steps = Math.ceil(seconds / dt);
+  for (let i = 0; i < steps; i++) {
+    if (game.status() !== 'playing') break;
+    const st = game.state();
+    const wisps = st.ghosts.filter((g) => g.dead <= 0);
+    const [dx, dy] = fleeChaseStep(st.grid, st.player.x, st.player.y, wisps, st.w, st.h);
+    if (dx || dy) game.input({ type: 'move', dx, dy });
+    game.tick(dt);
+  }
+  if (game.status() === 'playing') game.surviveWin();
+  const st = game.state();
+  return { won: st.status === 'won', survived: st.survived, status: st.status };
 }
 
 /** @deprecated name; Chase is the canonical class. */

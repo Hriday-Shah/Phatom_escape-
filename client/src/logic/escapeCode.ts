@@ -14,6 +14,14 @@ export const CODE_COLOURS: Record<ToyCarColour, number> = {
   yellow: 0xf2d13a,
 };
 
+/** Letters shown on the swatches so the code is not colour-only (R14-10). */
+export const CODE_GLYPH: Record<ToyCarColour, string> = {
+  red: 'R',
+  blue: 'B',
+  violet: 'V',
+  yellow: 'Y',
+};
+
 export function makeEscapeCode(rng: Rng): EscapeCode {
   const order = shuffle(rng, [...TOY_CAR_COLOURS]);
   return order as EscapeCode;

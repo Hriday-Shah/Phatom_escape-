@@ -52,6 +52,7 @@ export interface GameLink {
   sendItemDrop(x: number, y: number, spotId?: string | null): void;
   sendMinigameStart(): void;
   sendMinigameWin(): void;
+  sendMinigameClose(): void;
   onRound(cb: (r: RoundPublic) => void): () => void;
   onItems(cb: (items: ItemPayload[]) => void): () => void;
   onCodeReveal(cb: (code: EscapeCode) => void): () => void;
@@ -360,6 +361,7 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   sendItemDrop(x: number, y: number, spotId?: string | null): void { if (!this.left) this.room.send('itemDrop', { x, y, spotId: spotId ?? null }); }
   sendMinigameStart(): void { if (!this.left) this.room.send('minigameStart', {}); }
   sendMinigameWin(): void { if (!this.left) this.room.send('minigameWin', {}); }
+  sendMinigameClose(): void { if (!this.left) this.room.send('minigameClose', {}); }
   onRound(cb: (r: RoundPublic) => void): () => void { return this.roundEv.on(cb); }
   onItems(cb: (items: ItemPayload[]) => void): () => void { return this.itemsEv.on(cb); }
   onCodeReveal(cb: (code: EscapeCode) => void): () => void { return this.codeEv.on(cb); }

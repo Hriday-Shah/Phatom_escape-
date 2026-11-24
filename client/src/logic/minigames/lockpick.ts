@@ -86,6 +86,9 @@ export class LockPickGame implements MinigameEngine<LockPickState> {
       this.hits += 1;
       if (this.hits >= LOCK_HITS_NEEDED) this.won = true;
       else this.placeZone();
+    } else {
+      // A miss resets progress so the lock cannot be won by blind mashing (R14-7).
+      this.hits = 0;
     }
   }
 
