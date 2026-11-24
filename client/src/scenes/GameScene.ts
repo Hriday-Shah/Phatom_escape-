@@ -7,7 +7,7 @@ import type { GameLink } from '../net/ColyseusLobbyService';
 import { Furniture, houseLayout } from '../data/houseLayout';
 import { createComposedWalls } from '../utils/wallRenderer';
 import { wallBodyRects, isDoorLocked } from '../data/colliders';
-import { LightLayer } from '../objects/LightLayer';
+import { LIGHT_OCCLUDERS, LightLayer } from '../objects/LightLayer';
 import { PLAYER_BODY_RADIUS } from '../objects/Player';
 import { gameDpr } from '../config/display';
 import { hasDebugFlag } from '../config/debugFlags';
@@ -126,13 +126,17 @@ export class GameScene extends Phaser.Scene {
 
   private createLight(): void {
     const debugUnlock = hasDebugFlag('unlock');
-    const occluders = [
+    const wallsAndDoors = [
       ...houseLayout.walls,
       ...houseLayout.doors.filter((d) => isDoorLocked(d.id, d.locked, debugUnlock)),
+    ];
+    const furniture = [
       ...houseLayout.hidingSpots,
       ...houseLayout.furniture.filter((f) => f.blocking),
     ];
-    this.lightLayer = new LightLayer(this, GameScene.lightRadius(this.cache.json.get('artManifest')), occluders);
+    const occluders = LIGHT_OCCLUDERS === 'furniture' ? [...wallsAndDoors, ...furniture] : wallsAndDoors;
+    const litRects = LIGHT_OCCLUDERS === 'furniture' ? furniture : [];
+    this.lightLayer = new LightLayer(this, GameScene.lightRadius(this.cache.json.get('artManifest')), occluders, litRects);
     // After Arcade has synced the body to the sprite (POST_UPDATE), so the light never lags.
     const sync = () => this.lightLayer?.update(this.player.x, this.player.y);
     this.events.on(Phaser.Scenes.Events.POST_UPDATE, sync);

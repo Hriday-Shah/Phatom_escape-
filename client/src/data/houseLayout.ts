@@ -349,7 +349,8 @@ export const houseLayout: HouseLayout = {
     // room), then the empty south counter to the SE corner.
     //
     // East wall, south to north: empty east-corner counter, stove (rotated
-    // 270°, lower-middle), then the 3-drawer unit (rotated 270°) flush with
+    // 90° so the oven door and fronts face the room), then the 3-drawer unit
+    // (rotated 90°) flush with
     // the north-east corner.
     //
     // Microwave: unchanged, west wall upper-middle (rotated 270° so the doors
@@ -391,7 +392,7 @@ export const houseLayout: HouseLayout = {
       type: 'appliance',
       contents: [],
       interactRange: 60,
-      rotation: 270,
+      rotation: 90,
       artSize: { w: 45, h: 18 },
     },
     {
@@ -404,7 +405,7 @@ export const houseLayout: HouseLayout = {
       type: 'drawer',
       contents: [],
       interactRange: 60,
-      rotation: 270,
+      rotation: 90,
       artSize: { w: 50, h: 18 },
     },
     {

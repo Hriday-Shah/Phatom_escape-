@@ -3,6 +3,7 @@ import { HidingSpot, houseLayout } from '../data/houseLayout';
 import { DRAWER_UNITS, DrawerUnit, baseTextureKey, sectionOpenTextureKey } from '../data/drawerSlices';
 import { HIDING_SPOT_TEXTURES } from '../utils/artHelpers';
 import { spriteCenter, spotRotation } from '../data/spotArt';
+import { boostedOpenKey } from './openContrast';
 import { RealDeadline } from '../logic/realTimer';
 import {
   CORNER_SECTIONS, Interactable, Rect, buildInteractables, isEligible, selectTarget, sightBlockers,
@@ -68,6 +69,7 @@ export class HidingSpotManager {
       const k = HIDING_SPOT_TEXTURES[spot.id];
       closedKey = k && tex.exists(k) ? k : null;
       openKey = k && tex.exists(`${k}_open`) ? `${k}_open` : null;
+      if (closedKey && openKey) openKey = boostedOpenKey(this.scene, closedKey, openKey);
     }
 
     let sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
