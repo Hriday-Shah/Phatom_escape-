@@ -14,18 +14,20 @@ import {
 } from './settings';
 import { LobbyScreen } from '../lobby/LobbyScreen';
 import { ColourId, LobbyService, LobbySettings, LocalLobbyService } from '../lobby/lobby';
-import { ColyseusLobbyService, GameLink, JoinError } from '../net/ColyseusLobbyService';
-import { JOIN_FAILURE_TEXT } from '../net/protocol';
+import { ColyseusLobbyService, JoinError } from '../net/ColyseusLobbyService';
+import { bindNetOverlay } from '../net/NetOverlay';
+import { JOIN_FAILURE_TEXT, WAKING_TEXT } from '../net/protocol';
 
 export interface StartInfo {
   nickname: string; colour?: ColourId; settings?: LobbySettings;
-  /** Online room (trial): the connection the game keeps using; absent offline. */
-  net?: GameLink;
+  /** Online room: the connection the game keeps using; absent offline. */
+  net?: ColyseusLobbyService;
 }
 
 const ENDED_TEXT = {
   kicked: 'The host removed you from the room.',
-  disconnected: 'Lost the connection to the game server.',
+  lost: "Connection lost: couldn't get back into the room in time.",
+  closed: 'The room was closed by the game server.',
 };
 
 export interface HomeCallbacks {
@@ -75,6 +77,7 @@ export class HomeScreen {
     on(this.roomCode, 'keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') this.join(); });
 
     on(this.el('pe-create-room'), 'click', () => this.openLobby('host'));
+    on(this.el('pe-offline-choice'), 'click', () => this.playOffline());
     on(this.joinBtn, 'click', () => this.join());
     on(this.el('pe-how-to-play'), 'click', (e: MouseEvent) => this.go('howto', e));
     on(this.el('pe-story'), 'click', (e: MouseEvent) => this.go('story', e));
@@ -91,24 +94,48 @@ export class HomeScreen {
   }
 
   /** Show the homepage; `room` pre-fills the join code (?room=CODE); `lobby` opens a debug lobby. */
-  open(opts: { room?: string | null; lobby?: 'host' | 'player' | null; server?: string | null } = {}): void {
+  open(opts: { room?: string | null; lobby?: 'host' | 'player' | null; server?: string | null; afterGame?: boolean } = {}): void {
     this.root.hidden = false;
     this.server = opts.lobby ? null : opts.server ?? null; // debug lobbies stay local
-    this.el('pe-online-status').textContent = this.server ? 'Online: rooms are on the game server from your invite link.' : '';
+    this.renderMode();
+    this.el('pe-offline-choice').hidden = true;
+    // Back from a game (Quit / Back): land on Create room, not <body>.
+    if (opts.afterGame) { this.lastOpener = this.el('pe-create-room'); this.homeMessage.textContent = ''; }
     // The homepage is the base entry; views push on top of it.
     history.replaceState({ ...(history.state ?? {}), [HISTORY_KEY]: 'main' }, '');
     this.show('main');
     if (opts.room) { this.roomCode.value = opts.room; this.renderJoin(); }
     if (opts.lobby) this.openLobby(opts.lobby, true);
+    else if (this.server && !opts.afterGame) void this.resume(this.server);
   }
 
-  /** Remove the homepage (and its listeners) once the game starts. */
+  private renderMode(): void {
+    this.el('pe-online-status').textContent = this.server ? 'Online: Create and Join use real rooms on the game server.' : '';
+  }
+
+  /** Reloaded the tab while in an online room: take the seat back (lobby or straight into the game). */
+  private async resume(server: string): Promise<void> {
+    this.setBusy(true);
+    this.homeMessage.textContent = 'Rejoining your room…';
+    const svc = await ColyseusLobbyService.resume(server);
+    this.setBusy(false);
+    this.homeMessage.textContent = '';
+    if (svc) this.showLobby(svc, server); // a started room goes straight into the house
+  }
+
+  /** The server this visit uses (null after "Play offline instead"), for the next homepage. */
+  get serverInUse(): string | null { return this.server; }
+
+  /**
+   * Hide the homepage and drop its listeners once the game starts. The markup stays in the
+   * page (hidden), so a new HomeScreen can open it again after the game (Quit / Back).
+   */
   close(): void {
     this.ac.abort();
     this.lobby?.destroy();
+    this.lobby = null;
     (document.activeElement as HTMLElement | null)?.blur?.(); // dismiss a mobile keyboard
     this.root.hidden = true;
-    this.root.remove();
   }
 
   // ---- views & history ----
@@ -167,11 +194,30 @@ export class HomeScreen {
     this.showLobby(svc, null);
   }
 
-  /** Online trial: create / join on the server; friendly messages when it fails. */
+  /**
+   * Online: create / join a real room on the server; friendly messages when it fails. If the
+   * server can't be reached, offer "Play offline instead" (never a silent fallback).
+   */
   private async openOnline(role: 'host' | 'player', name: string, server: string): Promise<void> {
     const msgEl = role === 'host' ? this.homeMessage : this.joinMessage;
     this.setBusy(true);
     this.homeMessage.textContent = ''; msgEl.textContent = role === 'host' ? 'Creating room…' : 'Joining room…';
+    this.el('pe-offline-choice').hidden = true;
+    // A sleeping free-tier server: say so, and offer offline play while it wakes.
+    const awake = await ColyseusLobbyService.wake(server, () => {
+      msgEl.textContent = WAKING_TEXT;
+      this.el('pe-offline-choice').hidden = false;
+    }, undefined, () => this.server !== server);
+    if (this.server !== server) return; // chose "Play offline instead" meanwhile
+    if (!awake) {
+      this.setBusy(false);
+      if (role === 'player') this.renderJoin();
+      msgEl.textContent = JOIN_FAILURE_TEXT.unreachable;
+      this.el('pe-offline-choice').hidden = false;
+      return;
+    }
+    this.el('pe-offline-choice').hidden = true;
+    msgEl.textContent = role === 'host' ? 'Creating room…' : 'Joining room…';
     try {
       const svc = role === 'host'
         ? await ColyseusLobbyService.create(server, name)
@@ -182,12 +228,25 @@ export class HomeScreen {
     } catch (e) {
       this.setBusy(false);
       if (role === 'player') this.renderJoin();
-      msgEl.textContent = JOIN_FAILURE_TEXT[e instanceof JoinError ? e.reason : 'unreachable'];
+      const reason = e instanceof JoinError ? e.reason : 'unreachable';
+      msgEl.textContent = JOIN_FAILURE_TEXT[reason];
+      if (reason === 'unreachable') this.el('pe-offline-choice').hidden = false;
     }
+  }
+
+  /** "Play offline instead": this visit uses the local (this device only) mode. */
+  private playOffline(): void {
+    this.server = null; // also stops a wait for a sleeping server
+    this.setBusy(false);
+    this.el('pe-offline-choice').hidden = true;
+    this.homeMessage.textContent = ''; this.renderJoin();
+    this.el('pe-online-status').textContent = 'Offline: this device only.';
+    this.openLobby('host');
   }
 
   private showLobby(svc: LobbyService, server: string | null): void {
     this.lobby?.destroy();
+    if (svc instanceof ColyseusLobbyService) bindNetOverlay(svc);
     this.lobby = new LobbyScreen(svc, {
       onLeave: () => {
         this.lobby = null;
@@ -204,6 +263,9 @@ export class HomeScreen {
         this.homeMessage.textContent = ENDED_TEXT[reason];
       },
     }, server);
+    // A resumed seat in a started room went straight into the game (the homepage is closed):
+    // no lobby history entry on top of the game's.
+    if (this.root.hidden) return;
     this.go('lobby');
   }
 

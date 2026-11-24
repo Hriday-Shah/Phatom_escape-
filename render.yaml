@@ -1,0 +1,29 @@
+# Render Blueprint for the Phantom Escape game server (free web service, Docker).
+# Hriday: Render Dashboard > New > Blueprint > pick this repo. See docs/DEPLOY-SERVER.md.
+services:
+  - type: web
+    name: phantom-escape-server
+    runtime: docker
+    plan: free
+    region: singapore          # closest Render region to India
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    # Redeploying drops every live room, so only redeploy when server code changes.
+    buildFilter:
+      paths:
+        - server/**
+        - client/src/lobby/lobby.ts
+        - client/src/home/settings.ts
+        - client/src/config/physicsConfig.ts
+        - package.json
+        - package-lock.json
+        - Dockerfile
+    envVars:
+      # Browser origins allowed to connect (comma-separated). Add `localhost` for local testing.
+      - key: ALLOWED_ORIGINS
+        value: https://hriday-shah.github.io
+      # Seconds a dropped player's seat is kept.
+      - key: RECONNECT_SECONDS
+        value: "45"

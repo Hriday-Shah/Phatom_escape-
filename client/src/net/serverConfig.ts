@@ -28,15 +28,28 @@ export function normaliseServer(raw: string | null | undefined): string | null {
   return `${u.protocol}//${u.host}${path}`;
 }
 
-/** The server for this tab: `?server=` (then remembered), else the remembered one, else null. */
-export function serverFromUrl(search: string, store: Store | null = session()): string | null {
+/** Remembered "offline" choice (`?server=` empty or `?server=off`). */
+export const SERVER_OFF = 'off';
+
+/**
+ * The server for this tab, or null for the offline / demo mode:
+ *  1. `?server=wss://...` (then remembered for the tab); `?server=` or `?server=off` = offline;
+ *  2. else what this tab remembered;
+ *  3. else the build's default (`VITE_SERVER_URL`, a GitHub Actions repository variable;
+ *     empty by default, so the repo itself holds no server URL).
+ */
+export function serverFromUrl(search: string, store: Store | null = session(), buildDefault?: string): string | null {
   const q = new URLSearchParams(search);
   if (q.has('server')) {
-    const s = normaliseServer(q.get('server'));
-    try { if (s) store?.setItem(SERVER_KEY, s); else store?.removeItem(SERVER_KEY); } catch { /* blocked */ }
+    const raw = (q.get('server') ?? '').trim();
+    const s = raw === '' || raw === SERVER_OFF ? null : normaliseServer(raw);
+    try { store?.setItem(SERVER_KEY, s ?? SERVER_OFF); } catch { /* blocked */ }
     return s;
   }
-  try { return normaliseServer(store?.getItem(SERVER_KEY)); } catch { return null; }
+  let remembered: string | null = null;
+  try { remembered = store?.getItem(SERVER_KEY) ?? null; } catch { /* blocked */ }
+  if (remembered === SERVER_OFF) return null;
+  return normaliseServer(remembered) ?? normaliseServer(buildDefault);
 }
 
 /** HTTP(S) base of a ws(s) server URL (health / room status). */

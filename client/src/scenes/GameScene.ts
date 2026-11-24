@@ -5,14 +5,13 @@ import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { NetSync } from '../net/NetSync';
 import type { GameLink } from '../net/ColyseusLobbyService';
 import { Furniture, houseLayout } from '../data/houseLayout';
-import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { createComposedWalls } from '../utils/wallRenderer';
 import { wallBodyRects, isDoorLocked } from '../data/colliders';
 import { LightLayer } from '../objects/LightLayer';
 import { PLAYER_BODY_RADIUS } from '../objects/Player';
 import { gameDpr } from '../config/display';
 import { hasDebugFlag } from '../config/debugFlags';
-import { currentShellLayout } from '../ui/currentLayout';
+import { currentShellLayout, watchInsets } from '../ui/currentLayout';
 import { snappedCameraZoom } from '../logic/cameraZoom';
 
 export { snappedCameraZoom };
@@ -90,7 +89,7 @@ export class GameScene extends Phaser.Scene {
     this.events.on(Phaser.Scenes.Events.POST_UPDATE, target);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.POST_UPDATE, target));
 
-    // Online room (trial): other players + drawer sync. Offline (no 'net') is unchanged.
+    // Online room: other players + spot sync. Offline (no 'net') is unchanged.
     const net = this.registry.get('net') as GameLink | null | undefined;
     if (net) this.netSync = new NetSync(this, net, this.player, this.hidingSpotManager);
 
@@ -112,7 +111,7 @@ export class GameScene extends Phaser.Scene {
     this.events.on('interact', this.onInteract, this);
     
     // Reposition on safe area changes
-    SafeAreaManager.onInsetsChange(() => this.onResize());
+    watchInsets(this, () => this.onResize());
   }
 
   /**

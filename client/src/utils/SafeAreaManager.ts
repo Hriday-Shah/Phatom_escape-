@@ -59,8 +59,15 @@ export class SafeAreaManager {
     return { ...this.insets };
   }
 
-  public static onInsetsChange(callback: (insets: SafeAreaInsets) => void): void {
+  /** Subscribe; returns the unsubscribe (scenes call it when they shut down / are destroyed). */
+  public static onInsetsChange(callback: (insets: SafeAreaInsets) => void): () => void {
     this.listeners.push(callback);
+    return () => { this.listeners = this.listeners.filter((c) => c !== callback); };
+  }
+
+  /** QA: live subscriptions (a torn-down game must leave none behind). */
+  public static listenerCount(): number {
+    return this.listeners.length;
   }
 
   private static notifyListeners(): void {

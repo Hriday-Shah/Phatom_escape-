@@ -27,8 +27,15 @@ export function runNetTest(): void {
   assert.equal(serverFromUrl('?server=wss%3A%2F%2Fgame.example&room=ABC234', st), 'wss://game.example');
   assert.equal(st.m.get(SERVER_KEY), 'wss://game.example');
   assert.equal(serverFromUrl('?room=ABC234', st), 'wss://game.example', 'remembered for the tab');
-  assert.equal(serverFromUrl('?server=', st), null, 'empty ?server= forgets it (offline)');
-  assert.equal(st.m.has(SERVER_KEY), false);
+  assert.equal(serverFromUrl('?server=', st), null, 'empty ?server= = offline');
+  assert.equal(st.m.get(SERVER_KEY), 'off');
+  assert.equal(serverFromUrl('', st, 'wss://default.example'), null, 'remembered offline beats the build default');
+  assert.equal(serverFromUrl('?server=wss%3A%2F%2Fgame.example', st, 'wss://default.example'), 'wss://game.example', '?server= beats the build default');
+  const st2 = memStore();
+  assert.equal(serverFromUrl('', st2, 'wss://default.example'), 'wss://default.example', 'build default');
+  assert.equal(serverFromUrl('', st2, ''), null, 'empty build default = offline');
+  assert.equal(serverFromUrl('', st2, 'javascript:x'), null);
+  assert.equal(serverFromUrl('?server=off', st2, 'wss://default.example'), null, '?server=off');
   assert.equal(httpBase('wss://a.example'), 'https://a.example');
   assert.equal(httpBase('ws://localhost:2567'), 'http://localhost:2567');
 

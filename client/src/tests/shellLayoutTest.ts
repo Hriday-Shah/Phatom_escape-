@@ -7,13 +7,13 @@
  * orientation-matched (notch top/bottom in portrait, left/right in landscape) plus none; and
  * also the worst case on every viewport as a robustness check (scale steps down to fit).
  */
-import { Box, computeShellLayout, shellScale } from '../ui/shellLayout';
+import { Box, computeShellLayout, quitButtonBox, shellScale } from '../ui/shellLayout';
 import { snappedCameraZoom } from '../logic/cameraZoom';
 
 const VIEWPORTS: [number, number][] = [
   [844, 390], [667, 375], [390, 844], [375, 667], [360, 780], [430, 932], [932, 430], [780, 360],
   [1366, 768], [1920, 1080], [1280, 720], [820, 1180], [1180, 820], [1024, 1366], [568, 320], [320, 568],
-  [2560, 1080], [800, 800], [1000, 400], [400, 1000],
+  [2560, 1080], [800, 800], [1000, 400], [400, 1000], [800, 600], [640, 360], [360, 640],
 ];
 const INSETS = [
   { top: 0, right: 0, bottom: 0, left: 0 },
@@ -61,6 +61,19 @@ export function runShellLayoutTest(): void {
     if (!inside(L.screen, L.bezel)) errors.push(`${tag}: screen not inside the bezel`);
     if (L.screen.w < 150 || L.screen.h < 150) errors.push(`${tag}: game screen too small ${L.screen.w}x${L.screen.h}`);
     if (L.portrait !== h > w) errors.push(`${tag}: orientation`);
+    // Quit / Home button: >= 48 CSS px, on the game screen, clear of the item slot, the joystick
+    // (well and its 1.5x touch circle) and every button socket; whole device px.
+    const q = quitButtonBox(L);
+    if (q.w < 48 || q.h < 48) errors.push(`${tag}: quit button ${q.w}x${q.h} < 48`);
+    if (!inside(q, L.screen)) errors.push(`${tag}: quit button off the game screen`);
+    if (!whole(q)) errors.push(`${tag}: quit button not on whole device px`);
+    const slotSize = Math.min(60, Math.floor(L.screen.w * 0.2), Math.floor(L.screen.h * 0.2));
+    const slot = { x: L.screen.x + L.screen.w - 2 * L.s - slotSize, y: L.screen.y + 2 * L.s, w: slotSize, h: slotSize };
+    if (overlap(q, slot)) errors.push(`${tag}: quit button overlaps the item slot`);
+    for (const [n, b] of shown) if (n !== 'bezel' && overlap(q, b)) errors.push(`${tag}: quit button overlaps ${n}`);
+    const cx = L.well.x + L.well.w / 2, cy = L.well.y + L.well.h / 2, zr = (L.well.w / 2) * 1.5;
+    const nx = Math.max(q.x, Math.min(cx, q.x + q.w)), ny = Math.max(q.y, Math.min(cy, q.y + q.h));
+    if (Math.hypot(nx - cx, ny - cy) < zr) errors.push(`${tag}: quit button inside the joystick touch zone`);
   }
   // R7-6: small landscape windows keep the camera zoom (screen at least as wide as tall).
   for (const [w, h, dpr, minZoom] of [[800, 600, 1, 2], [568, 320, 2, 2], [844, 390, 3, 3.5], [667, 375, 2, 2.5], [1366, 768, 1, 2.5]] as const) {

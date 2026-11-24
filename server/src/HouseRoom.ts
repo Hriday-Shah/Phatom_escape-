@@ -4,14 +4,17 @@
  *
  * Protocol (JSON messages, no Colyseus schema state):
  *   client -> server: colour {colour} | ready {ready} | settings {patch} | kick {id} | start {}
- *                     | pos {x, y, d, m} | drawer {id, open}
+ *                     | pos {x, y, d, m} | spot {id, open}   (any hiding / search spot)
  *   server -> client: welcome {selfId} | lobby PublicLobby | rejected {action, error}
- *                     | kicked {} | poses {p: [id, x, y, d, m][]} | drawer {id, open, by}
- *                     | drawers {open: id[]} | left {id}
+ *                     | kicked {} | poses {p: [id, x, y, d, m][]} | spot {id, open, by}
+ *                     | spots {open: id[]} (full state: anything not listed is closed) | left {id}
+ *
+ * Drops: a client that disconnects without leaving keeps its seat for RECONNECT_SECONDS
+ * (Colyseus allowReconnection; shown as `away`); a deliberate leave removes it at once.
  */
 import { Client, Room, ServerError } from '@colyseus/core';
 import { makeRoomCode, MAX_PLAYERS } from '../../client/src/lobby/lobby';
-import { HouseLogic, RateLimiter } from './houseLogic';
+import { HouseLogic, RateLimiter, RECONNECT_SECONDS } from './houseLogic';
 import { originAllowed } from './origins';
 
 /** Live rooms by code (room status endpoint, unique codes). */
@@ -21,6 +24,7 @@ export const ROOMS = new Map<string, HouseLogic>();
 export const TICK_HZ = 12;
 /** Close codes the client maps to friendly messages. */
 export const CLOSE_KICKED = 4001;
+export const CLOSE_FLOOD = 4002;
 
 export function newRoomCode(): string {
   for (let i = 0; i < 100; i++) { const c = makeRoomCode(); if (!ROOMS.has(c)) return c; }
@@ -33,6 +37,8 @@ export class HouseRoom extends Room {
   maxClients = MAX_PLAYERS;
   private logic!: HouseLogic;
   private limits = new Map<string, Limits>();
+  /** Sessions the server disconnected on purpose (flooding): no reconnection. */
+  private noReturn = new Set<string>();
 
   onCreate(): void {
     const code = newRoomCode();
@@ -63,7 +69,7 @@ export class HouseRoom extends Room {
     });
     lobbyAction('start', (c) => {
       const r = this.logic.start(c.sessionId);
-      if (r.ok) { void this.lock(); this.broadcast('drawers', { open: this.logic.openDrawers() }); }
+      if (r.ok) { void this.lock(); this.broadcast('spots', { open: this.logic.openSpots() }); }
       return r;
     });
 
@@ -71,11 +77,14 @@ export class HouseRoom extends Room {
       if (!this.allow(client, 'pos')) return;
       this.logic.move(client.sessionId, msg, Date.now());
     });
-    this.onMessage('drawer', (client, msg) => {
+    this.onMessage('spot', (client, msg) => {
       if (!this.allow(client, 'act')) return;
-      const d = this.logic.setDrawer(client.sessionId, msg);
-      if (d) this.broadcast('drawer', d);
+      const d = this.logic.setSpot(client.sessionId, msg);
+      if (d) this.broadcast('spot', d);
     });
+    // Heartbeat: the client's dead-connection check (and, on hosts that sleep when no inbound
+    // traffic arrives, e.g. Render free, what keeps the service awake while anyone is connected).
+    this.onMessage('hb', (client) => { if (this.allow(client, 'act')) client.send('hb', {}); });
     // Anything else is ignored.
     this.onMessage('*', () => {});
 
@@ -90,7 +99,7 @@ export class HouseRoom extends Room {
     const l = this.limits.get(client.sessionId);
     if (!l) return false;
     if (l[kind].take(Date.now())) return true;
-    if (++l.dropped > 300) client.leave(4002);
+    if (++l.dropped > 300) { this.noReturn.add(client.sessionId); client.leave(CLOSE_FLOOD); }
     return false;
   }
 
@@ -112,12 +121,40 @@ export class HouseRoom extends Room {
     this.broadcastLobby();
   }
 
-  onLeave(client: Client): void {
-    const id = this.logic.playerId(client.sessionId);
-    this.logic.leave(client.sessionId);
-    this.limits.delete(client.sessionId);
+  async onLeave(client: Client, consented?: boolean): Promise<void> {
+    const sid = client.sessionId;
+    // Dropped (not a Leave, not kicked / flooding): hold the seat while they reconnect.
+    if (!consented && !this.noReturn.has(sid) && this.logic.drop(sid)) {
+      this.broadcastLobby();
+      try {
+        const back = await this.allowReconnection(client, RECONNECT_SECONDS);
+        if (!this.logic.reconnect(sid)) { back.send('kicked', {}); back.leave(CLOSE_KICKED); return; }
+        this.sendRoomState(back);
+        this.broadcastLobby();
+        return;
+      } catch { /* window ran out: remove them below */ }
+    }
+    this.remove(sid);
+  }
+
+  private remove(sid: string): void {
+    const id = this.logic.playerId(sid);
+    this.logic.leave(sid); // host migrates to the next player
+    this.limits.delete(sid);
+    this.noReturn.delete(sid);
     if (id) this.broadcast('left', { id });
     this.broadcastLobby();
+  }
+
+  /** Everything a returning client needs: its id, the lobby, and in-game spots + poses. */
+  private sendRoomState(client: Client): void {
+    client.send('welcome', { selfId: this.logic.playerId(client.sessionId) });
+    client.send('lobby', this.logic.snapshot());
+    if (this.logic.started) {
+      client.send('spots', { open: this.logic.openSpots() });
+      const p = this.logic.allPoses();
+      if (p.length) client.send('poses', { p });
+    }
   }
 
   onDispose(): void { ROOMS.delete(this.logic.code); }

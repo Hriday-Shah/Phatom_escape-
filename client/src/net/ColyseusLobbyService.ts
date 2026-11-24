@@ -1,33 +1,49 @@
 /**
- * Online lobby (trial of stage 2): `LobbyService` on a Colyseus room of the game server
+ * Online lobby + game link (stage 2): `LobbyService` on a Colyseus room of the game server
  * (server/src/HouseRoom.ts). The server is authoritative: actions are sent as messages and the
  * screen re-renders from the `lobby` snapshots the server broadcasts. Quick local checks
  * (not host, colour taken) answer at once so the screen behaves like the offline one.
  *
- * After start, the same connection carries the game (`GameLink`, used by net/NetSync.ts).
+ * Drops: when the connection is lost without a deliberate Leave, this reconnects with the
+ * room's reconnection token (the server keeps the seat ~45 s), reporting `onStatus`
+ * ('reconnecting' / 'connected'); when that fails, `onEnd('lost')`. The token is also kept in
+ * sessionStorage so reloading the tab rejoins the same seat (`ColyseusLobbyService.resume`).
  */
 import { Client, Room } from 'colyseus.js';
 import type {
   ColourId, LobbyPlayer, LobbyResult, LobbyService, LobbySettings, LobbyState,
 } from '../lobby/lobby';
-import { CLOSE_KICKED, JoinFailure, PoseTuple } from './protocol';
+import {
+  CLOSE_CONSENTED, HEARTBEAT_MS, WAKE_MAX_MS, SILENCE_DROP_MS, CLOSE_FLOOD, CLOSE_KICKED, JoinFailure, PoseTuple, RECONNECT_RETRY_MS, RECONNECT_WINDOW_MS,
+} from './protocol';
 import { httpBase } from './serverConfig';
 
-export type EndReason = 'kicked' | 'disconnected';
+/** kicked by the host; lost = could not reconnect in time; closed = the server closed the room. */
+export type EndReason = 'kicked' | 'lost' | 'closed';
+export type NetStatus = 'connected' | 'reconnecting';
+/** A player as the server shows it: `away` while reconnecting (seat held). */
+export type NetPlayer = LobbyPlayer & { away?: boolean };
 
 /** What the game scene needs from the network. */
 export interface GameLink {
   readonly selfId: string;
-  players(): LobbyPlayer[];
+  players(): NetPlayer[];
+  getState(): LobbyState;
   sendPose(x: number, y: number, d: number, m: number): void;
-  sendDrawer(id: string, open: boolean): void;
+  /** Open / close of any hiding or search spot (drawer, sofa cushion, bed, fridge...). */
+  sendSpot(id: string, open: boolean): void;
   /** Returns unsubscribe. */
   onPoses(cb: (p: PoseTuple[]) => void): () => void;
-  onDrawer(cb: (id: string, open: boolean, by: string) => void): () => void;
-  onDrawers(cb: (open: string[]) => void): () => void;
+  onSpot(cb: (id: string, open: boolean, by: string) => void): () => void;
+  /** Full spot state (on start and after a reconnection): listed = open, anything else closed. */
+  onSpots(cb: (open: string[]) => void): () => void;
   onPlayerLeft(cb: (id: string) => void): () => void;
-  /** Drawers open when the game started (sent by the server on start). */
-  initialOpenDrawers(): string[];
+  onChange(cb: (s: LobbyState) => void): () => void;
+  onStatus(cb: (s: NetStatus) => void): () => void;
+  onEnd(cb: (r: EndReason) => void): () => void;
+  /** Open spots as last received (the scene applies them when it starts). */
+  openSpots(): string[];
+  leave(): void;
 }
 
 type Listener<T extends unknown[]> = (...a: T) => void;
@@ -35,41 +51,136 @@ class Emitter<T extends unknown[]> {
   private s = new Set<Listener<T>>();
   on(cb: Listener<T>): () => void { this.s.add(cb); return () => this.s.delete(cb); }
   emit(...a: T): void { this.s.forEach((cb) => cb(...a)); }
+  clear(): void { this.s.clear(); }
 }
 
 export class JoinError extends Error {
   constructor(readonly reason: JoinFailure) { super(reason); }
 }
 
+/** sessionStorage: the seat to rejoin after a reload. */
+export const SEAT_KEY = 'pe.seat';
+interface Seat { server: string; code: string; token: string }
+type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+const session = (): Store | null => { try { return sessionStorage; } catch { return null; } };
+export function loadSeat(server: string, store: Store | null = session()): Seat | null {
+  try {
+    const s = JSON.parse(store?.getItem(SEAT_KEY) ?? 'null');
+    return s && s.server === server && typeof s.token === 'string' && typeof s.code === 'string' ? s : null;
+  } catch { return null; }
+}
+function saveSeat(seat: Seat | null, store: Store | null = session()): void {
+  try { if (seat) store?.setItem(SEAT_KEY, JSON.stringify(seat)); else store?.removeItem(SEAT_KEY); } catch { /* blocked */ }
+}
+
 const ok: LobbyResult = { ok: true };
+type First = { selfId: string; lobby: Omit<LobbyState, 'selfId'> };
 
 export class ColyseusLobbyService implements LobbyService, GameLink {
   private state: LobbyState;
+  private room!: Room;
   private changes = new Emitter<[LobbyState]>();
   private ends = new Emitter<[EndReason]>();
+  private statuses = new Emitter<[NetStatus]>();
   private poses = new Emitter<[PoseTuple[]]>();
-  private drawer = new Emitter<[string, boolean, string]>();
-  private drawers = new Emitter<[string[]]>();
+  private spot = new Emitter<[string, boolean, string]>();
+  private spots = new Emitter<[string[]]>();
   private leftEv = new Emitter<[string]>();
-  private openAtStart: string[] = [];
+  private open: string[] = [];
   private left = false;
   private kicked = false;
+  private ended = false;
+  status: NetStatus = 'connected';
+  /** Set by main.ts once the house is running (the lobby screen is gone by then). */
+  inGame = false;
 
-  private constructor(private room: Room, readonly server: string, first: { selfId: string; lobby: Omit<LobbyState, 'selfId'> }) {
+  private constructor(room: Room, readonly server: string, first: First) {
     this.state = { ...first.lobby, selfId: first.selfId };
+    this.attach(room);
+  }
+
+  /** Wire a (new or reconnected) room to this service. */
+  private attach(room: Room): void {
+    this.room = room;
+    saveSeat({ server: this.server, code: this.state.code, token: room.reconnectionToken });
     room.onMessage('lobby', (l: Omit<LobbyState, 'selfId'>) => { this.state = { ...l, selfId: this.state.selfId }; this.changes.emit(this.getState()); });
+    room.onMessage('welcome', (m: { selfId: string }) => { if (m?.selfId) this.state = { ...this.state, selfId: m.selfId }; });
     room.onMessage('rejected', () => { this.changes.emit(this.getState()); }); // re-render (e.g. a colour lost in a race)
     room.onMessage('kicked', () => { this.kicked = true; });
     room.onMessage('poses', (m: { p: PoseTuple[] }) => { if (Array.isArray(m?.p)) this.poses.emit(m.p); });
-    room.onMessage('drawer', (m: { id: string; open: boolean; by: string }) => this.drawer.emit(m.id, m.open, m.by));
-    room.onMessage('drawers', (m: { open: string[] }) => { this.openAtStart = m.open ?? []; this.drawers.emit(this.openAtStart); });
-    room.onMessage('left', (m: { id: string }) => this.leftEv.emit(m.id));
-    room.onMessage('welcome', () => {});
-    room.onLeave((code) => {
-      if (this.left) return;
-      this.left = true;
-      this.ends.emit(this.kicked || code === CLOSE_KICKED ? 'kicked' : 'disconnected');
+    room.onMessage('spot', (m: { id: string; open: boolean; by: string }) => {
+      this.open = m.open ? [...new Set([...this.open, m.id])] : this.open.filter((x) => x !== m.id);
+      this.spot.emit(m.id, m.open, m.by);
     });
+    room.onMessage('spots', (m: { open: string[] }) => { this.open = Array.isArray(m?.open) ? m.open : []; this.spots.emit(this.open); });
+    room.onMessage('left', (m: { id: string }) => this.leftEv.emit(m.id));
+    room.onMessage('hb', () => {});
+    this.watch(room);
+    room.onLeave((code) => {
+      if (room !== this.room || this.left || this.ended || this.status === 'reconnecting') return;
+      if (this.kicked || code === CLOSE_KICKED) return this.end('kicked');
+      if (code === CLOSE_CONSENTED) return this.end('closed');
+      if (code === CLOSE_FLOOD) return this.end('lost');
+      void this.reconnectLoop();
+    });
+  }
+
+  private hbTimer: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Dead-connection check: a heartbeat every HEARTBEAT_MS; any message from the server counts
+   * as life. A socket that goes silent (network gone: no close event for a long time) is
+   * treated as dropped after SILENCE_DROP_MS and the reconnection starts.
+   */
+  private watch(room: Room): void {
+    if (this.hbTimer) clearInterval(this.hbTimer);
+    let last = Date.now();
+    room.onMessage('*', () => { last = Date.now(); });
+    for (const t of ['lobby', 'poses', 'spot', 'spots', 'hb', 'left', 'welcome']) room.onMessage(t, () => { last = Date.now(); });
+    this.hbTimer = setInterval(() => {
+      if (room !== this.room || this.left || this.ended) { clearInterval(this.hbTimer!); this.hbTimer = null; return; }
+      if (this.status !== 'connected') return;
+      if (Date.now() - last > SILENCE_DROP_MS) {
+        clearInterval(this.hbTimer!); this.hbTimer = null;
+        this.room = room; // keep its token for the reconnection
+        try { room.connection.close(); } catch { /* already closing */ }
+        void this.reconnectLoop();
+        return;
+      }
+      if (room.connection.isOpen) room.send('hb', {});
+    }, HEARTBEAT_MS);
+  }
+
+  private end(r: EndReason): void {
+    if (this.ended) return;
+    this.ended = true;
+    saveSeat(null);
+    this.ends.emit(r);
+  }
+
+  /** Dropped: retry with the reconnection token until the server's seat window runs out. */
+  private async reconnectLoop(): Promise<void> {
+    if (this.status === 'reconnecting') return; // already retrying (watchdog + late close event)
+    this.status = 'reconnecting';
+    this.statuses.emit('reconnecting');
+    const until = Date.now() + RECONNECT_WINDOW_MS;
+    const token = this.room.reconnectionToken;
+    while (!this.left && Date.now() < until) {
+      try {
+        const room = await new Client(this.server).reconnect(token);
+        if (this.left) { void room.leave(true); return; }
+        this.attach(room);
+        this.status = 'connected';
+        this.statuses.emit('connected');
+        return;
+      } catch (e) {
+        // Room gone: stop at once. "Invalid or expired" can also mean the server hasn't noticed
+        // the drop yet (no seat held so far), so that one keeps retrying until the window ends.
+        if (/disposed|not found/i.test(String((e as any)?.message ?? ''))) break;
+        await new Promise((r) => setTimeout(r, RECONNECT_RETRY_MS));
+      }
+    }
+    if (!this.left) this.end('lost');
   }
 
   /** Host a new room on `server`. */
@@ -82,6 +193,18 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
     return ColyseusLobbyService.connect(server, (c) => c.joinById(code, { nickname }), code);
   }
 
+  /** After a reload: take back the seat kept in sessionStorage, or null (seat gone / none). */
+  static async resume(server: string): Promise<ColyseusLobbyService | null> {
+    const seat = loadSeat(server);
+    if (!seat) return null;
+    try {
+      return await ColyseusLobbyService.connect(server, (c) => c.reconnect(seat.token));
+    } catch {
+      saveSeat(null);
+      return null;
+    }
+  }
+
   private static async connect(server: string, open: (c: Client) => Promise<Room>, code?: string): Promise<ColyseusLobbyService> {
     let room: Room;
     try {
@@ -90,14 +213,17 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
       throw new JoinError(await ColyseusLobbyService.failure(server, e, code));
     }
     // Wait for our id and the first lobby snapshot (both sent right after the join).
-    const first = await new Promise<{ selfId: string; lobby: Omit<LobbyState, 'selfId'> }>((resolve, reject) => {
+    const first = await new Promise<First>((resolve, reject) => {
       let selfId = ''; let lobby: Omit<LobbyState, 'selfId'> | null = null;
       const done = () => { if (selfId && lobby) { clearTimeout(t); resolve({ selfId, lobby }); } };
       const t = setTimeout(() => reject(new JoinError('unreachable')), 8000);
       room.onMessage('welcome', (m: { selfId: string }) => { selfId = m.selfId; done(); });
       room.onMessage('lobby', (m: Omit<LobbyState, 'selfId'>) => { lobby = m; done(); });
+      // Sent after welcome/lobby on a mid-game rejoin; registered now so nothing is missed.
+      room.onMessage('spots', () => {}); room.onMessage('poses', () => {});
     }).catch((e) => { void room.leave(); throw e; });
-    return new ColyseusLobbyService(room, server, first);
+    const svc = new ColyseusLobbyService(room, server, first);
+    return svc;
   }
 
   /** Map a failed create / join to a friendly reason (asks the server's room status). */
@@ -121,13 +247,29 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
     return (await ColyseusLobbyService.reachable(server)) ? 'unknown' : 'unreachable';
   }
 
-  private static async reachable(server: string): Promise<boolean> {
+  static async reachable(server: string): Promise<boolean> {
     try {
       const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 5000);
       const r = await fetch(`${httpBase(server)}/health`, { cache: 'no-store', signal: ctl.signal });
       clearTimeout(t);
-      return r.ok;
+      // A host's own "starting up" page is not the server: only its JSON health answer counts.
+      return r.ok && (await r.json().catch(() => null))?.ok === true;
     } catch { return false; }
+  }
+
+  /**
+   * Free hosts sleep when idle (Render free: ~1 min to wake). Poll the health check for up to
+   * `maxMs`; `onWaiting` is called once if the first try fails. Resolves false if it never answers.
+   */
+  static async wake(server: string, onWaiting: () => void, maxMs = WAKE_MAX_MS, cancelled = () => false): Promise<boolean> {
+    const until = Date.now() + maxMs;
+    if (await ColyseusLobbyService.reachable(server)) return true;
+    onWaiting();
+    while (Date.now() < until && !cancelled()) {
+      await new Promise((r) => setTimeout(r, 2500));
+      if (await ColyseusLobbyService.reachable(server)) return true;
+    }
+    return false;
   }
 
   // ---- LobbyService ----
@@ -137,18 +279,26 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
     return { ...s, players: s.players.map((p) => ({ ...p })), settings: { ...s.settings } };
   }
   onChange(cb: (s: LobbyState) => void): () => void { return this.changes.on(cb); }
-  /** Called when the room ends for this client (kicked, connection lost). */
+  /** Called when the room ends for this client (kicked, connection lost, room closed). */
   onEnd(cb: (r: EndReason) => void): () => void { return this.ends.on(cb); }
+  onStatus(cb: (s: NetStatus) => void): () => void { return this.statuses.on(cb); }
   get code(): string { return this.state.code; }
 
   join(): LobbyResult { return this.left ? { ok: false, error: 'left' } : ok; } // joined in connect()
+  /** Deliberate leave: the server removes this player at once (no seat kept). */
   leave(): void {
     if (this.left) return;
     this.left = true;
-    void this.room.leave(true);
+    saveSeat(null);
+    // Nothing more reaches the (torn-down) lobby / game after a deliberate leave.
+    for (const e of [this.changes, this.poses, this.spot, this.spots, this.leftEv, this.ends, this.statuses]) e.clear();
+    if (this.hbTimer) { clearInterval(this.hbTimer); this.hbTimer = null; }
+    if (this.room.connection.isOpen) void this.room.leave(true); // else already gone (ended / dropped)
   }
   private send(type: string, msg: unknown): LobbyResult {
     if (this.left) return { ok: false, error: 'left' };
+    // Dropped (or the socket is closing): the server state comes back on reconnect.
+    if (this.status !== 'connected' || !this.room.connection.isOpen) return ok;
     this.room.send(type, msg);
     return ok;
   }
@@ -170,12 +320,12 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   // ---- GameLink ----
 
   get selfId(): string { return this.state.selfId; }
-  players(): LobbyPlayer[] { return this.getState().players; }
-  sendPose(x: number, y: number, d: number, m: number): void { if (!this.left) this.room.send('pos', { x, y, d, m }); }
-  sendDrawer(id: string, open: boolean): void { if (!this.left) this.room.send('drawer', { id, open }); }
+  players(): NetPlayer[] { return this.getState().players; }
+  sendPose(x: number, y: number, d: number, m: number): void { this.send('pos', { x, y, d, m }); }
+  sendSpot(id: string, open: boolean): void { this.send('spot', { id, open }); }
   onPoses(cb: (p: PoseTuple[]) => void): () => void { return this.poses.on(cb); }
-  onDrawer(cb: (id: string, open: boolean, by: string) => void): () => void { return this.drawer.on(cb); }
-  onDrawers(cb: (open: string[]) => void): () => void { return this.drawers.on(cb); }
+  onSpot(cb: (id: string, open: boolean, by: string) => void): () => void { return this.spot.on(cb); }
+  onSpots(cb: (open: string[]) => void): () => void { return this.spots.on(cb); }
   onPlayerLeft(cb: (id: string) => void): () => void { return this.leftEv.on(cb); }
-  initialOpenDrawers(): string[] { return [...this.openAtStart]; }
+  openSpots(): string[] { return [...this.open]; }
 }

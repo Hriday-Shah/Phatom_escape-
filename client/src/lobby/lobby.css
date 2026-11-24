@@ -92,3 +92,7 @@
 #pe-lobby-confirm-detail { margin: 0 0 var(--pe-gap); overflow-wrap: anywhere; }
 #pe-lobby-confirm-actions { display: flex; flex-wrap: wrap; gap: var(--pe-gap); }
 #pe-lobby-confirm-actions > button { flex: 1 1 8em; }
+
+/* Online: a dropped player whose seat is held while they reconnect. */
+.pe-lobby-player.pe-away { opacity: 0.55; }
+.pe-lobby-away { color: var(--pe-muted); font-style: italic; }

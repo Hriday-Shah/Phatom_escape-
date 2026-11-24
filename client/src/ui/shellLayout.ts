@@ -158,3 +158,18 @@ function layoutAt(width: number, height: number, insets: Insets, dpr: number, k:
 export function snapToDevice(v: number, dpr: number): number {
   return Math.round(v * dpr) / dpr;
 }
+
+/** Minimum touch target, CSS px. */
+export const TOUCH_MIN = 48;
+
+/**
+ * Quit / Home button (an HTML button, #pe-quit): inside the game screen's top-left corner,
+ * mirroring the item slot (top-right), so it is always on the HUD and never near the joystick
+ * well or the button cluster, which are outside the screen in every layout. At least 48 CSS px
+ * square (16 art px at s >= 3), corners on whole device px.
+ */
+export function quitButtonBox(l: ShellLayout): Box {
+  const size = Math.max(TOUCH_MIN, snapToDevice(16 * l.s, l.dpr));
+  const m = 2 * l.s;
+  return { x: snapToDevice(l.screen.x + m, l.dpr), y: snapToDevice(l.screen.y + m, l.dpr), w: size, h: size };
+}

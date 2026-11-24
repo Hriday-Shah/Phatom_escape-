@@ -95,6 +95,8 @@ export interface LobbyPlayer {
   ready: boolean;
   /** Placeholder player (stage 1 only). */
   placeholder?: boolean;
+  /** Online: dropped, the server holds the seat while they reconnect. */
+  away?: boolean;
 }
 
 export interface LobbyState {

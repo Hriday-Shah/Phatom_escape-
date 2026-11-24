@@ -1,0 +1,30 @@
+/* Online connection UI (placeholder; the theme comes from the :root variables in home.css). */
+#pe-net-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: max(var(--pe-pad), env(safe-area-inset-top)) max(var(--pe-pad), env(safe-area-inset-right))
+           max(var(--pe-pad), env(safe-area-inset-bottom)) max(var(--pe-pad), env(safe-area-inset-left));
+  background: rgba(0, 0, 0, 0.6);
+  font-family: var(--pe-font); font-size: var(--pe-text-size); color: var(--pe-text);
+}
+#pe-net-overlay[hidden], #pe-net-toast[hidden] { display: none; }
+#pe-net-box {
+  max-width: min(420px, 100%); padding: var(--pe-pad); text-align: center;
+  background: var(--pe-screen); border: var(--pe-border) solid var(--pe-outline); border-radius: var(--pe-radius);
+}
+#pe-net-title { margin: 0 0 var(--pe-gap); font-weight: 700; font-size: 1.15em; }
+#pe-net-detail { margin: 0 0 var(--pe-gap); color: var(--pe-muted); }
+#pe-net-detail:empty { display: none; }
+#pe-net-home {
+  min-height: var(--pe-touch); min-width: var(--pe-touch); padding: 0 var(--pe-pad);
+  font: inherit; color: var(--pe-button-text); background: var(--pe-accent);
+  border: var(--pe-border) solid var(--pe-outline); border-radius: var(--pe-radius);
+}
+#pe-net-home:focus-visible { outline: 3px solid var(--pe-focus); outline-offset: 2px; }
+#pe-net-toast {
+  position: fixed; z-index: 999; left: 50%; transform: translateX(-50%);
+  top: max(8px, env(safe-area-inset-top)); max-width: calc(100% - 32px); margin: 0;
+  padding: 8px 14px; border-radius: var(--pe-radius);
+  background: rgba(12, 14, 22, 0.85); color: var(--pe-text);
+  font-family: var(--pe-font); font-size: 14px; text-align: center; pointer-events: none;
+}
