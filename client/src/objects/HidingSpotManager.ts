@@ -43,6 +43,10 @@ export class HidingSpotManager {
   /** Faint dotted outline on a corner section reachable only diagonally (see CORNER_SECTIONS). */
   private cornerHintGfx: Phaser.GameObjects.Graphics;
   private allItems: Interactable[];
+  /** Label of an item hidden in this spot, or null. */
+  public contentsLabel: ((id: string) => string | null) | null = null;
+  /** Called when the player uses an open spot; return true if an item was picked up. */
+  public tryPickup: ((id: string) => boolean) | null = null;
 
   constructor(scene: Phaser.Scene, hidingSpots: HidingSpot[]) {
     this.scene = scene;
@@ -256,6 +260,10 @@ export class HidingSpotManager {
   }
 
   private promptText(spot: SpotState): string {
+    if (spot.isOpen) {
+      const item = this.contentsLabel?.(spot.data.id);
+      if (item) return item;
+    }
     // Show keyboard hint only on non-touch devices
     const isTouch = this.scene.sys.game.device.input.touch;
     const hint = isTouch ? '' : '[E] ';
@@ -274,14 +282,18 @@ export class HidingSpotManager {
   }
 
   public interact(): void {
-    if (this.highlightedSpot) {
-      this.toggleSpot(this.highlightedSpot);
-    }
+    if (!this.highlightedSpot) return;
+    if (this.highlightedSpot.isOpen && this.tryPickup?.(this.highlightedSpot.data.id)) return;
+    this.toggleSpot(this.highlightedSpot);
   }
 
   /** Online: told about every open / close this player makes (net/NetSync.ts). */
   private localToggle: ((id: string, open: boolean) => void) | null = null;
+  public openIds(): string[] { return this.spots.filter((s) => s.isOpen).map((s) => s.data.id); }
+  public highlighted(): { data: { id: string; unitId: string }; isOpen: boolean } | null { return this.highlightedSpot; }
+
   public onLocalToggle(cb: (id: string, open: boolean) => void): void { this.localToggle = cb; }
+  public onToggle: ((id: string, open: boolean) => void) | null = null;
 
   /**
    * Online: another player opened / closed spot `id` (no 'Empty' message here; if it is the
@@ -305,10 +317,18 @@ export class HidingSpotManager {
     spot.isOpen = !spot.isOpen;
     this.drawSpot(spot);
     this.localToggle?.(spot.data.id, spot.isOpen);
+    this.onToggle?.(spot.data.id, spot.isOpen);
 
     if (spot.isOpen) {
-      // Only OPENING reveals the contents; the name comes back after 2 s.
-      this.showMessage('Empty', 2000);
+      const label = this.contentsLabel?.(spot.data.id);
+      if (label && this.tryPickup?.(spot.data.id)) {
+        this.showMessage(`Picked up ${label}`, 2000);
+      } else if (label) {
+        this.showMessage(label);
+      } else {
+        // Only OPENING reveals the contents; the name comes back after 2 s.
+        this.showMessage('Empty', 2000);
+      }
     } else if (this.highlightedSpot === spot) {
       // Closing: straight back to the name prompt (cancels any pending 'Empty' timer).
       this.showPrompt(spot);

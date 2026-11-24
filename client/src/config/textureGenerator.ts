@@ -12,6 +12,7 @@ export class TextureGenerator {
     this.generateWalls(scene);
     this.generateFurniture(scene);
     this.generateUI(scene);
+    this.generateItems(scene);
   }
 
   private static generatePlayer(scene: Phaser.Scene): void {
@@ -160,5 +161,43 @@ export class TextureGenerator {
     graphics.strokeCircle(buttonSize / 2, buttonSize / 2, buttonSize / 2);
     graphics.generateTexture('ph_' + TextureKeys.BUTTON_DISABLED, buttonSize, buttonSize);
     graphics.destroy();
+  }
+
+  /**
+   * Placeholder item art (16x16, shown at 32 world px). Only used when the
+   * approved file is missing; swap the pending manifest PNG to replace it.
+   */
+  private static generateItems(scene: Phaser.Scene): void {
+    const draw = (key: string, fn: (g: Phaser.GameObjects.Graphics) => void) => {
+      if (scene.textures.exists(key)) return;
+      const g = scene.add.graphics();
+      fn(g);
+      g.generateTexture(key, 16, 16);
+      g.destroy();
+    };
+    // Game Controller: dark pad, two cyan buttons, a d-pad. Easy to replace.
+    draw('item_game_controller', (g) => {
+      g.fillStyle(0x2a3042, 1); g.fillRoundedRect(1, 5, 14, 8, 3);
+      g.fillStyle(0x1c2030, 1); g.fillRect(3, 7, 4, 4);
+      g.fillStyle(0x5fd3e6, 1); g.fillCircle(11, 8, 1.4); g.fillCircle(13, 10, 1.4);
+      g.fillStyle(0xf4f1ea, 1); g.fillRect(4, 8, 2, 2);
+    });
+    // Other pending items: simple colour tiles so a later pickup can show something.
+    const others: [string, number][] = [
+      ['item_paper_code', 0xf4f1ea],
+      ['item_stun_gun', 0x3a7bf2],
+      ['item_stun_gun_loaded', 0x3a7bf2],
+      ['item_bullet', 0xf2d13a],
+      ['item_toy_car_red', 0xc13a3a],
+      ['item_toy_car_blue', 0x3a7bf2],
+      ['item_toy_car_violet', 0x9b6bff],
+      ['item_toy_car_yellow', 0xf2d13a],
+      ['item_wire_cutter', 0xb03a5b],
+      ['item_room_key', 0xf2d13a],
+      ['item_battery', 0x5fd3e6],
+    ];
+    for (const [key, color] of others) {
+      draw(key, (g) => { g.fillStyle(color, 1); g.fillRoundedRect(2, 2, 12, 12, 2); });
+    }
   }
 }

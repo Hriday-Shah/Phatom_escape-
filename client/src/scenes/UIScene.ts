@@ -64,9 +64,12 @@ export class UIScene extends Phaser.Scene {
     // Reposition on safe area changes
     watchInsets(this, () => this.onResize());
 
-    // Listen for interact button press and forward to GameScene
+    // Listen for interact (USE) and drop and forward to GameScene
     this.events.on('interact', () => {
       this.scene.get('GameScene').events.emit('interact');
+    });
+    this.events.on('drop', () => {
+      this.scene.get('GameScene').events.emit('drop');
     });
   }
 
@@ -113,6 +116,14 @@ export class UIScene extends Phaser.Scene {
   /** Current shell layout (CSS px), for GameScene and tests. */
   public getLayout(): ShellLayout {
     return this.layout;
+  }
+
+  public setHeldItem(key: string | null): void {
+    this.uiControls.setHeldItem(key);
+  }
+
+  public getItemSlotBounds(): Phaser.Geom.Rectangle {
+    return this.uiControls.getItemSlotBounds();
   }
 
   public showDoorMessage(text: string, duration?: number): void {

@@ -38,3 +38,10 @@ export const SILENCE_DROP_MS = 10000;
 export const WAKE_MAX_MS = 75000;
 /** Shown while waiting for it. */
 export const WAKING_TEXT = 'Waking up the game server… free hosting can take up to a minute.';
+
+/** Server-chosen mini-game and public item list for this round (no paper code). */
+export type ItemPayload = {
+  id: string; kind: string; variant?: string;
+  spotId: string | null; x: number; y: number; heldBy: string | null;
+};
+export type RoundPayload = { minigame: string; gameSeed: number; items: ItemPayload[] };

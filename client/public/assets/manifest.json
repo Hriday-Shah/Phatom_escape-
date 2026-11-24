@@ -1682,6 +1682,892 @@
    "status": "pending review"
   },
   {
+   "key": "item_game_controller",
+   "file": "items/item_game_controller.png",
+   "width": 16,
+   "height": 16,
+   "space": "world",
+   "worldSize": [
+    32,
+    32
+   ],
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "retro gamepad: d-pad, cyan + crimson buttons, cable stub; same auto-outline as other items; used for pickup in world and in the item slot"
+  },
+  {
+   "key": "fx_tv_use_highlight",
+   "file": "fx/fx_tv_use_highlight.png",
+   "width": 48,
+   "height": 59,
+   "space": "world",
+   "worldSize": [
+    96,
+    118
+   ],
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "spritesheet": {
+    "frameWidth": 24,
+    "frameHeight": 59,
+    "frames": 2
+   },
+   "anchor": "draw at tv_unit art (-2,-2) = world (-4,-4)",
+   "note": "same look as the in-game interact highlight (dark 1 art px shadow, 1 art px pale gold line, faint fill); 2-frame pulse. Code may keep drawing its own #FFE14D highlight instead"
+  },
+  {
+   "key": "fx_tv_screen_glow",
+   "file": "fx/fx_tv_screen_glow.png",
+   "width": 80,
+   "height": 55,
+   "space": "world",
+   "worldSize": [
+    160,
+    110
+   ],
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "spritesheet": {
+    "frameWidth": 40,
+    "frameHeight": 55,
+    "frames": 2,
+    "fps": 4
+   },
+   "anchor": "draw at tv_unit art (-20,0) = world (-40,0); its x20-39 covers the tv_unit",
+   "note": "TV switched on while a mini-game is open; flicker 2 frames"
+  },
+  {
+   "key": "ui_prompt_use_tv",
+   "file": "ui/ui_prompt_use_tv.png",
+   "width": 25,
+   "height": 11,
+   "space": "world",
+   "worldSize": [
+    50,
+    22
+   ],
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "optional badge shown above the TV when holding the controller; label matches the console USE label"
+  },
+  {
+   "key": "mg_popup_frame",
+   "file": "ui/minigames/mg_popup_frame.png",
+   "width": 24,
+   "height": 48,
+   "space": "screen",
+   "artSize": [
+    24,
+    48
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "nineSlice": {
+    "left": 8,
+    "right": 8,
+    "top": 26,
+    "bottom": 14
+   },
+   "note": "centre transparent = mini-game screen; top strip holds title plate + close button, bottom strip holds the timer"
+  },
+  {
+   "key": "mg_btn_close",
+   "file": "ui/minigames/mg_btn_close.png",
+   "width": 18,
+   "height": 18,
+   "space": "screen",
+   "artSize": [
+    18,
+    18
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "18 art px = 54 CSS at x3 (recommended); give it a 54-60 CSS hit area"
+  },
+  {
+   "key": "mg_btn_close_pressed",
+   "file": "ui/minigames/mg_btn_close_pressed.png",
+   "width": 18,
+   "height": 18,
+   "space": "screen",
+   "artSize": [
+    18,
+    18
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24"
+  },
+  {
+   "key": "mg_timer_track",
+   "file": "ui/minigames/mg_timer_track.png",
+   "width": 8,
+   "height": 6,
+   "space": "screen",
+   "artSize": [
+    8,
+    6
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "nineSlice": {
+    "left": 3,
+    "right": 3,
+    "top": 1,
+    "bottom": 1
+   },
+   "note": "empty 30 s bar; inner fill area = inset 1 px"
+  },
+  {
+   "key": "mg_timer_fill",
+   "file": "ui/minigames/mg_timer_fill.png",
+   "width": 4,
+   "height": 4,
+   "space": "screen",
+   "artSize": [
+    4,
+    4
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "nineSlice": {
+    "left": 1,
+    "right": 1,
+    "top": 1,
+    "bottom": 1
+   },
+   "note": "stretch horizontally to remaining/30 of the inner track width"
+  },
+  {
+   "key": "mg_timer_fill_low",
+   "file": "ui/minigames/mg_timer_fill_low.png",
+   "width": 4,
+   "height": 4,
+   "space": "screen",
+   "artSize": [
+    4,
+    4
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "nineSlice": {
+    "left": 1,
+    "right": 1,
+    "top": 1,
+    "bottom": 1
+   },
+   "note": "stretch horizontally to remaining/30 of the inner track width; switch to this at <= 10 s and blink at <= 5 s"
+  },
+  {
+   "key": "mg_timer_icon",
+   "file": "ui/minigames/mg_timer_icon.png",
+   "width": 5,
+   "height": 7,
+   "space": "screen",
+   "artSize": [
+    5,
+    7
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "small hourglass at the left of the bar"
+  },
+  {
+   "key": "mg_title_slide",
+   "file": "ui/minigames/mg_title_slide.png",
+   "width": 27,
+   "height": 10,
+   "space": "screen",
+   "artSize": [
+    27,
+    10
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "title plate in the logo-plate style"
+  },
+  {
+   "key": "mg_title_maze",
+   "file": "ui/minigames/mg_title_maze.png",
+   "width": 25,
+   "height": 10,
+   "space": "screen",
+   "artSize": [
+    25,
+    10
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "title plate in the logo-plate style"
+  },
+  {
+   "key": "mg_title_lock",
+   "file": "ui/minigames/mg_title_lock.png",
+   "width": 25,
+   "height": 10,
+   "space": "screen",
+   "artSize": [
+    25,
+    10
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "title plate in the logo-plate style"
+  },
+  {
+   "key": "mg_title_memory",
+   "file": "ui/minigames/mg_title_memory.png",
+   "width": 36,
+   "height": 10,
+   "space": "screen",
+   "artSize": [
+    36,
+    10
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "title plate in the logo-plate style"
+  },
+  {
+   "key": "mg_title_chase",
+   "file": "ui/minigames/mg_title_chase.png",
+   "width": 27,
+   "height": 10,
+   "space": "screen",
+   "artSize": [
+    27,
+    10
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "title plate in the logo-plate style"
+  },
+  {
+   "key": "mg_slide_picture",
+   "file": "ui/minigames/mg_slide_picture.png",
+   "width": 72,
+   "height": 72,
+   "space": "screen",
+   "artSize": [
+    72,
+    72
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "solved picture 72x72 (3x3 of 24)"
+  },
+  {
+   "key": "mg_slide_tile_1",
+   "file": "ui/minigames/mg_slide_tile_1.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "artSize": [
+    24,
+    24
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "home": [
+    0,
+    0
+   ]
+  },
+  {
+   "key": "mg_slide_tile_2",
+   "file": "ui/minigames/mg_slide_tile_2.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "artSize": [
+    24,
+    24
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "home": [
+    1,
+    0
+   ]
+  },
+  {
+   "key": "mg_slide_tile_3",
+   "file": "ui/minigames/mg_slide_tile_3.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "artSize": [
+    24,
+    24
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "home": [
+    2,
+    0
+   ]
+  },
+  {
+   "key": "mg_slide_tile_4",
+   "file": "ui/minigames/mg_slide_tile_4.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "artSize": [
+    24,
+    24
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "home": [
+    0,
+    1
+   ]
+  },
+  {
+   "key": "mg_slide_tile_5",
+   "file": "ui/minigames/mg_slide_tile_5.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "artSize": [
+    24,
+    24
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "home": [
+    1,
+    1
+   ]
+  },
+  {
+   "key": "mg_slide_tile_6",
+   "file": "ui/minigames/mg_slide_tile_6.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "artSize": [
+    24,
+    24
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "home": [
+    2,
+    1
+   ]
+  },
+  {
+   "key": "mg_slide_tile_7",
+   "file": "ui/minigames/mg_slide_tile_7.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "artSize": [
+    24,
+    24
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "home": [
+    0,
+    2
+   ]
+  },
+  {
+   "key": "mg_slide_tile_8",
+   "file": "ui/minigames/mg_slide_tile_8.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "artSize": [
+    24,
+    24
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "home": [
+    1,
+    2
+   ]
+  },
+  {
+   "key": "mg_slide_tile_9",
+   "file": "ui/minigames/mg_slide_tile_9.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "artSize": [
+    24,
+    24
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "home": [
+    2,
+    2
+   ],
+   "note": "tile 9 is only shown when solved"
+  },
+  {
+   "key": "mg_slide_empty",
+   "file": "ui/minigames/mg_slide_empty.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "artSize": [
+    24,
+    24
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "empty slot (home = bottom-right)"
+  },
+  {
+   "key": "mg_maze_wall",
+   "file": "ui/minigames/mg_maze_wall.png",
+   "width": 8,
+   "height": 8,
+   "space": "screen",
+   "artSize": [
+    8,
+    8
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "top face + a little front showing"
+  },
+  {
+   "key": "mg_maze_floor",
+   "file": "ui/minigames/mg_maze_floor.png",
+   "width": 8,
+   "height": 8,
+   "space": "screen",
+   "artSize": [
+    8,
+    8
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24"
+  },
+  {
+   "key": "mg_maze_start",
+   "file": "ui/minigames/mg_maze_start.png",
+   "width": 8,
+   "height": 8,
+   "space": "screen",
+   "artSize": [
+    8,
+    8
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24"
+  },
+  {
+   "key": "mg_maze_exit",
+   "file": "ui/minigames/mg_maze_exit.png",
+   "width": 8,
+   "height": 8,
+   "space": "screen",
+   "artSize": [
+    8,
+    8
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "pale-gold doorway"
+  },
+  {
+   "key": "mg_maze_dot",
+   "file": "ui/minigames/mg_maze_dot.png",
+   "width": 6,
+   "height": 6,
+   "space": "screen",
+   "artSize": [
+    6,
+    6
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "neutral white (setTint-able to the lobby colour)"
+  },
+  {
+   "key": "mg_lock_dial",
+   "file": "ui/minigames/mg_lock_dial.png",
+   "width": 64,
+   "height": 64,
+   "space": "screen",
+   "artSize": [
+    64,
+    64
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24"
+  },
+  {
+   "key": "mg_lock_target_zone",
+   "file": "ui/minigames/mg_lock_target_zone.png",
+   "width": 64,
+   "height": 64,
+   "space": "screen",
+   "artSize": [
+    64,
+    64
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "green arc centred on 'up' (30 deg wide); rotate (origin 0.5) to place the zone"
+  },
+  {
+   "key": "mg_lock_pick",
+   "file": "ui/minigames/mg_lock_pick.png",
+   "width": 64,
+   "height": 64,
+   "space": "screen",
+   "artSize": [
+    64,
+    64
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "points up; rotate with origin 0.5 (pivot = dial centre)"
+  },
+  {
+   "key": "mg_lock_flash_success",
+   "file": "ui/minigames/mg_lock_flash_success.png",
+   "width": 64,
+   "height": 64,
+   "space": "screen",
+   "artSize": [
+    64,
+    64
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "overlay on the dial; blink 2-3 times"
+  },
+  {
+   "key": "mg_lock_flash_fail",
+   "file": "ui/minigames/mg_lock_flash_fail.png",
+   "width": 64,
+   "height": 64,
+   "space": "screen",
+   "artSize": [
+    64,
+    64
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "overlay on the dial; blink 2-3 times"
+  },
+  {
+   "key": "mg_memory_back",
+   "file": "ui/minigames/mg_memory_back.png",
+   "width": 20,
+   "height": 26,
+   "space": "screen",
+   "artSize": [
+    20,
+    26
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "Phantom eyes emblem"
+  },
+  {
+   "key": "mg_memory_face_stun_gun",
+   "file": "ui/minigames/mg_memory_face_stun_gun.png",
+   "width": 20,
+   "height": 26,
+   "space": "screen",
+   "artSize": [
+    20,
+    26
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "uses the existing item_stun_gun icon"
+  },
+  {
+   "key": "mg_memory_face_wire_cutter",
+   "file": "ui/minigames/mg_memory_face_wire_cutter.png",
+   "width": 20,
+   "height": 26,
+   "space": "screen",
+   "artSize": [
+    20,
+    26
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "uses the existing item_wire_cutter icon"
+  },
+  {
+   "key": "mg_memory_face_room_key",
+   "file": "ui/minigames/mg_memory_face_room_key.png",
+   "width": 20,
+   "height": 26,
+   "space": "screen",
+   "artSize": [
+    20,
+    26
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "uses the existing item_room_key icon"
+  },
+  {
+   "key": "mg_memory_face_battery",
+   "file": "ui/minigames/mg_memory_face_battery.png",
+   "width": 20,
+   "height": 26,
+   "space": "screen",
+   "artSize": [
+    20,
+    26
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "uses the existing item_battery icon"
+  },
+  {
+   "key": "mg_memory_matched",
+   "file": "ui/minigames/mg_memory_matched.png",
+   "width": 20,
+   "height": 26,
+   "space": "screen",
+   "artSize": [
+    20,
+    26
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "overlay on a face card once its pair is found"
+  },
+  {
+   "key": "mg_memory_edge",
+   "file": "ui/minigames/mg_memory_edge.png",
+   "width": 4,
+   "height": 26,
+   "space": "screen",
+   "artSize": [
+    4,
+    26
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "mid-flip frame (scale X of the card to 0 and swap, or show this)"
+  },
+  {
+   "key": "mg_chase_walls",
+   "file": "ui/minigames/mg_chase_walls.png",
+   "width": 128,
+   "height": 8,
+   "space": "screen",
+   "artSize": [
+    128,
+    8
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "spritesheet": {
+    "frameWidth": 8,
+    "frameHeight": 8,
+    "frames": 16
+   },
+   "note": "4-bit autotile: frame = N*1 + E*2 + S*4 + W*8 (neighbouring wall cells)"
+  },
+  {
+   "key": "mg_chase_spark",
+   "file": "ui/minigames/mg_chase_spark.png",
+   "width": 8,
+   "height": 8,
+   "space": "screen",
+   "artSize": [
+    8,
+    8
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "note": "the dots: little light sparks"
+  },
+  {
+   "key": "mg_chase_candle",
+   "file": "ui/minigames/mg_chase_candle.png",
+   "width": 16,
+   "height": 8,
+   "space": "screen",
+   "artSize": [
+    16,
+    8
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "spritesheet": {
+    "frameWidth": 8,
+    "frameHeight": 8,
+    "frames": 2,
+    "fps": 6
+   },
+   "note": "power dot: a candle; eating it frightens the wisps"
+  },
+  {
+   "key": "mg_chase_lumo",
+   "file": "ui/minigames/mg_chase_lumo.png",
+   "width": 30,
+   "height": 40,
+   "space": "screen",
+   "artSize": [
+    30,
+    40
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "spritesheet": {
+    "frameWidth": 10,
+    "frameHeight": 10,
+    "frames": 12,
+    "anim": "0,1,2,1 at 10 fps",
+    "rows": "right,left,up,down",
+    "cols": "shutter closed, half, open"
+   },
+   "note": "original eater 'Lumo', a living lantern; rotate-friendly (row 0 can be rotated instead of using rows 1-3)"
+  },
+  {
+   "key": "mg_chase_wisp_ember",
+   "file": "ui/minigames/mg_chase_wisp_ember.png",
+   "width": 24,
+   "height": 48,
+   "space": "screen",
+   "artSize": [
+    24,
+    48
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "spritesheet": {
+    "frameWidth": 12,
+    "frameHeight": 12,
+    "frames": 8,
+    "fps": 6,
+    "rows": "right,left,up,down",
+    "cols": "flame flicker A,B"
+   },
+   "note": "original wisp enemy: a small flame spirit: pointed flickering tip, ember tail, slit eyes (no skirt, no white eyes)"
+  },
+  {
+   "key": "mg_chase_wisp_violet",
+   "file": "ui/minigames/mg_chase_wisp_violet.png",
+   "width": 24,
+   "height": 48,
+   "space": "screen",
+   "artSize": [
+    24,
+    48
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "spritesheet": {
+    "frameWidth": 12,
+    "frameHeight": 12,
+    "frames": 8,
+    "fps": 6,
+    "rows": "right,left,up,down",
+    "cols": "flame flicker A,B"
+   },
+   "note": "original wisp enemy: a small flame spirit: pointed flickering tip, ember tail, slit eyes (no skirt, no white eyes)"
+  },
+  {
+   "key": "mg_chase_wisp_pale",
+   "file": "ui/minigames/mg_chase_wisp_pale.png",
+   "width": 24,
+   "height": 48,
+   "space": "screen",
+   "artSize": [
+    24,
+    48
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "spritesheet": {
+    "frameWidth": 12,
+    "frameHeight": 12,
+    "frames": 8,
+    "fps": 6,
+    "rows": "right,left,up,down",
+    "cols": "flame flicker A,B"
+   },
+   "note": "original wisp enemy: a small flame spirit: pointed flickering tip, ember tail, slit eyes (no skirt, no white eyes)"
+  },
+  {
+   "key": "mg_chase_wisp_frightened",
+   "file": "ui/minigames/mg_chase_wisp_frightened.png",
+   "width": 48,
+   "height": 12,
+   "space": "screen",
+   "artSize": [
+    48,
+    12
+   ],
+   "exportScale": 1,
+   "status": "approved",
+   "approvedDate": "2026-11-24",
+   "spritesheet": {
+    "frameWidth": 12,
+    "frameHeight": 12,
+    "frames": 4,
+    "fps": 6,
+    "cols": "0-1 scared (dark), 2-3 flashing (pale) for the last 2 s"
+   }
+  },
+  {
    "key": "phantom",
    "file": "phantom/phantom.png",
    "width": 96,

@@ -277,4 +277,53 @@ test('stage 2: spot state (sofa, bed, drawers) for a returning player; away play
   assert.ok(h.setSpot('s1', { id: 'fridge', open: true }));
 });
 
+test('starting a room chooses a mini-game and hides the controller, same seed each time', () => {
+  const a = room(2); const b = room(2);
+  // Both rooms use the same code 'ABC234' from room().
+  assert.equal(a.start('s0').ok, true);
+  assert.equal(b.start('s0').ok, true);
+  const ra = a.roundPublic()!, rb = b.roundPublic()!;
+  assert.equal(ra.minigame, rb.minigame);
+  assert.equal(ra.gameSeed, rb.gameSeed);
+  assert.equal(ra.items.length, 1);
+  assert.equal(ra.items[0].kind, 'game_controller');
+  assert.ok(ra.items[0].spotId);
+  assert.equal('code' in ra, false);
+  assert.notEqual(a.items!.code, undefined);
+});
+
+test('pickup, TV minigame, private code reveal, controller is not consumed', () => {
+  const h = room(2);
+  assert.equal(h.start('s0').ok, true);
+  const item = h.roundPublic()!.items[0]!;
+  const spot = item.spotId!;
+  h.move('s0', { x: item.x, y: item.y, d: 0, m: 0 }, Date.now());
+  assert.equal(h.setSpot('s0', { id: spot, open: true })?.open, true);
+  assert.equal(h.pickup('s0', { id: item.id }).ok, true);
+  assert.equal(h.itemList()[0].heldBy, h.playerId('s0'));
+  // Not at the TV yet.
+  assert.equal(h.startMinigame('s0').ok, false);
+  h.move('s0', { x: 750, y: 165, d: 0, m: 0 }, Date.now() + 500);
+  // Movement is speed-limited; step toward the TV over several updates if needed.
+  let now = Date.now() + 500;
+  for (let i = 0; i < 30; i++) {
+    now += 200;
+    h.move('s0', { x: 750, y: 165, d: 2, m: 1 }, now);
+  }
+  const pose = h.allPoses().find((p) => p[0] === h.playerId('s0'))!;
+  // If still far, the start may fail; place a last acceptably close pose with a long dt.
+  now += 1000;
+  h.move('s0', { x: 750, y: 165, d: 2, m: 0 }, now);
+  const start = h.startMinigame('s0');
+  assert.equal(start.ok, true, `start at ${pose[1]},${pose[2]} -> ${start.error}`);
+  const win = h.winMinigame('s0');
+  assert.equal(win.ok, true);
+  assert.ok(win.code);
+  assert.equal(h.itemList()[0].heldBy, h.playerId('s0'), 'controller consumed');
+  assert.equal(h.items!.knowsCode(h.playerId('s0')!), true);
+  assert.equal(h.items!.knowsCode(h.playerId('s1')!), false);
+  // Winner can retry (still holding it).
+  assert.equal(h.startMinigame('s0').ok, true);
+});
+
 console.log(`\n✅ ${n} server tests passed`);

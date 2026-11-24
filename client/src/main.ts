@@ -132,6 +132,8 @@ function startGame(info: StartInfo, fromLobby: boolean): void {
   game.registry.set('nickname', info.nickname);
   game.registry.set('colour', info.colour ?? null);
   game.registry.set('lobbySettings', info.settings ?? null);
+  game.registry.set('fromLobby', fromLobby);
+  game.registry.set('roundSeed', info.seed ?? info.nickname ?? 'local');
   // Online room: GameScene adds the other players and hiding-spot sync (net/NetSync.ts).
   game.registry.set('net', info.net ?? null);
   if (info.net) info.net.inGame = true; // connection ends now show the in-game end screen
