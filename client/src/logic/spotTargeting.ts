@@ -175,10 +175,10 @@ export const CORNER_KEEP_DEG = 30;
 const CORNER_WINDOW_COS = Math.cos((CORNER_WINDOW_DEG * Math.PI) / 180);
 const CORNER_KEEP_COS = Math.cos((CORNER_KEEP_DEG * Math.PI) / 180);
 export const CORNER_SECTIONS: Record<string, { x: number; y: number; neighbour: string }> = {
-  // SE: the eastmost sink door, blocked in front by the east-wall stove (player stands to the north).
-  // The northmost kitchen drawer is no longer a corner: the player can stand straight in
-  // front of it (flush with the north wall). The microwave sits mid-wall, so none of its doors are.
-  kitchen_sink_cabinet_d1: { x: D, y: D, neighbour: 'kitchen_sink_cabinet_d2' },
+  // No current corner sections: the enlarged kitchen puts a plain empty counter
+  // between the sink and the east-wall units, so sink door 1 is straight-on
+  // reachable. The northmost kitchen drawer can be stood in front of (flush with
+  // the north wall). The microwave sits mid-wall, so none of its doors are corners.
 };
 
 /** Key of the front-rule unit an interactable belongs to: its front group, its sectioned unit, or null. */

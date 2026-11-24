@@ -206,10 +206,10 @@ class PathfindingValidator {
     const escapes: string[] = [];
     
     // Define the house's outer boundary (margins around all rooms)
-    const minX = 60; // 10px before leftmost room (bedroom at x=70)
-    const minY = 90; // 10px before topmost room (bathroom/living at y=100)
-    const maxX = 1030; // 10px after rightmost room (kitchen at x=1020)
-    const maxY = 570; // 10px after bottommost room (kitchen at y=560)
+    const minX = Math.min(...houseLayout.rooms.map((r) => r.x)) - 10;
+    const minY = Math.min(...houseLayout.rooms.map((r) => r.y)) - 10;
+    const maxX = Math.max(...houseLayout.rooms.map((r) => r.x + r.width)) + 10;
+    const maxY = Math.max(...houseLayout.rooms.map((r) => r.y + r.height)) + 10;
     
     // Check if any reachable cell is outside the boundary
     for (const key of reachableCells) {

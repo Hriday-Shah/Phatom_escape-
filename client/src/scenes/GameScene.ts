@@ -4,7 +4,7 @@ import { hoodieTint } from '../lobby/lobby';
 import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { NetSync } from '../net/NetSync';
 import type { GameLink } from '../net/ColyseusLobbyService';
-import { houseLayout } from '../data/houseLayout';
+import { Furniture, houseLayout } from '../data/houseLayout';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { createComposedWalls } from '../utils/wallRenderer';
 import { wallBodyRects, isDoorLocked } from '../data/colliders';
@@ -130,6 +130,8 @@ export class GameScene extends Phaser.Scene {
     const occluders = [
       ...houseLayout.walls,
       ...houseLayout.doors.filter((d) => isDoorLocked(d.id, d.locked, debugUnlock)),
+      ...houseLayout.hidingSpots,
+      ...houseLayout.furniture.filter((f) => f.blocking),
     ];
     this.lightLayer = new LightLayer(this, GameScene.lightRadius(this.cache.json.get('artManifest')), occluders);
     // After Arcade has synced the body to the sprite (POST_UPDATE), so the light never lags.
@@ -299,6 +301,32 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Draw a blocking furniture sprite that may be cropped and/or rotated.
+   * Collision uses a separate invisible body matching the layout rect, so a
+   * cropped texture cannot inflate the physics size.
+   */
+  private placeFurnitureArt(furniture: Furniture, textureKey: string): void {
+    const tex = this.textures.get(textureKey);
+    const crop = furniture.artCrop;
+    let frame: string | undefined;
+    if (crop) {
+      frame = `${textureKey}_${furniture.id}`;
+      if (!tex.has(frame)) tex.add(frame, 0, crop.x, crop.y, crop.w, crop.h);
+    }
+    const rot = furniture.rotation ?? 0;
+    this.add.image(
+      furniture.x + furniture.width / 2,
+      furniture.y + furniture.height / 2,
+      textureKey,
+      frame,
+    )
+      .setOrigin(0.5, 0.5)
+      .setScale(2)
+      .setAngle(rot)
+      .setDepth(0);
+  }
+
   private createFurniture(): void {
     // Map furniture IDs to texture keys from manifest
     const furnitureTextures: Record<string, string> = {
@@ -309,9 +337,21 @@ export class GameScene extends Phaser.Scene {
     
     houseLayout.furniture.forEach(furniture => {
       if (furniture.blocking) {
-        const textureKey = furnitureTextures[furniture.id];
-        
-        if (textureKey && this.textures.exists(textureKey)) {
+        const textureKey = furniture.texture ?? furnitureTextures[furniture.id];
+        const croppedOrRotated = !!(furniture.rotation || furniture.artCrop);
+
+        if (textureKey && this.textures.exists(textureKey) && croppedOrRotated) {
+          this.placeFurnitureArt(furniture, textureKey);
+          const body = this.add.rectangle(
+            furniture.x + furniture.width / 2,
+            furniture.y + furniture.height / 2,
+            furniture.width,
+            furniture.height,
+            0x000000,
+            0,
+          );
+          this.wallGroup.add(body);
+        } else if (textureKey && this.textures.exists(textureKey)) {
           // Use art texture at 2x scale
           const sprite = this.add.image(furniture.x, furniture.y, textureKey)
             .setOrigin(0, 0)

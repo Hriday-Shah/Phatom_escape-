@@ -3,7 +3,7 @@ import { Rect } from '../logic/spotTargeting';
 
 /**
  * Player's limited vision: darkness everywhere except a soft circle of light around the player,
- * with walls (and locked doors) casting hard shadows.
+ * with walls, locked doors, hiding spots and blocking furniture casting hard shadows.
  *
  * Cheap by design: the light brush is the approved fx_light_mask texture (no per-frame drawing
  * of the gradient). The darkness is one half-resolution
@@ -38,7 +38,7 @@ export class LightLayer {
 
   private scene: Phaser.Scene;
   private radius: number;
-  /** Occluder rects (walls, locked doors), grown by SEAM. */
+  /** Occluder rects (walls, locked doors, hiding spots, blocking furniture), grown by SEAM. */
   private rects: Rect[];
   private rt!: Phaser.GameObjects.RenderTexture;
   private brush: Phaser.GameObjects.Image;

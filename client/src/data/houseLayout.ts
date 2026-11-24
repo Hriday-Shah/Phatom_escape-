@@ -63,6 +63,12 @@ export interface Furniture {
   width: number;
   height: number;
   blocking: boolean;
+  /** Manifest texture key when it is not the same as `id`. */
+  texture?: string;
+  /** Clockwise rotation of the art, in degrees. */
+  rotation?: 0 | 90 | 180 | 270;
+  /** Crop in unrotated 1x art px, when only part of the texture is used. */
+  artCrop?: { x: number; y: number; w: number; h: number };
 }
 
 export interface Room {
@@ -89,7 +95,7 @@ export interface HouseLayout {
 }
 
 export const houseLayout: HouseLayout = {
-  width: 1060,
+  width: 1130,
   height: 760,
   
   rooms: [
@@ -99,7 +105,7 @@ export const houseLayout: HouseLayout = {
     { id: 'dining', name: 'Dining Area', x: 430, y: 300, width: 380, height: 190, floorColor: 0xA0826D },
     { id: 'bathroom', name: 'Bathroom', x: 810, y: 100, width: 160, height: 130, floorColor: 0xC0C0C0 },
     { id: 'foyer', name: 'Foyer', x: 810, y: 230, width: 160, height: 80, floorColor: 0x9B8B7E },
-    { id: 'kitchen', name: 'Kitchen', x: 810, y: 310, width: 210, height: 250, floorColor: 0xB8B8B8 },
+    { id: 'kitchen', name: 'Kitchen', x: 810, y: 310, width: 280, height: 300, floorColor: 0xB8B8B8 },
   ],
 
   walls: [
@@ -144,12 +150,13 @@ export const houseLayout: HouseLayout = {
     { x: 890, y: 300, width: 80, height: 10 }, // bottom right (after kitchen opening)
     { x: 960, y: 230, width: 10, height: 80 }, // right
     
-    // Kitchen outer walls (window on bottom wall is decorative - solid wall behind)
+    // Kitchen outer walls (window on bottom wall is decorative - solid wall behind).
+    // Expanded east and south into empty world space; neighbouring rooms are unchanged.
     { x: 810, y: 310, width: 20, height: 10 }, // top left (before foyer opening)
-    { x: 890, y: 310, width: 130, height: 10 }, // top right (after foyer opening)
-    { x: 810, y: 310, width: 10, height: 250 }, // left
-    { x: 810, y: 550, width: 210, height: 10 }, // bottom (includes stove window area - solid)
-    { x: 1010, y: 310, width: 10, height: 250 }, // right
+    { x: 890, y: 310, width: 200, height: 10 }, // top right (after foyer opening)
+    { x: 810, y: 310, width: 10, height: 300 }, // left
+    { x: 810, y: 600, width: 280, height: 10 }, // bottom (includes window area - solid)
+    { x: 1080, y: 310, width: 10, height: 300 }, // right
   ],
 
   doors: [
@@ -176,7 +183,7 @@ export const houseLayout: HouseLayout = {
   windows: [
     { x: 190, y: 140, width: 140, height: 10 }, // bedroom, top wall
     { x: 540, y: 100, width: 160, height: 10 }, // living room, top wall
-    { x: 836, y: 550, width: 64, height: 10 }, // kitchen, bottom wall (behind the south-wall fridge/sink run)
+    { x: 916, y: 600, width: 64, height: 10 }, // kitchen, bottom wall (behind the south-wall sink)
   ],
 
   openings: [
@@ -330,27 +337,24 @@ export const houseLayout: HouseLayout = {
     },
     
     // Kitchen. L-counter along the south and east walls, matching Hriday's sketch
-    // with page-up = north. The real doorway is already on the north-west /
-    // north-middle of the kitchen, so the sketch is used unrotated and unmirrored.
+    // with page-up = north. The doorway stays on the north-west / north-middle.
+    // The room is expanded east and south (~1.67× inner floor) so the sink can
+    // sit at its full 150 px width with no tuck under the fridge, and so the
+    // sketch's plain empty counter can sit between the sink and the SE corner
+    // (and continue a short way up the east wall to the stove). The empty
+    // counter is blocking furniture, not a search spot.
     //
-    // South wall, west to east: fridge (SW corner, standing 46x66, flush with the
-    // west and south walls) then the sink (rotated 90° CW so its doors face the
-    // room). The inner south wall is 6 px too narrow for the fridge plus the
-    // sink's full 150 px width, so the sink's body is 144 px and 6 px of the west
-    // plinth tucks under the fridge (all four doors stay in the room). There is
-    // no leftover south-wall run for a separate empty counter; the SE corner is
-    // the sink's east end.
+    // South wall, west to east: fridge (SW corner, 46x66, flush with the west
+    // and south walls), full-width sink (rotated 90° CW so its doors face the
+    // room), then the empty south counter to the SE corner.
     //
-    // East wall, south to north: a 4 px notch at the L (legal under the gap
-    // rule), then the stove (rotated 270°, lower-middle), then the 3-drawer unit
-    // (rotated 270°) flush with the north-east corner. Native stove+drawer height
-    // is 190 px in a 194 px east-leg, hence the 4 px notch rather than a sliver
-    // of counter.
+    // East wall, south to north: empty east-corner counter, stove (rotated
+    // 270°, lower-middle), then the 3-drawer unit (rotated 270°) flush with
+    // the north-east corner.
     //
-    // Microwave: its own unit on the west wall, upper-middle (rotated 270° so
-    // the doors face the room), 34 px south of the north wall so the foyer
-    // doorway stays clear. The hatched mark on the sketch's upper west wall is
-    // left as solid wall (uncertain door/window; existing doorways unchanged).
+    // Microwave: unchanged, west wall upper-middle (rotated 270° so the doors
+    // face the room), 34 px south of the north wall so the foyer doorway stays
+    // clear.
     {
       id: 'microwave_unit',
       name: 'Microwave Unit',
@@ -368,20 +372,19 @@ export const houseLayout: HouseLayout = {
       id: 'kitchen_sink_cabinet',
       name: 'Kitchen Sink Cabinet',
       x: 866,
-      y: 514,
-      width: 144,
+      y: 564,
+      width: 150,
       height: 36,
       type: 'cabinet',
       contents: [],
       interactRange: 60,
       rotation: 90,
       artSize: { w: 18, h: 75 },
-      spriteOffset: { x: -6 },
     },
     {
       id: 'stove',
       name: 'Stove',
-      x: 974,
+      x: 1044,
       y: 420,
       width: 36,
       height: 90,
@@ -394,7 +397,7 @@ export const houseLayout: HouseLayout = {
     {
       id: 'stove_drawers',
       name: 'Stove-side Drawers',
-      x: 974,
+      x: 1044,
       y: 320,
       width: 36,
       height: 100,
@@ -408,7 +411,7 @@ export const houseLayout: HouseLayout = {
       id: 'fridge',
       name: 'Fridge',
       x: 820,
-      y: 484,
+      y: 534,
       width: 46,
       height: 66,
       type: 'appliance',
@@ -436,6 +439,32 @@ export const houseLayout: HouseLayout = {
       width: 120,
       height: 56,
       blocking: true,
+    },
+    // Plain empty L-counter: south run between the sink and the SE corner, then
+    // a short east-wall run up to the stove. Cropped from kitchen_counter art.
+    // Collides and occludes like other blocking furniture; not a search spot.
+    {
+      id: 'kitchen_south_counter',
+      name: 'Kitchen Counter',
+      x: 1016,
+      y: 564,
+      width: 64,
+      height: 36,
+      blocking: true,
+      texture: 'kitchen_counter',
+      artCrop: { x: 63, y: 0, w: 32, h: 18 },
+    },
+    {
+      id: 'kitchen_east_counter',
+      name: 'Kitchen Counter',
+      x: 1044,
+      y: 510,
+      width: 36,
+      height: 54,
+      blocking: true,
+      texture: 'kitchen_counter',
+      rotation: 270,
+      artCrop: { x: 0, y: 0, w: 27, h: 18 },
     },
   ],
 };
