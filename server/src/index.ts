@@ -23,6 +23,8 @@ function cors(req: http.IncomingMessage): Record<string, string> {
     'Access-Control-Allow-Methods': 'OPTIONS, POST, GET',
     'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept',
     'Access-Control-Max-Age': '600',
+    // Chrome's Private Network Access: lets the Pages site reach a server on localhost / LAN.
+    'Access-Control-Allow-Private-Network': 'true',
     Vary: 'Origin',
   };
 }
