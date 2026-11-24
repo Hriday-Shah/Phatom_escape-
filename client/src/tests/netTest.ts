@@ -11,8 +11,8 @@ function memStore() {
 
 export function runNetTest(): void {
   console.log('Online (client): server config, invite link, interpolation');
-  assert.equal(normaliseServer('wss://abc-def.trycloudflare.com'), 'wss://abc-def.trycloudflare.com');
-  assert.equal(normaliseServer('https://abc-def.trycloudflare.com/'), 'wss://abc-def.trycloudflare.com');
+  assert.equal(normaliseServer('wss://game-server.example'), 'wss://game-server.example');
+  assert.equal(normaliseServer('https://game-server.example/'), 'wss://game-server.example');
   assert.equal(normaliseServer('ws://localhost:2567'), 'ws://localhost:2567');
   assert.equal(normaliseServer('http://127.0.0.1:2567'), 'ws://127.0.0.1:2567');
   assert.equal(normaliseServer('ws://evil.example'), null, 'plain ws only for localhost');
@@ -24,9 +24,9 @@ export function runNetTest(): void {
 
   const st = memStore();
   assert.equal(serverFromUrl('', st), null);
-  assert.equal(serverFromUrl('?server=wss%3A%2F%2Fa.trycloudflare.com&room=ABC234', st), 'wss://a.trycloudflare.com');
-  assert.equal(st.m.get(SERVER_KEY), 'wss://a.trycloudflare.com');
-  assert.equal(serverFromUrl('?room=ABC234', st), 'wss://a.trycloudflare.com', 'remembered for the tab');
+  assert.equal(serverFromUrl('?server=wss%3A%2F%2Fgame.example&room=ABC234', st), 'wss://game.example');
+  assert.equal(st.m.get(SERVER_KEY), 'wss://game.example');
+  assert.equal(serverFromUrl('?room=ABC234', st), 'wss://game.example', 'remembered for the tab');
   assert.equal(serverFromUrl('?server=', st), null, 'empty ?server= forgets it (offline)');
   assert.equal(st.m.has(SERVER_KEY), false);
   assert.equal(httpBase('wss://a.example'), 'https://a.example');
@@ -34,10 +34,10 @@ export function runNetTest(): void {
 
   const loc = { origin: 'https://hriday-shah.github.io', pathname: '/Phatom_escape-/' };
   assert.equal(onlineInviteLink('ABC234', null, loc), 'https://hriday-shah.github.io/Phatom_escape-/?room=ABC234');
-  const link = onlineInviteLink('ABC234', 'wss://a.trycloudflare.com', loc);
-  assert.equal(link, 'https://hriday-shah.github.io/Phatom_escape-/?server=wss%3A%2F%2Fa.trycloudflare.com&room=ABC234');
+  const link = onlineInviteLink('ABC234', 'wss://game.example', loc);
+  assert.equal(link, 'https://hriday-shah.github.io/Phatom_escape-/?server=wss%3A%2F%2Fgame.example&room=ABC234');
   const q = new URL(link).searchParams;
-  assert.equal(q.get('server'), 'wss://a.trycloudflare.com'); assert.equal(q.get('room'), 'ABC234');
+  assert.equal(q.get('server'), 'wss://game.example'); assert.equal(q.get('room'), 'ABC234');
 
   const b = new PoseBuffer(100);
   assert.equal(b.sample(0), null);
