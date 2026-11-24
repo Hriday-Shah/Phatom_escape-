@@ -2,12 +2,15 @@ import Phaser from 'phaser';
 import { VirtualJoystick } from '../objects/VirtualJoystick';
 import { UIControls } from '../objects/UIControls';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
-import { cssSize, gameDpr, hudScale } from '../config/display';
+import { cssSize, gameDpr } from '../config/display';
+import { applyCssCamera, currentShellLayout } from '../ui/currentLayout';
+import { ShellLayout } from '../ui/shellLayout';
 
 /**
- * HUD scene. Everything here is laid out in CSS px (as in ui-layout.md); the camera
- * zooms by the render DPR so the canvas (CSS size x DPR) shows it at the right size,
- * and text renders at the same DPR so it stays crisp.
+ * HUD scene, above the game and its darkness: the console's buttons and joystick knob
+ * (ShellScene draws the static body under the game) and, inside the game screen, the
+ * prompt, the door message and the item slot. Laid out in CSS px from ui/shellLayout.ts;
+ * the camera zooms by the render DPR and text renders at the same DPR so it stays crisp.
  */
 export class UIScene extends Phaser.Scene {
   private joystick!: VirtualJoystick;
@@ -17,7 +20,7 @@ export class UIScene extends Phaser.Scene {
   private promptTimer: Phaser.Time.TimerEvent | null = null;
   private doorTimer: Phaser.Time.TimerEvent | null = null;
 
-  private static readonly MARGIN = 16; // CSS px, added to safe-area insets
+  private layout!: ShellLayout;
 
   constructor() {
     super({ key: 'UIScene' });
@@ -32,7 +35,7 @@ export class UIScene extends Phaser.Scene {
 
     const textStyle = (): Phaser.Types.GameObjects.Text.TextStyle => ({
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
-      fontSize: `${Math.round(18 * hudScale(this))}px`,
+      fontSize: '18px',
       color: '#ffffff',
       backgroundColor: '#000000aa',
       padding: { x: 12, y: 8 },
@@ -64,13 +67,8 @@ export class UIScene extends Phaser.Scene {
     });
   }
 
-  /** Zoom the HUD camera by the render DPR so 1 scene unit = 1 CSS px, origin at top-left. */
   private applyCamera(): void {
-    const { width, height } = cssSize(this);
-    const cam = this.cameras.main;
-    cam.setSize(this.scale.width, this.scale.height);
-    cam.setZoom(gameDpr(this));
-    cam.centerOn(width / 2, height / 2);
+    applyCssCamera(this);
   }
 
   update(): void {
@@ -106,10 +104,15 @@ export class UIScene extends Phaser.Scene {
     this.stackDoorMessage();
   }
 
-  /** Bottom edge (CSS px) of the visible prompt, or 0 when it is hidden. */
+  /** Bottom edge of the visible prompt in CSS px FROM THE GAME SCREEN'S TOP, or 0 when hidden. */
   public getPromptBottom(): number {
     if (!this.hidingSpotPrompt.visible) return 0;
-    return this.hidingSpotPrompt.y + this.hidingSpotPrompt.height;
+    return this.hidingSpotPrompt.y + this.hidingSpotPrompt.height - this.layout.screen.y;
+  }
+
+  /** Current shell layout (CSS px), for GameScene and tests. */
+  public getLayout(): ShellLayout {
+    return this.layout;
   }
 
   public showDoorMessage(text: string, duration?: number): void {
@@ -131,38 +134,41 @@ export class UIScene extends Phaser.Scene {
    * while the prompt is visible, else the top slot where the prompt would be (QA R4-4).
    */
   private stackDoorMessage(): void {
-    const p = this.hidingSpotPrompt;
-    this.doorMessageText.setPosition(p.x, p.visible ? p.y + p.height + 8 : p.y);
+    const p = this.hidingSpotPrompt, d = this.doorMessageText;
+    // Centred, but with the left edge on a whole CSS px so the text stays crisp.
+    const snap = (t: Phaser.GameObjects.Text) => t.setX(Math.round(this.promptCenterX - t.width / 2) + t.width / 2);
+    snap(p);
+    snap(d);
+    d.setY(p.visible ? p.y + p.height + 8 : p.y);
   }
+
+  private promptCenterX = 0;
 
   private onResize(): void {
     this.applyCamera();
-    const { width, height } = cssSize(this);
-    const insets = SafeAreaManager.getInsets();
-    const s = hudScale(this);
+    this.layout = currentShellLayout(this);
+    const scr = this.layout.screen;
     const dpr = gameDpr(this);
+    const { width, height } = cssSize(this);
 
-    // Prompts sit at the top safe edge, centred. The camera keeps the player near the
-    // middle of the screen and the house starts 100 world px below the world top, so the
-    // prompt never covers the player or the spot (QA N7). In landscape the item slot is
-    // in the top-right corner, so keep the prompt clear of it.
-    const top = insets.top + UIScene.MARGIN;
-    const isPortrait = height > width;
-    const slotReserve = isPortrait ? 0 : 60 * s + UIScene.MARGIN * 2 + insets.right;
-    const usable = width - insets.left - insets.right - slotReserve * 2;
-    const fontSize = `${Math.round(18 * s)}px`;
-
+    // Prompt + door message: centred at the top of the game screen, clear of the item slot.
+    this.uiControls.resize(this.layout);
+    this.joystick.resize(this.layout);
+    const slot = this.uiControls.getItemSlotBounds();
+    const pad = 2 * this.layout.s;
+    const reserve = scr.x + scr.w - slot.x + pad; // item slot width + margins, mirrored
+    const usable = scr.w - reserve * 2;
+    const narrow = usable < 160;
+    const fontPx = Math.min(width, height) >= 600 ? 24 : 18;
     for (const t of [this.hidingSpotPrompt, this.doorMessageText]) {
-      t.setFontSize(fontSize);
+      t.setFontSize(`${fontPx}px`);
       t.setResolution(dpr);
-      t.setWordWrapWidth(Math.max(160, usable), true);
+      // Too narrow beside the slot (small portrait screens): wrap under it instead.
+      t.setWordWrapWidth(Math.max(120, narrow ? scr.w - pad * 4 : usable), true);
     }
-
-    this.hidingSpotPrompt.setPosition(width / 2, top);
+    const top = narrow ? slot.y + slot.height + pad : scr.y + pad * 2;
+    this.promptCenterX = Math.round(scr.x + scr.w / 2);
+    this.hidingSpotPrompt.setPosition(this.promptCenterX, Math.round(top));
     this.stackDoorMessage();
-
-    // Update UI controls and joystick
-    this.uiControls.resize();
-    this.joystick.resize();
   }
 }

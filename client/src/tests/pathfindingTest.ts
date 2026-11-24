@@ -7,6 +7,9 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { houseLayout, Wall, Door } from '../data/houseLayout';
 import {
+  FACINGS_8, Interactable, buildInteractables, isEligible, selectTarget, sightBlockers,
+} from '../logic/spotTargeting';
+import {
   PLAYER_BODY_OFFSET_FRAME,
   PLAYER_BODY_RADIUS,
   PLAYER_BODY_RADIUS_FRAME,
@@ -307,46 +310,16 @@ class PathfindingValidator {
       }
     }
 
-    // Check that every hiding spot (except bedroom ones) has a reachable cell within interact range
-    console.log('\nChecking hiding spot reachability...');
-    const bedroomSpots = ['study_drawer_1', 'study_drawer_2', 'study_drawer_3', 'bed', 'bedside_drawer', 'closet_drawers'];
-    for (const spot of houseLayout.hidingSpots) {
-      if (bedroomSpots.includes(spot.id)) {
-        console.log(`  Skipping "${spot.name}" (in locked bedroom)`);
-        continue;
-      }
-
-      const spotCenter = {
-        x: spot.x + spot.width / 2,
-        y: spot.y + spot.height / 2,
-      };
-
-      // Check if any reachable cell is within interact range
-      let hasReachableCell = false;
-      for (const key of reachableCells) {
-        const [gxStr, gyStr] = key.split(',');
-        const gx = parseInt(gxStr, 10);
-        const gy = parseInt(gyStr, 10);
-        
-        const worldX = gx * GRID_SIZE + GRID_SIZE / 2;
-        const worldY = gy * GRID_SIZE + GRID_SIZE / 2;
-        
-        const dx = worldX - spotCenter.x;
-        const dy = worldY - spotCenter.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance <= spot.interactRange) {
-          hasReachableCell = true;
-          break;
-        }
-      }
-
-      if (!hasReachableCell) {
-        errors.push(`Hiding spot "${spot.name}" (${spot.id}) has no reachable cell within interact range ${spot.interactRange}!`);
-      } else {
-        console.log(`✓ Hiding spot "${spot.name}" is reachable`);
-      }
-    }
+    // Every individual spot / drawer / door / cushion (except the locked bedroom's) must be
+    // the one the game targets from some reachable floor cell (in range, line of sight, and it
+    // wins the nearest + facing choice for at least one of the 4 facings).
+    console.log('\nChecking hiding spot / drawer reachability...');
+    const bedroomUnits = ['study_drawer_1', 'study_drawer_2', 'study_drawer_3', 'bed', 'bedside_drawer', 'closet_drawers'];
+    const items = buildInteractables(houseLayout.hidingSpots);
+    const outside = items.filter((it) => !bedroomUnits.includes(it.unitId));
+    console.log(`  Skipping ${items.length - outside.length} spots in the locked bedroom`);
+    errors.push(...checkInteractable(this.doors, outside, ''));
+    if (!errors.some((e) => e.startsWith('Spot '))) console.log(`✓ All ${outside.length} spots outside the bedroom are targetable`);
 
     // Main door message: GameScene.checkNearbyDoor uses a 50px radius from the door centre.
     const mainDoor = houseLayout.doors.find((d) => d.id === 'main_door');
@@ -383,7 +356,68 @@ function checkBodyConstants(errors: string[]): void {
   }
 }
 
-/** With ?debug=unlock the bedroom door has no body: the bedroom and all 17 spots must be reachable. */
+/**
+ * Every integer position the player body can reach from spawn (1px flood fill, touching allowed
+ * like Arcade). The 4px grid above misses exact-fit slots (e.g. the 32px slot between study
+ * drawer 3 and the closet), where a real player can stand.
+ */
+function fineReachable(doors: Door[]): Uint8Array {
+  const W = houseLayout.width, H = houseLayout.height, r = PLAYER_RADIUS;
+  const solids = [
+    ...houseLayout.walls, ...doors, ...houseLayout.hidingSpots,
+    ...houseLayout.furniture.filter((f) => f.blocking),
+  ];
+  const free = (x: number, y: number) => {
+    for (const s of solids) {
+      const dx = x - Math.max(s.x, Math.min(x, s.x + s.width));
+      const dy = y - Math.max(s.y, Math.min(y, s.y + s.height));
+      if (dx * dx + dy * dy < r * r) return false;
+    }
+    return true;
+  };
+  const seen = new Uint8Array(W * H);
+  const queue = new Int32Array(W * H);
+  let head = 0, tail = 0;
+  seen[SPAWN_Y * W + SPAWN_X] = 1; queue[tail++] = SPAWN_Y * W + SPAWN_X;
+  while (head < tail) {
+    const i = queue[head++];
+    const x = i % W, y = (i - x) / W;
+    for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const j = ny * W + nx;
+      if (seen[j]) continue;
+      seen[j] = 2; // visited (2 = blocked unless set to 1)
+      if (free(nx, ny)) { seen[j] = 1; queue[tail++] = j; }
+    }
+  }
+  return seen;
+}
+
+/**
+ * For each spot, find a reachable floor position and a facing (8 directions) from which
+ * selectTarget() (the exact function HidingSpotManager uses) picks it.
+ */
+function checkInteractable(doors: Door[], items: Interactable[], prefix: string): string[] {
+  const all = buildInteractables(houseLayout.hidingSpots);
+  const blockers = sightBlockers(houseLayout);
+  const reach = fineReachable(doors);
+  const W = houseLayout.width;
+  const errs: string[] = [];
+  for (const it of items) {
+    const pad = it.rangeMode === 'center' ? it.range : it.range + Math.max(it.width, it.height);
+    let won = false;
+    for (let y = Math.max(0, Math.floor(it.y - pad)); !won && y <= it.y + it.height + pad && y < houseLayout.height; y++) {
+      for (let x = Math.max(0, Math.floor(it.x - pad)); !won && x <= it.x + it.width + pad && x < W; x++) {
+        if (reach[y * W + x] !== 1 || !isEligible(x, y, it, blockers)) continue;
+        won = FACINGS_8.some((f) => selectTarget(x, y, f, all, blockers)?.id === it.id);
+      }
+    }
+    if (!won) errs.push(`${prefix || 'Spot '}"${it.name}" (${it.id}) is never targeted from any reachable position`);
+  }
+  return errs;
+}
+
+/** With ?debug=unlock the bedroom door has no body: the bedroom and every spot must be targetable. */
 function checkDebugUnlock(errors: string[]): void {
   console.log('\nChecking ?debug=unlock (bedroom door open)...');
   const doors = houseLayout.doors.filter((d) => d.id !== 'bedroom_door');
@@ -395,12 +429,10 @@ function checkDebugUnlock(errors: string[]): void {
   } else {
     console.log(`✓ Bedroom reachable when unlocked (${bedroomCells} cells)`);
   }
-  for (const spot of houseLayout.hidingSpots) {
-    const ok = v.anyReachableWithin(reachable, spot.x + spot.width / 2, spot.y + spot.height / 2, spot.interactRange);
-    if (!ok) errors.push(`(unlocked) Hiding spot "${spot.name}" has no reachable cell in range`);
-  }
+  const items = buildInteractables(houseLayout.hidingSpots);
+  errors.push(...checkInteractable(doors, items, '(unlocked) '));
   if (!errors.some((e) => e.startsWith('(unlocked)'))) {
-    console.log(`✓ All ${houseLayout.hidingSpots.length} hiding spots reachable when unlocked`);
+    console.log(`✓ All ${items.length} spots targetable when unlocked (${houseLayout.hidingSpots.length} units)`);
   }
 }
 

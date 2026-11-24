@@ -121,6 +121,7 @@ export class Player {
     
     if (this.moveVector.length() > 0) {
       const normalized = this.moveVector.clone().normalize();
+      this.updateFacing(normalized);
       this.physics.setVelocity(normalized.x * this.speed, normalized.y * this.speed);
       
       // Determine direction (prioritize horizontal)
@@ -157,6 +158,26 @@ export class Player {
     }
     
     // Tint layer position is synced in POST_UPDATE (after the physics step).
+  }
+
+  /**
+   * Unit vector of the way the player faces (8-way on keys, any angle on the joystick); idle
+   * keeps the last one. A new direction only counts once held for FACING_HOLD_FRAMES, so
+   * letting go of two keys a frame apart keeps the diagonal.
+   */
+  public getFacing(): { x: number; y: number } {
+    return { x: this.facing.x, y: this.facing.y };
+  }
+
+  static readonly FACING_HOLD_FRAMES = 3;
+  private facing = new Phaser.Math.Vector2(0, 1);
+  private pendingFacing = new Phaser.Math.Vector2(0, 1);
+  private pendingFrames = 0;
+
+  private updateFacing(dir: Phaser.Math.Vector2): void {
+    if (this.pendingFacing.distance(dir) < 0.2) this.pendingFrames++;
+    else { this.pendingFacing.copy(dir); this.pendingFrames = 1; }
+    if (this.pendingFrames >= Player.FACING_HOLD_FRAMES) this.facing.copy(this.pendingFacing);
   }
 
   public getPosition(): Phaser.Math.Vector2 {

@@ -28,8 +28,7 @@
  "aliasesForCurrentCodeKeys": {
   "drawer": "study_drawer",
   "drawer_open": "study_drawer_open",
-  "cabinet": "sideboard",
-  "cabinet_open": "sideboard_open",
+  "cabinet": "sideboard_base",
   "table": "dining_table",
   "joystick_base": "ui_joystick_base",
   "joystick_thumb": "ui_joystick_knob",
@@ -41,17 +40,17 @@
   "study_drawer_3": "study_drawer",
   "bed": "bed",
   "bedside_drawer": "bedside_drawer",
-  "closet_drawers": "closet",
-  "sofa": "sofa",
+  "closet_drawers": "closet_base",
+  "sofa": "sofa_base",
   "ottoman": "ottoman",
-  "tv_unit": "tv_unit",
-  "sideboard": "sideboard",
-  "sink_cabinet": "sink_cabinet",
-  "wall_shelf": "wall_shelf",
-  "microwave_unit": "microwave_unit",
-  "kitchen_sink_cabinet": "kitchen_sink",
+  "tv_unit": "tv_unit_base",
+  "sideboard": "sideboard_base",
+  "sink_cabinet": "sink_cabinet_base",
+  "wall_shelf": "wall_shelf_base",
+  "microwave_unit": "microwave_unit_base",
+  "kitchen_sink_cabinet": "kitchen_sink_base",
   "stove": "stove",
-  "stove_drawers": "kitchen_drawer",
+  "stove_drawers": "kitchen_drawer_base",
   "fridge": "fridge"
  },
  "statusValues": {
@@ -59,7 +58,7 @@
   "unused": "kept but not used",
   "pending review": "Hriday morning review; not for integration tonight"
  },
- "openState": "key K has K_open on the same canvas size",
+ "openState": "key K has K_open on the same canvas size; multi-section units: {unit}_base + {unit}_d{N}_open (same canvas, only section N open)",
  "assets": [
   {
    "key": "floor_bedroom",
@@ -407,7 +406,7 @@
     70
    ],
    "status": "approved",
-   "note": "searched/disturbed"
+   "note": "blanket folded back to the foot (designer fix, new-drawers)"
   },
   {
    "key": "bedside_drawer",
@@ -434,8 +433,8 @@
    "status": "approved"
   },
   {
-   "key": "closet",
-   "file": "furniture/closet.png",
+   "key": "closet_base",
+   "file": "furniture/closet_base.png",
    "width": 75,
    "height": 19,
    "space": "world",
@@ -444,11 +443,11 @@
     38
    ],
    "status": "approved",
-   "note": "fronts face up into room"
+   "note": "fronts face up into room; all sections closed; sections in client/src/data/drawerSlices.ts"
   },
   {
-   "key": "closet_open",
-   "file": "furniture/closet_open.png",
+   "key": "closet_d1_open",
+   "file": "furniture/closet_d1_open.png",
    "width": 75,
    "height": 19,
    "space": "world",
@@ -456,7 +455,60 @@
     150,
     38
    ],
-   "status": "approved"
+   "status": "approved",
+   "note": "only section 1 open (Closet - Drawer 1)"
+  },
+  {
+   "key": "closet_d2_open",
+   "file": "furniture/closet_d2_open.png",
+   "width": 75,
+   "height": 19,
+   "space": "world",
+   "worldSize": [
+    150,
+    38
+   ],
+   "status": "approved",
+   "note": "only section 2 open (Closet - Drawer 2)"
+  },
+  {
+   "key": "closet_d3_open",
+   "file": "furniture/closet_d3_open.png",
+   "width": 75,
+   "height": 19,
+   "space": "world",
+   "worldSize": [
+    150,
+    38
+   ],
+   "status": "approved",
+   "note": "only section 3 open (Closet - Drawer 3)"
+  },
+  {
+   "key": "closet_d4_open",
+   "file": "furniture/closet_d4_open.png",
+   "width": 75,
+   "height": 19,
+   "space": "world",
+   "worldSize": [
+    150,
+    38
+   ],
+   "status": "approved",
+   "note": "only section 4 open (Closet - Drawer 4)"
+  },
+  {
+   "key": "closet_d5_open",
+   "file": "furniture/closet_d5_open.png",
+   "width": 75,
+   "height": 19,
+   "space": "world",
+   "worldSize": [
+    150,
+    38
+   ],
+   "status": "approved",
+   "note": "only section 5 open (Closet - Drawer 5)"
   },
   {
    "key": "car_table",
@@ -498,20 +550,8 @@
    "note": "static; bays = where the 4 toy cars sit (art px)"
   },
   {
-   "key": "sofa",
-   "file": "furniture/sofa.png",
-   "width": 25,
-   "height": 80,
-   "space": "world",
-   "worldSize": [
-    50,
-    160
-   ],
-   "status": "approved"
-  },
-  {
-   "key": "sofa_open",
-   "file": "furniture/sofa_open.png",
+   "key": "sofa_base",
+   "file": "furniture/sofa_base.png",
    "width": 25,
    "height": 80,
    "space": "world",
@@ -520,7 +560,46 @@
     160
    ],
    "status": "approved",
-   "note": "searched/disturbed: cushions pulled"
+   "note": "all sections closed; sections in client/src/data/drawerSlices.ts"
+  },
+  {
+   "key": "sofa_d1_open",
+   "file": "furniture/sofa_d1_open.png",
+   "width": 25,
+   "height": 80,
+   "space": "world",
+   "worldSize": [
+    50,
+    160
+   ],
+   "status": "approved",
+   "note": "only section 1 open (Sofa - Cushion 1)"
+  },
+  {
+   "key": "sofa_d2_open",
+   "file": "furniture/sofa_d2_open.png",
+   "width": 25,
+   "height": 80,
+   "space": "world",
+   "worldSize": [
+    50,
+    160
+   ],
+   "status": "approved",
+   "note": "only section 2 open (Sofa - Cushion 2)"
+  },
+  {
+   "key": "sofa_d3_open",
+   "file": "furniture/sofa_d3_open.png",
+   "width": 25,
+   "height": 80,
+   "space": "world",
+   "worldSize": [
+    50,
+    160
+   ],
+   "status": "approved",
+   "note": "only section 3 open (Sofa - Cushion 3)"
   },
   {
    "key": "ottoman",
@@ -548,8 +627,8 @@
    "note": "lid up"
   },
   {
-   "key": "tv_unit",
-   "file": "furniture/tv_unit.png",
+   "key": "tv_unit_base",
+   "file": "furniture/tv_unit_base.png",
    "width": 20,
    "height": 55,
    "space": "world",
@@ -558,11 +637,11 @@
     110
    ],
    "status": "approved",
-   "note": "faces left"
+   "note": "faces left; all sections closed; sections in client/src/data/drawerSlices.ts"
   },
   {
-   "key": "tv_unit_open",
-   "file": "furniture/tv_unit_open.png",
+   "key": "tv_unit_d1_open",
+   "file": "furniture/tv_unit_d1_open.png",
    "width": 20,
    "height": 55,
    "space": "world",
@@ -570,11 +649,25 @@
     40,
     110
    ],
-   "status": "approved"
+   "status": "approved",
+   "note": "only section 1 open (TV Unit - Door 1)"
   },
   {
-   "key": "sideboard",
-   "file": "furniture/sideboard.png",
+   "key": "tv_unit_d2_open",
+   "file": "furniture/tv_unit_d2_open.png",
+   "width": 20,
+   "height": 55,
+   "space": "world",
+   "worldSize": [
+    40,
+    110
+   ],
+   "status": "approved",
+   "note": "only section 2 open (TV Unit - Door 2)"
+  },
+  {
+   "key": "sideboard_base",
+   "file": "furniture/sideboard_base.png",
    "width": 20,
    "height": 75,
    "space": "world",
@@ -583,11 +676,11 @@
     150
    ],
    "status": "approved",
-   "note": "faces left"
+   "note": "faces left; all sections closed; sections in client/src/data/drawerSlices.ts"
   },
   {
-   "key": "sideboard_open",
-   "file": "furniture/sideboard_open.png",
+   "key": "sideboard_d1_open",
+   "file": "furniture/sideboard_d1_open.png",
    "width": 20,
    "height": 75,
    "space": "world",
@@ -595,7 +688,34 @@
     40,
     150
    ],
-   "status": "approved"
+   "status": "approved",
+   "note": "only section 1 open (Sideboard - Door 1)"
+  },
+  {
+   "key": "sideboard_d2_open",
+   "file": "furniture/sideboard_d2_open.png",
+   "width": 20,
+   "height": 75,
+   "space": "world",
+   "worldSize": [
+    40,
+    150
+   ],
+   "status": "approved",
+   "note": "only section 2 open (Sideboard - Door 2)"
+  },
+  {
+   "key": "sideboard_d3_open",
+   "file": "furniture/sideboard_d3_open.png",
+   "width": 20,
+   "height": 75,
+   "space": "world",
+   "worldSize": [
+    40,
+    150
+   ],
+   "status": "approved",
+   "note": "only section 3 open (Sideboard - Door 3)"
   },
   {
    "key": "dining_table",
@@ -611,8 +731,8 @@
    "note": "static, with chairs"
   },
   {
-   "key": "sink_cabinet",
-   "file": "furniture/sink_cabinet.png",
+   "key": "sink_cabinet_base",
+   "file": "furniture/sink_cabinet_base.png",
    "width": 30,
    "height": 15,
    "space": "world",
@@ -620,11 +740,12 @@
     60,
     30
    ],
-   "status": "approved"
+   "status": "approved",
+   "note": "all sections closed; sections in client/src/data/drawerSlices.ts"
   },
   {
-   "key": "sink_cabinet_open",
-   "file": "furniture/sink_cabinet_open.png",
+   "key": "sink_cabinet_d1_open",
+   "file": "furniture/sink_cabinet_d1_open.png",
    "width": 30,
    "height": 15,
    "space": "world",
@@ -632,11 +753,25 @@
     60,
     30
    ],
-   "status": "approved"
+   "status": "approved",
+   "note": "only section 1 open (Bathroom Sink Cabinet - Door 1)"
   },
   {
-   "key": "wall_shelf",
-   "file": "furniture/wall_shelf.png",
+   "key": "sink_cabinet_d2_open",
+   "file": "furniture/sink_cabinet_d2_open.png",
+   "width": 30,
+   "height": 15,
+   "space": "world",
+   "worldSize": [
+    60,
+    30
+   ],
+   "status": "approved",
+   "note": "only section 2 open (Bathroom Sink Cabinet - Door 2)"
+  },
+  {
+   "key": "wall_shelf_base",
+   "file": "furniture/wall_shelf_base.png",
    "width": 35,
    "height": 8,
    "space": "world",
@@ -644,11 +779,12 @@
     70,
     16
    ],
-   "status": "approved"
+   "status": "approved",
+   "note": "all sections closed; sections in client/src/data/drawerSlices.ts"
   },
   {
-   "key": "wall_shelf_open",
-   "file": "furniture/wall_shelf_open.png",
+   "key": "wall_shelf_d1_open",
+   "file": "furniture/wall_shelf_d1_open.png",
    "width": 35,
    "height": 8,
    "space": "world",
@@ -656,11 +792,25 @@
     70,
     16
    ],
-   "status": "approved"
+   "status": "approved",
+   "note": "only section 1 open (Wall Shelf - Door 1)"
   },
   {
-   "key": "microwave_unit",
-   "file": "furniture/microwave_unit.png",
+   "key": "wall_shelf_d2_open",
+   "file": "furniture/wall_shelf_d2_open.png",
+   "width": 35,
+   "height": 8,
+   "space": "world",
+   "worldSize": [
+    70,
+    16
+   ],
+   "status": "approved",
+   "note": "only section 2 open (Wall Shelf - Door 2)"
+  },
+  {
+   "key": "microwave_unit_base",
+   "file": "furniture/microwave_unit_base.png",
    "width": 55,
    "height": 17,
    "space": "world",
@@ -668,11 +818,12 @@
     110,
     34
    ],
-   "status": "approved"
+   "status": "approved",
+   "note": "all sections closed; sections in client/src/data/drawerSlices.ts"
   },
   {
-   "key": "microwave_unit_open",
-   "file": "furniture/microwave_unit_open.png",
+   "key": "microwave_unit_d1_open",
+   "file": "furniture/microwave_unit_d1_open.png",
    "width": 55,
    "height": 17,
    "space": "world",
@@ -680,11 +831,51 @@
     110,
     34
    ],
-   "status": "approved"
+   "status": "approved",
+   "note": "only section 1 open (Microwave Unit - Door 1)"
   },
   {
-   "key": "kitchen_sink",
-   "file": "furniture/kitchen_sink.png",
+   "key": "microwave_unit_d2_open",
+   "file": "furniture/microwave_unit_d2_open.png",
+   "width": 55,
+   "height": 17,
+   "space": "world",
+   "worldSize": [
+    110,
+    34
+   ],
+   "status": "approved",
+   "note": "only section 2 open (Microwave Unit - Door 2)"
+  },
+  {
+   "key": "microwave_unit_d3_open",
+   "file": "furniture/microwave_unit_d3_open.png",
+   "width": 55,
+   "height": 17,
+   "space": "world",
+   "worldSize": [
+    110,
+    34
+   ],
+   "status": "approved",
+   "note": "only section 3 open (Microwave Unit - Door 3)"
+  },
+  {
+   "key": "microwave_unit_d4_open",
+   "file": "furniture/microwave_unit_d4_open.png",
+   "width": 55,
+   "height": 17,
+   "space": "world",
+   "worldSize": [
+    110,
+    34
+   ],
+   "status": "approved",
+   "note": "only section 4 open (Microwave Unit - Door 4)"
+  },
+  {
+   "key": "kitchen_sink_base",
+   "file": "furniture/kitchen_sink_base.png",
    "width": 18,
    "height": 75,
    "space": "world",
@@ -693,11 +884,11 @@
     150
    ],
    "status": "approved",
-   "note": "faces left"
+   "note": "faces left; all sections closed; sections in client/src/data/drawerSlices.ts"
   },
   {
-   "key": "kitchen_sink_open",
-   "file": "furniture/kitchen_sink_open.png",
+   "key": "kitchen_sink_d1_open",
+   "file": "furniture/kitchen_sink_d1_open.png",
    "width": 18,
    "height": 75,
    "space": "world",
@@ -705,7 +896,47 @@
     36,
     150
    ],
-   "status": "approved"
+   "status": "approved",
+   "note": "only section 1 open (Kitchen Sink Cabinet - Door 1)"
+  },
+  {
+   "key": "kitchen_sink_d2_open",
+   "file": "furniture/kitchen_sink_d2_open.png",
+   "width": 18,
+   "height": 75,
+   "space": "world",
+   "worldSize": [
+    36,
+    150
+   ],
+   "status": "approved",
+   "note": "only section 2 open (Kitchen Sink Cabinet - Door 2)"
+  },
+  {
+   "key": "kitchen_sink_d3_open",
+   "file": "furniture/kitchen_sink_d3_open.png",
+   "width": 18,
+   "height": 75,
+   "space": "world",
+   "worldSize": [
+    36,
+    150
+   ],
+   "status": "approved",
+   "note": "only section 3 open (Kitchen Sink Cabinet - Door 3)"
+  },
+  {
+   "key": "kitchen_sink_d4_open",
+   "file": "furniture/kitchen_sink_d4_open.png",
+   "width": 18,
+   "height": 75,
+   "space": "world",
+   "worldSize": [
+    36,
+    150
+   ],
+   "status": "approved",
+   "note": "only section 4 open (Kitchen Sink Cabinet - Door 4)"
   },
   {
    "key": "kitchen_counter",
@@ -721,8 +952,8 @@
    "note": "UNUSED: stove 45x18 + kitchen_drawer 50x18 fill the counter"
   },
   {
-   "key": "kitchen_drawer",
-   "file": "furniture/kitchen_drawer.png",
+   "key": "kitchen_drawer_base",
+   "file": "furniture/kitchen_drawer_base.png",
    "width": 50,
    "height": 18,
    "space": "world",
@@ -731,11 +962,11 @@
     36
    ],
    "status": "approved",
-   "note": "layout stove_drawers 100x35 at x=910 (art x=455)"
+   "note": "layout stove_drawers 100x35 at x=910 (art x=455); all sections closed; sections in client/src/data/drawerSlices.ts"
   },
   {
-   "key": "kitchen_drawer_open",
-   "file": "furniture/kitchen_drawer_open.png",
+   "key": "kitchen_drawer_d1_open",
+   "file": "furniture/kitchen_drawer_d1_open.png",
    "width": 50,
    "height": 18,
    "space": "world",
@@ -743,7 +974,34 @@
     100,
     36
    ],
-   "status": "approved"
+   "status": "approved",
+   "note": "only section 1 open (Kitchen Drawers - Drawer 1)"
+  },
+  {
+   "key": "kitchen_drawer_d2_open",
+   "file": "furniture/kitchen_drawer_d2_open.png",
+   "width": 50,
+   "height": 18,
+   "space": "world",
+   "worldSize": [
+    100,
+    36
+   ],
+   "status": "approved",
+   "note": "only section 2 open (Kitchen Drawers - Drawer 2)"
+  },
+  {
+   "key": "kitchen_drawer_d3_open",
+   "file": "furniture/kitchen_drawer_d3_open.png",
+   "width": 50,
+   "height": 18,
+   "space": "world",
+   "worldSize": [
+    100,
+    36
+   ],
+   "status": "approved",
+   "note": "only section 3 open (Kitchen Drawers - Drawer 3)"
   },
   {
    "key": "stove",
@@ -1515,7 +1773,7 @@
     416,
     416
    ],
-   "status": "pending review",
+   "status": "approved",
    "note": "player light, radius 104 art px (~6.5 tiles); use as BitmapMask / ERASE brush on a darkness RenderTexture"
   },
   {
@@ -1568,6 +1826,204 @@
     "fps": 14
    },
    "note": "stun gun hit on the Phantom; play once"
+  },
+  {
+   "key": "shell_body",
+   "file": "ui/shell/shell_body.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); 9-slice, corner 8 px"
+  },
+  {
+   "key": "screen_bezel",
+   "file": "ui/shell/screen_bezel.png",
+   "width": 20,
+   "height": 20,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); 9-slice, border 6 px, transparent centre (game display)"
+  },
+  {
+   "key": "joystick_well",
+   "file": "ui/shell/joystick_well.png",
+   "width": 40,
+   "height": 40,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); knob travel ~11 px"
+  },
+  {
+   "key": "joystick_knob",
+   "file": "ui/shell/joystick_knob.png",
+   "width": 18,
+   "height": 18,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "btn_round",
+   "file": "ui/shell/btn_round.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); icon at (+6,+5)"
+  },
+  {
+   "key": "btn_round_pressed",
+   "file": "ui/shell/btn_round_pressed.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); icon at (+6,+6)"
+  },
+  {
+   "key": "btn_round_disabled",
+   "file": "ui/shell/btn_round_disabled.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "btn_socket",
+   "file": "ui/shell/btn_socket.png",
+   "width": 28,
+   "height": 28,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); button at (+2,+2)"
+  },
+  {
+   "key": "icon_interact",
+   "file": "ui/shell/icon_interact.png",
+   "width": 12,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "icon_drop",
+   "file": "ui/shell/icon_drop.png",
+   "width": 12,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "icon_sneak",
+   "file": "ui/shell/icon_sneak.png",
+   "width": 12,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "icon_shoot",
+   "file": "ui/shell/icon_shoot.png",
+   "width": 12,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "icon_shoot_disabled",
+   "file": "ui/shell/icon_shoot_disabled.png",
+   "width": 12,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "label_use",
+   "file": "ui/shell/label_use.png",
+   "width": 13,
+   "height": 7,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "label_drop",
+   "file": "ui/shell/label_drop.png",
+   "width": 18,
+   "height": 7,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "label_sneak",
+   "file": "ui/shell/label_sneak.png",
+   "width": 23,
+   "height": 7,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "label_shoot",
+   "file": "ui/shell/label_shoot.png",
+   "width": 23,
+   "height": 7,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "label_shoot_disabled",
+   "file": "ui/shell/label_shoot_disabled.png",
+   "width": 23,
+   "height": 7,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "logo_plate",
+   "file": "ui/shell/logo_plate.png",
+   "width": 66,
+   "height": 10,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "speaker_grille",
+   "file": "ui/shell/speaker_grille.png",
+   "width": 20,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "power_led",
+   "file": "ui/shell/power_led.png",
+   "width": 5,
+   "height": 5,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "power_led_on",
+   "file": "ui/shell/power_led_on.png",
+   "width": 5,
+   "height": 5,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
   }
  ]
 }

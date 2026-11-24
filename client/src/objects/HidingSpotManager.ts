@@ -1,83 +1,137 @@
 import Phaser from 'phaser';
-import { HidingSpot } from '../data/houseLayout';
+import { HidingSpot, houseLayout } from '../data/houseLayout';
+import { DRAWER_UNITS, DrawerUnit, baseTextureKey, sectionOpenTextureKey } from '../data/drawerSlices';
+import { HIDING_SPOT_TEXTURES } from '../utils/artHelpers';
+import {
+  Interactable, Rect, buildInteractables, isEligible, selectTarget, sightBlockers,
+} from '../logic/spotTargeting';
 
-interface HidingSpotSprite {
-  data: HidingSpot;
+/** One solid piece of furniture (one physics body in GameScene), drawn once. */
+interface UnitVisual {
+  spot: HidingSpot;
   sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
+  /** One-piece spots: closed / open texture keys (null = coloured rectangle fallback). */
+  closedKey: string | null;
+  openKey: string | null;
+  /** Sectioned units: per-section open overlay (cropped `{unit}_d{N}_open`), by section number. */
+  overlays: Map<number, Phaser.GameObjects.Image>;
+}
+
+/** One thing the player can target and open: a one-piece spot or one drawer/door/cushion. */
+interface SpotState {
+  data: Interactable;
+  unit: UnitVisual;
   isOpen: boolean;
-  highlight?: Phaser.GameObjects.Rectangle;
 }
 
 export class HidingSpotManager {
   private scene: Phaser.Scene;
-  private spots: HidingSpotSprite[] = [];
-  private highlightedSpot: HidingSpotSprite | null = null;
+  private units = new Map<string, UnitVisual>();
+  /** Every targetable spot/section (QA scripts read `spots[i].data.id` / `.unitId`). */
+  private spots: SpotState[] = [];
+  private highlightedSpot: SpotState | null = null;
+  private eligible = new Set<SpotState>();
   private messageTimer: Phaser.Time.TimerEvent | null = null;
-  private wallGroup: Phaser.Physics.Arcade.StaticGroup | null = null;
-  /** Pulsing outline drawn around the targeted spot (QA N6). */
+  private blockers: Rect[] = sightBlockers(houseLayout);
+  /** Pulsing outline drawn around just the targeted spot / section. */
   private highlightGfx: Phaser.GameObjects.Graphics;
   private highlightTween: Phaser.Tweens.Tween | null = null;
 
   constructor(scene: Phaser.Scene, hidingSpots: HidingSpot[]) {
     this.scene = scene;
     this.highlightGfx = scene.add.graphics().setDepth(5).setVisible(false);
-    this.createSpots(hidingSpots);
+    hidingSpots.forEach((spot) => this.units.set(spot.id, this.createUnit(spot)));
+    for (const it of buildInteractables(hidingSpots)) {
+      this.spots.push({ data: it, unit: this.units.get(it.unitId)!, isOpen: false });
+    }
   }
 
-  public setWallGroup(wallGroup: Phaser.Physics.Arcade.StaticGroup): void {
-    this.wallGroup = wallGroup;
-  }
+  /** Line of sight uses the layout's wall bodies (see logic/spotTargeting.ts); kept for callers. */
+  public setWallGroup(_wallGroup: Phaser.Physics.Arcade.StaticGroup): void {}
 
-  private createSpots(hidingSpots: HidingSpot[]): void {
-    // Map spot IDs to texture keys
-    const spotTextures: Record<string, string> = {
-      'study_drawer_1': 'study_drawer', 'study_drawer_2': 'study_drawer', 'study_drawer_3': 'study_drawer',
-      'bed': 'bed', 'bedside_drawer': 'bedside_drawer', 'closet_drawers': 'closet',
-      'sofa': 'sofa', 'ottoman': 'ottoman', 'tv_unit': 'tv_unit', 'sideboard': 'sideboard',
-      'sink_cabinet': 'sink_cabinet', 'wall_shelf': 'wall_shelf', 'microwave_unit': 'microwave_unit',
-      'kitchen_sink_cabinet': 'kitchen_sink', 'stove': 'stove', 'stove_drawers': 'kitchen_drawer', 'fridge': 'fridge',
-    };
+  private createUnit(spot: HidingSpot): UnitVisual {
+    const sections: DrawerUnit | undefined = DRAWER_UNITS[spot.id];
+    const tex = this.scene.textures;
+    let closedKey: string | null;
+    let openKey: string | null = null;
+    if (sections) {
+      closedKey = tex.exists(baseTextureKey(sections)) ? baseTextureKey(sections) : null;
+    } else {
+      const k = HIDING_SPOT_TEXTURES[spot.id];
+      closedKey = k && tex.exists(k) ? k : null;
+      openKey = k && tex.exists(`${k}_open`) ? `${k}_open` : null;
+    }
 
-    hidingSpots.forEach(spot => {
-      const textureKey = spotTextures[spot.id];
-      let sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
-      
-      if (textureKey && this.scene.textures.exists(textureKey)) {
-        // Use art (at 2x scale, art is half resolution)
-        sprite = this.scene.add.image(spot.x, spot.y, textureKey)
-          .setOrigin(0, 0)
-          .setScale(2)
-          .setInteractive();
-      } else {
-        // Fallback to colored rectangle
-        const color = this.getColorForType(spot.type);
-        sprite = this.scene.add.rectangle(
-          spot.x + spot.width / 2,
-          spot.y + spot.height / 2,
-          spot.width,
-          spot.height,
-          color,
-          1
-        ).setStrokeStyle(2, 0x000000)
-        .setInteractive();
+    let sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
+    if (closedKey) {
+      // Art is half resolution: 1 art px = 2 world units.
+      sprite = this.scene.add.image(spot.x, spot.y, closedKey).setOrigin(0, 0).setScale(2);
+    } else {
+      sprite = this.scene.add.rectangle(spot.x + spot.width / 2, spot.y + spot.height / 2,
+        spot.width, spot.height, this.getColorForType(spot.type), 1).setStrokeStyle(2, 0x000000);
+    }
+    sprite.setDepth(0).setInteractive();
+
+    const overlays = new Map<number, Phaser.GameObjects.Image>();
+    if (sections && closedKey) {
+      for (const s of sections.sections) {
+        const key = sectionOpenTextureKey(sections, s.drawer);
+        if (!tex.exists(key)) continue;
+        // `_d{N}_open` is the whole unit with only N open; show just the pixels that change
+        // so any number of sections can be open at once on top of the closed base.
+        const crop = this.changedRect(closedKey, key) ?? { x: s.x, y: s.y, width: s.w, height: s.h };
+        const img = this.scene.add.image(spot.x, spot.y, key).setOrigin(0, 0).setScale(2)
+          .setDepth(1).setVisible(false);
+        img.setCrop(crop.x, crop.y, crop.width, crop.height);
+        overlays.set(s.drawer, img);
       }
+    }
 
-      const spotData: HidingSpotSprite = {
-        data: spot,
-        sprite,
-        isOpen: false,
+    const unit: UnitVisual = { spot, sprite, closedKey, openKey, overlays };
+    sprite.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onUnitTap(unit, pointer));
+    return unit;
+  }
+
+  /** Bounding box (art px) of the pixels that differ between two same-size textures. */
+  private changedRect(aKey: string, bKey: string): Rect | null {
+    try {
+      const a = this.scene.textures.get(aKey).getSourceImage() as CanvasImageSource & { width: number; height: number };
+      const b = this.scene.textures.get(bKey).getSourceImage() as CanvasImageSource & { width: number; height: number };
+      if (a.width !== b.width || a.height !== b.height) return null;
+      const read = (img: CanvasImageSource) => {
+        const c = document.createElement('canvas');
+        c.width = a.width; c.height = a.height;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        return ctx.getImageData(0, 0, a.width, a.height).data;
       };
-
-      // Add tap handler for tap-to-open
-      sprite.on('pointerdown', () => {
-        // Only open if it's the highlighted spot
-        if (this.highlightedSpot === spotData) {
-          this.toggleSpot(spotData);
+      const da = read(a), db = read(b);
+      let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
+      for (let y = 0; y < a.height; y++) {
+        for (let x = 0; x < a.width; x++) {
+          const i = (y * a.width + x) * 4;
+          if (da[i] !== db[i] || da[i + 1] !== db[i + 1] || da[i + 2] !== db[i + 2] || da[i + 3] !== db[i + 3]) {
+            if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y;
+          }
         }
-      });
+      }
+      return x1 < 0 ? null : { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
+    } catch {
+      return null;
+    }
+  }
 
-      this.spots.push(spotData);
-    });
+  /** Tap a unit: open the section under the finger if it is in reach, else the targeted one. */
+  private onUnitTap(unit: UnitVisual, pointer: Phaser.Input.Pointer): void {
+    const wx = pointer.worldX, wy = pointer.worldY;
+    const hit = this.spots.find((s) => s.unit === unit && this.eligible.has(s)
+      && wx >= s.data.x && wx < s.data.x + s.data.width && wy >= s.data.y && wy < s.data.y + s.data.height);
+    if (hit) {
+      if (hit !== this.highlightedSpot) this.setHighlight(hit);
+      this.toggleSpot(hit);
+    } else if (this.highlightedSpot && this.highlightedSpot.unit === unit) {
+      this.toggleSpot(this.highlightedSpot);
+    }
   }
 
   private getColorForType(type: string): number {
@@ -113,66 +167,28 @@ export class HidingSpotManager {
   /** The outline is stroked 3px outside the spot with a 4px line: it reaches 5px out. */
   static readonly OUTLINE_PAD = 5;
 
-  public update(playerPosition: Phaser.Math.Vector2): void {
-    let closestSpot: HidingSpotSprite | null = null;
-    let closestDistance = Infinity;
-
-    // Find closest spot in range with line of sight
-    this.spots.forEach(spot => {
-      const spotCenter = new Phaser.Math.Vector2(
-        spot.data.x + spot.data.width / 2,
-        spot.data.y + spot.data.height / 2
-      );
-      const distance = playerPosition.distance(spotCenter);
-
-      if (distance < spot.data.interactRange && distance < closestDistance) {
-        // Check line of sight (no walls between player and spot)
-        if (this.hasLineOfSight(playerPosition, spotCenter)) {
-          closestSpot = spot;
-          closestDistance = distance;
-        }
-      }
-    });
-
-    // Update highlight
-    if (this.highlightedSpot !== closestSpot) {
-      this.clearHighlight();
-      if (closestSpot) {
-        this.highlightSpot(closestSpot);
-      }
-      this.highlightedSpot = closestSpot;
-    }
+  public update(playerPosition: Phaser.Math.Vector2, facing: { x: number; y: number } = { x: 0, y: 1 }): void {
+    const px = playerPosition.x, py = playerPosition.y;
+    this.eligible.clear();
+    for (const s of this.spots) if (isEligible(px, py, s.data, this.blockers)) this.eligible.add(s);
+    const best = selectTarget(px, py, facing, [...this.eligible].map((s) => s.data), []);
+    const next = best ? this.spots.find((s) => s.data === best)! : null;
+    if (next !== this.highlightedSpot) this.setHighlight(next);
   }
 
-  private hasLineOfSight(from: Phaser.Math.Vector2, to: Phaser.Math.Vector2): boolean {
-    if (!this.wallGroup) return true;
-
-    const line = new Phaser.Geom.Line(from.x, from.y, to.x, to.y);
-    const walls = this.wallGroup.getChildren() as Phaser.GameObjects.GameObject[];
-
-    for (const wall of walls) {
-      if (!(wall as any).getData?.('blocksSight')) continue;
-      const bounds = (wall as any).getBounds();
-      if (!bounds) continue;
-
-      const rect = new Phaser.Geom.Rectangle(bounds.x, bounds.y, bounds.width, bounds.height);
-      if (Phaser.Geom.Intersects.LineToRectangle(line, rect)) {
-        return false;
-      }
-    }
-
-    return true;
+  private setHighlight(spot: SpotState | null): void {
+    this.clearHighlight();
+    this.highlightedSpot = spot;
+    if (spot) this.highlightSpot(spot);
   }
 
-  private highlightSpot(spot: HidingSpotSprite): void {
-    const s: any = spot.sprite;
-    if (typeof s.setStrokeStyle === 'function') s.setStrokeStyle(3, 0xFFFF00);
-    else if (typeof s.setTint === 'function') s.setTint(0xFFF2A0);
-
-    // Bright outline (2 world px = 1 art px, drawn just outside the spot) that pulses.
+  private highlightSpot(spot: SpotState): void {
+    // Outline only (never a tint: tinting the open art turned the open bed olive).
     const { x, y, width, height } = spot.data;
     const g = this.highlightGfx;
     g.clear();
+    g.fillStyle(0xFFE14D, 0.18);
+    g.fillRect(x, y, width, height);
     g.lineStyle(4, 0x000000, 0.6);
     g.strokeRect(x - 3, y - 3, width + 6, height + 6);
     g.lineStyle(2, 0xFFE14D, 1);
@@ -191,14 +207,14 @@ export class HidingSpotManager {
     this.showPrompt(spot);
   }
 
-  private promptText(spot: HidingSpotSprite): string {
+  private promptText(spot: SpotState): string {
     // Show keyboard hint only on non-touch devices
     const isTouch = this.scene.sys.game.device.input.touch;
     const hint = isTouch ? '' : '[E] ';
     return `${hint}${spot.data.name}`;
   }
 
-  private showPrompt(spot: HidingSpotSprite): void {
+  private showPrompt(spot: SpotState): void {
     this.showMessage(this.promptText(spot));
   }
 
@@ -206,12 +222,7 @@ export class HidingSpotManager {
     this.highlightTween?.stop();
     this.highlightTween = null;
     this.highlightGfx.clear().setVisible(false);
-    if (this.highlightedSpot) {
-      const s: any = this.highlightedSpot.sprite;
-      if (typeof s.setStrokeStyle === 'function') s.setStrokeStyle(2, 0x000000);
-      else if (typeof s.clearTint === 'function') s.clearTint();
-      this.hideMessage();
-    }
+    if (this.highlightedSpot) this.hideMessage();
   }
 
   public interact(): void {
@@ -220,32 +231,20 @@ export class HidingSpotManager {
     }
   }
 
-  private toggleSpot(spot: HidingSpotSprite): void {
+  private toggleSpot(spot: SpotState): void {
     spot.isOpen = !spot.isOpen;
-    
-    // Map spot ID to texture
-    const spotTextures: Record<string, string> = {
-      'study_drawer_1': 'study_drawer', 'study_drawer_2': 'study_drawer', 'study_drawer_3': 'study_drawer',
-      'bed': 'bed', 'bedside_drawer': 'bedside_drawer', 'closet_drawers': 'closet',
-      'sofa': 'sofa', 'ottoman': 'ottoman', 'tv_unit': 'tv_unit', 'sideboard': 'sideboard',
-      'sink_cabinet': 'sink_cabinet', 'wall_shelf': 'wall_shelf', 'microwave_unit': 'microwave_unit',
-      'kitchen_sink_cabinet': 'kitchen_sink', 'stove': 'stove', 'stove_drawers': 'kitchen_drawer', 'fridge': 'fridge',
-    };
-    
-    const textureKey = spotTextures[spot.data.id];
-    const openKey = textureKey ? `${textureKey}_open` : null;
-    
-    if (textureKey && openKey && this.scene.textures.exists(textureKey) && this.scene.textures.exists(openKey)) {
-      // Switch texture (sprite is Image if art exists)
-      if (spot.sprite instanceof Phaser.GameObjects.Image) {
-        spot.sprite.setTexture(spot.isOpen ? openKey : textureKey);
-      }
-    } else if ('setFillStyle' in spot.sprite) {
-      // Fallback: change color
-      (spot.sprite as any).setFillStyle(
-        spot.isOpen ? this.getOpenColor(spot.data.type) : this.getColorForType(spot.data.type)
-      );
+    const unit = spot.unit;
+
+    if (spot.data.drawer > 0) {
+      unit.overlays.get(spot.data.drawer)?.setVisible(spot.isOpen);
+    } else if (unit.sprite instanceof Phaser.GameObjects.Image) {
+      if (unit.closedKey && unit.openKey) unit.sprite.setTexture(spot.isOpen ? unit.openKey : unit.closedKey);
+    } else {
+      unit.sprite.setFillStyle(spot.isOpen ? this.getOpenColor(spot.data.type) : this.getColorForType(spot.data.type));
     }
+    // Opened (or closed) art is never tinted.
+    if (unit.sprite instanceof Phaser.GameObjects.Image) unit.sprite.clearTint();
+    unit.overlays.forEach((o) => o.clearTint());
 
     if (spot.isOpen) {
       // Only OPENING reveals the contents; the name comes back after 2 s.
@@ -306,9 +305,9 @@ export class HidingSpotManager {
     }
     this.highlightTween?.stop();
     this.highlightGfx.destroy();
-    this.spots.forEach(spot => {
-      spot.sprite.destroy();
-      spot.highlight?.destroy();
+    this.units.forEach((u) => {
+      u.sprite.destroy();
+      u.overlays.forEach((o) => o.destroy());
     });
   }
 }

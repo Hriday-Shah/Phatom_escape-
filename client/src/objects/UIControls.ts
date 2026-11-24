@@ -1,187 +1,102 @@
 import Phaser from 'phaser';
-import { SafeAreaManager } from '../utils/SafeAreaManager';
-import { cssSize, gameDpr, hudScale } from '../config/display';
+import { gameDpr } from '../config/display';
+import { ButtonId, ShellLayout } from '../ui/shellLayout';
 
+const ICONS: Record<ButtonId, string> = {
+  interact: 'icon_interact', drop: 'icon_drop', sneak: 'icon_sneak', shoot: 'icon_shoot',
+};
+
+/**
+ * The console's four round buttons (btn_round + 12x12 icon at +6,+5; pressed: btn_round_pressed,
+ * icon at +6,+6) and the item slot, which sits inside the game screen (top-right).
+ * Hit area = the whole 28*s socket (>= 56 CSS px; the button art itself is >= 48).
+ */
 export class UIControls {
   private scene: Phaser.Scene;
-  private buttons: Map<string, Phaser.GameObjects.Container> = new Map();
-  private itemSlot: Phaser.GameObjects.Container | null = null;
-  
-  // UI layout specs (ui-layout.md): 60px buttons in 2x2 cluster, 12px gaps, 16px margin.
-  // On screens whose short side is >= 600 CSS px everything is art x3 (x1.5 of phone size).
-  private readonly baseButtonSize = 60; // CSS px
-  private readonly baseButtonGap = 12; // CSS px
-  private readonly margin = 16; // CSS px
-  private buttonSize = 60;
-  private buttonGap = 12;
+  private buttons = new Map<ButtonId, { face: Phaser.GameObjects.Image; icon: Phaser.GameObjects.Image; zone: Phaser.GameObjects.Zone; enabled: boolean }>();
+  private itemSlot: Phaser.GameObjects.Container;
+  private layout: ShellLayout | null = null;
+  /** Stage 1: Shoot exists but is disabled (no stun gun yet). */
+  private enabled: Record<ButtonId, boolean> = { interact: true, drop: true, sneak: true, shoot: false };
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    this.updateScale();
-    this.createButtons();
-    this.positionButtons();
-    
-    // Reposition on safe area changes
-    SafeAreaManager.onInsetsChange(() => this.positionButtons());
-  }
-
-  private createButtons(): void {
-    // Check if device has touch input
-    const isTouch = this.scene.sys.game.device.input.touch;
-    
-    // 2x2 button cluster: Interact bottom-right, Shoot above it, Sneak bottom-left, Drop above Sneak
-    const buttonConfigs = [
-      { id: 'interact', key: 'ui_btn_interact', pressedKey: 'ui_btn_interact_pressed', label: isTouch ? 'Interact' : 'Interact (E)', active: true },
-      { id: 'shoot', key: 'ui_btn_shoot_disabled', label: 'Shoot', active: false },
-      { id: 'sneak', key: 'ui_btn_sneak', pressedKey: 'ui_btn_sneak_pressed', label: 'Sneak', active: false },
-      { id: 'drop', key: 'ui_btn_drop', pressedKey: 'ui_btn_drop_pressed', label: 'Drop', active: false },
-    ];
-
-    buttonConfigs.forEach((config) => {
-      const container = this.scene.add.container(0, 0)
-        .setDepth(1000);
-
-      if (this.scene.textures.exists(config.key)) {
-        const btn = this.scene.add.image(0, 0, config.key)
-          .setDisplaySize(this.buttonSize, this.buttonSize);
-        
-        if (config.active) {
-          btn.setInteractive({ useHandCursor: true });
-          
-          btn.on('pointerdown', () => {
-            if (config.pressedKey && this.scene.textures.exists(config.pressedKey)) {
-              btn.setTexture(config.pressedKey);
-            }
-            this.scene.events.emit(config.id === 'interact' ? 'interact' : config.id);
-          });
-          
-          btn.on('pointerup', () => {
-            btn.setTexture(config.key);
-          });
-          
-          btn.on('pointerout', () => {
-            btn.setTexture(config.key);
-          });
-        } else {
-          btn.setAlpha(0.6);
-        }
-        
-        container.add(btn);
-      } else {
-        // Fallback
-        const bg = this.scene.add.circle(0, 0, this.buttonSize / 2, config.active ? 0x4A90E2 : 0x666666, config.active ? 0.7 : 0.4);
-        const border = this.scene.add.circle(0, 0, this.buttonSize / 2)
-          .setStrokeStyle(2, config.active ? 0x2E5C8A : 0x444444, config.active ? 1 : 0.6);
-        
-        const text = this.scene.add.text(0, 0, config.label, {
-          fontSize: '12px',
-          color: config.active ? '#ffffff' : '#888888',
-          resolution: gameDpr(this.scene),
-        }).setOrigin(0.5);
-
-        if (config.active) {
-          bg.setInteractive({ useHandCursor: true });
-          bg.on('pointerdown', () => {
-            this.scene.events.emit(config.id === 'interact' ? 'interact' : config.id);
-          });
-        }
-
-        container.add([bg, border, text]);
-      }
-      
-      this.buttons.set(config.id, container);
-    });
-    
-    // Item slot (60px): top-right in landscape, above Shoot in portrait
-    this.itemSlot = this.scene.add.container(0, 0)
-      .setDepth(1000);
-    
-    if (this.scene.textures.exists('ui_item_slot')) {
-      const slot = this.scene.add.image(0, 0, 'ui_item_slot')
-        .setDisplaySize(this.buttonSize, this.buttonSize);
-      this.itemSlot.add(slot);
+    (['drop', 'shoot', 'sneak', 'interact'] as ButtonId[]).forEach((id) => this.createButton(id));
+    this.itemSlot = scene.add.container(0, 0).setDepth(1000);
+    if (scene.textures.exists('ui_item_slot')) {
+      this.itemSlot.add(scene.add.image(0, 0, 'ui_item_slot').setOrigin(0, 0));
     } else {
-      // Fallback
-      const slotBg = this.scene.add.rectangle(0, 0, this.buttonSize, this.buttonSize, 0x333333, 0.5);
-      const slotBorder = this.scene.add.rectangle(0, 0, this.buttonSize, this.buttonSize)
-        .setStrokeStyle(2, 0x666666, 0.8);
-      this.itemSlot.add([slotBg, slotBorder]);
+      this.itemSlot.add([
+        scene.add.rectangle(0, 0, 60, 60, 0x333333, 0.5).setOrigin(0, 0),
+        scene.add.rectangle(0, 0, 60, 60).setOrigin(0, 0).setStrokeStyle(2, 0x666666, 0.8),
+      ]);
     }
   }
 
-  private updateScale(): void {
-    const s = hudScale(this.scene);
-    this.buttonSize = this.baseButtonSize * s;
-    this.buttonGap = this.baseButtonGap * s;
+  private createButton(id: ButtonId): void {
+    const s = this.scene;
+    const enabled = this.enabled[id];
+    const face = s.add.image(0, 0, enabled ? 'btn_round' : 'btn_round_disabled').setOrigin(0, 0).setDepth(1000);
+    const icon = s.add.image(0, 0, id === 'shoot' && !enabled ? 'icon_shoot_disabled' : ICONS[id]).setOrigin(0, 0).setDepth(1001);
+    const zone = s.add.zone(0, 0, 1, 1).setOrigin(0, 0).setDepth(1002);
+    const entry = { face, icon, zone, enabled };
+    this.buttons.set(id, entry);
+    zone.setInteractive();
+    zone.on('pointerdown', () => {
+      if (!entry.enabled) return;
+      this.setPressed(id, true);
+      s.events.emit(id);
+    });
+    const release = () => this.setPressed(id, false);
+    zone.on('pointerup', release);
+    zone.on('pointerout', release);
   }
 
-  /** Resize every control (images via setDisplaySize, fallbacks via scale). */
-  private applySizes(): void {
-    const all = [...this.buttons.values(), ...(this.itemSlot ? [this.itemSlot] : [])];
-    for (const container of all) {
-      const first = container.list[0] as any;
-      if (first instanceof Phaser.GameObjects.Image) {
-        first.setDisplaySize(this.buttonSize, this.buttonSize);
-      } else {
-        container.setScale(this.buttonSize / this.baseButtonSize);
-      }
-      container.list.forEach((child: any) => {
-        if (child instanceof Phaser.GameObjects.Text) child.setResolution(gameDpr(this.scene));
-      });
+  private setPressed(id: ButtonId, pressed: boolean): void {
+    const b = this.buttons.get(id);
+    if (!b || !this.layout) return;
+    const L = this.layout, s = L.s, box = L.buttons[id].button;
+    if (b.enabled) b.face.setTexture(pressed ? 'btn_round_pressed' : 'btn_round');
+    b.icon.setPosition(box.x + 6 * s, box.y + (pressed ? 6 : 5) * s);
+  }
+
+  /** Centre of a button in CSS px (tests derive tap positions from this). */
+  public getButtonCenter(id: ButtonId): { x: number; y: number } | null {
+    const b = this.layout?.buttons[id].button;
+    return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : null;
+  }
+
+  public resize(layout: ShellLayout): void {
+    this.layout = layout;
+    const s = layout.s;
+    for (const [id, b] of this.buttons) {
+      const r = layout.buttons[id];
+      b.face.setScale(s).setPosition(r.button.x, r.button.y);
+      b.icon.setScale(s);
+      b.zone.setPosition(r.socket.x, r.socket.y).setSize(r.socket.w, r.socket.h);
+      b.zone.input?.hitArea.setTo(0, 0, r.socket.w, r.socket.h);
+      this.setPressed(id, false);
     }
+    // Item slot: inside the screen, top-right (ui_item_slot is 120 px = 4x art; 2 CSS per art px).
+    const scr = layout.screen;
+    const size = Math.min(60, Math.floor(scr.w * 0.2), Math.floor(scr.h * 0.2));
+    const m = 2 * s;
+    this.itemSlot.setPosition(scr.x + scr.w - m - size, scr.y + m);
+    const first = this.itemSlot.list[0] as any;
+    if (first instanceof Phaser.GameObjects.Image) first.setDisplaySize(size, size);
+    else this.itemSlot.setScale(size / 60);
+    this.itemSlot.list.forEach((c: any) => c instanceof Phaser.GameObjects.Text && c.setResolution(gameDpr(this.scene)));
   }
 
-  private positionButtons(): void {
-    this.updateScale();
-    this.applySizes();
-    const { width, height } = cssSize(this.scene);
-    const insets = SafeAreaManager.getInsets();
-    const isPortrait = height > width;
-    
-    // 16px margin added to safe-area insets
-    const rightEdge = width - insets.right - this.margin;
-    const bottomEdge = height - insets.bottom - this.margin;
-    const topEdge = insets.top + this.margin;
-    
-    // 2x2 button cluster with 12px gaps
-    // Bottom row: Sneak (left), Interact (right)
-    // Top row: Drop (left), Shoot (right)
-    const interactX = rightEdge - this.buttonSize / 2;
-    const interactY = bottomEdge - this.buttonSize / 2;
-    
-    const sneakX = interactX - this.buttonSize - this.buttonGap;
-    const sneakY = interactY;
-    
-    const shootX = interactX;
-    const shootY = interactY - this.buttonSize - this.buttonGap;
-    
-    const dropX = sneakX;
-    const dropY = shootY;
-    
-    this.buttons.get('interact')?.setPosition(interactX, interactY);
-    this.buttons.get('shoot')?.setPosition(shootX, shootY);
-    this.buttons.get('sneak')?.setPosition(sneakX, sneakY);
-    this.buttons.get('drop')?.setPosition(dropX, dropY);
-    
-    // Item slot: top-right in landscape, above Shoot in portrait
-    if (this.itemSlot) {
-      if (isPortrait) {
-        // Above Shoot button
-        this.itemSlot.setPosition(shootX, shootY - this.buttonSize - this.buttonGap);
-      } else {
-        // Top-right corner
-        this.itemSlot.setPosition(rightEdge - this.buttonSize / 2, topEdge + this.buttonSize / 2);
-      }
-    }
-  }
-
-  public resize(): void {
-    this.positionButtons();
+  /** Item slot bounds (CSS px), so the prompt can keep clear of it. */
+  public getItemSlotBounds(): Phaser.Geom.Rectangle {
+    return this.itemSlot.getBounds();
   }
 
   public destroy(): void {
-    this.buttons.forEach(container => container.destroy());
+    this.buttons.forEach((b) => { b.face.destroy(); b.icon.destroy(); b.zone.destroy(); });
     this.buttons.clear();
-    this.itemSlot?.destroy();
+    this.itemSlot.destroy();
   }
 }
+

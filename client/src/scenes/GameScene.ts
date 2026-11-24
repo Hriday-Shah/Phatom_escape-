@@ -4,9 +4,12 @@ import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { houseLayout } from '../data/houseLayout';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { createComposedWalls } from '../utils/wallRenderer';
-import { wallBodyRects } from '../data/colliders';
+import { wallBodyRects, isDoorLocked } from '../data/colliders';
+import { LightLayer } from '../objects/LightLayer';
 import { PLAYER_BODY_RADIUS } from '../objects/Player';
 import { gameDpr } from '../config/display';
+import { hasDebugFlag } from '../config/debugFlags';
+import { currentShellLayout } from '../ui/currentLayout';
 
 /** World units shown across the short side of the screen (before snapping). */
 const TARGET_VIEW_WORLD = 280;
@@ -34,6 +37,7 @@ export class GameScene extends Phaser.Scene {
   private wallGroup!: Phaser.Physics.Arcade.StaticGroup;
   private doorGroup!: Phaser.Physics.Arcade.StaticGroup;
   private uiScene!: Phaser.Scene;
+  private lightLayer: LightLayer | null = null;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -84,10 +88,14 @@ export class GameScene extends Phaser.Scene {
     this.hidingSpotManager = new HidingSpotManager(this, houseLayout.hidingSpots);
     this.hidingSpotManager.setWallGroup(this.wallGroup);
 
+    // Limited vision (off with ?debug=nolight for QA).
+    if (!hasDebugFlag('nolight') && LightLayer.available(this)) this.createLight();
+
     // Setup controls
     this.setupControls();
 
-    // Start UIScene in parallel
+    // Console body under the game (ShellScene renders first), HUD above it (UIScene).
+    this.scene.launch('ShellScene');
     this.scene.launch('UIScene');
     this.uiScene = this.scene.get('UIScene');
 
@@ -101,16 +109,48 @@ export class GameScene extends Phaser.Scene {
     SafeAreaManager.onInsetsChange(() => this.onResize());
   }
 
+  /**
+   * Light radius in world px: half the fx_light_mask worldSize (416 -> 208), which is 6.5 tiles
+   * (tile = manifest tileSize 16 art px x artPxPerWorldUnits 2 = 32 world px).
+   */
+  static lightRadius(manifest: any): number {
+    const mask = manifest?.assets?.find((a: any) => a.key === LightLayer.MASK_KEY);
+    if (mask?.worldSize) return mask.worldSize[0] / 2;
+    return 6.5 * (manifest?.tileSize ?? 16) * (manifest?.artPxPerWorldUnits ?? 2);
+  }
+
+  private createLight(): void {
+    const debugUnlock = hasDebugFlag('unlock');
+    const occluders = [
+      ...houseLayout.walls,
+      ...houseLayout.doors.filter((d) => isDoorLocked(d.id, d.locked, debugUnlock)),
+    ];
+    this.lightLayer = new LightLayer(this, GameScene.lightRadius(this.cache.json.get('artManifest')), occluders);
+    // After Arcade has synced the body to the sprite (POST_UPDATE), so the light never lags.
+    const sync = () => this.lightLayer?.update(this.player.x, this.player.y);
+    this.events.on(Phaser.Scenes.Events.POST_UPDATE, sync);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.events.off(Phaser.Scenes.Events.POST_UPDATE, sync);
+      this.lightLayer?.destroy();
+      this.lightLayer = null;
+    });
+    this.lightLayer.update(this.player.x, this.player.y, true);
+  }
+
   private updateCameraZoom(): void {
-    // Close-up camera: about 280 world units on the short side (roughly one room).
-    // scale.width/height are DEVICE px (the canvas renders at devicePixelRatio), so the
-    // snapped zoom gives every art pixel the same whole number of physical pixels.
-    const minDimension = Math.min(this.scale.width, this.scale.height);
-    this.cameras.main.setZoom(snappedCameraZoom(minDimension));
-    
+    // The game display is the console's screen rect (ui/shellLayout.ts): the camera viewport,
+    // in DEVICE px (CSS x render DPR), rounded to whole device px.
+    const dpr = gameDpr(this);
+    const scr = currentShellLayout(this).screen;
+    const cam = this.cameras.main;
+    cam.setViewport(Math.round(scr.x * dpr), Math.round(scr.y * dpr), Math.round(scr.w * dpr), Math.round(scr.h * dpr));
+    // Close-up camera: about 280 world units on the screen's short side (roughly one room),
+    // snapped so every art pixel covers the same whole number of device pixels.
+    cam.setZoom(snappedCameraZoom(Math.min(cam.width, cam.height)));
+
     // Recenter on player if it exists
     if (this.player) {
-      this.cameras.main.centerOn(this.player.x, this.player.y);
+      cam.centerOn(this.player.x, this.player.y);
     }
   }
 
@@ -183,8 +223,7 @@ export class GameScene extends Phaser.Scene {
     this.doorGroup = this.physics.add.staticGroup();
 
     // Check for debug unlock flag
-    const params = new URLSearchParams(window.location.search);
-    const debugUnlock = params.get('debug') === 'unlock';
+    const debugUnlock = hasDebugFlag('unlock');
 
     houseLayout.doors.forEach(door => {
       // Apply debug unlock only to bedroom_door
@@ -306,7 +345,7 @@ export class GameScene extends Phaser.Scene {
     // Dev-only URL param: ?spawn=kitchen (also works with ?debug=1)
     const isDev = import.meta.env.DEV;
     const params = new URLSearchParams(window.location.search);
-    const hasDebug = params.get('debug') === '1';
+    const hasDebug = hasDebugFlag('1');
     const spawnRoom = params.get('spawn');
     
     if ((isDev || hasDebug) && spawnRoom) {
@@ -400,7 +439,7 @@ export class GameScene extends Phaser.Scene {
     this.player.update();
 
     // Update hiding spot highlights
-    this.hidingSpotManager.update(this.player.getPosition());
+    this.hidingSpotManager.update(this.player.getPosition(), this.player.getFacing());
     this.keepSpotClearOfPrompt(delta);
 
     // Check interact key
@@ -460,6 +499,10 @@ export class GameScene extends Phaser.Scene {
   private onResize(): void {
     // Update camera zoom for new dimensions
     this.updateCameraZoom();
+    if (this.lightLayer) {
+      this.lightLayer.createTexture();
+      this.lightLayer.update(this.player.x, this.player.y, true);
+    }
     
     // Update hiding spot manager (prompt now in UIScene)
     this.hidingSpotManager.resize();

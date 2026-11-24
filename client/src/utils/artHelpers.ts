@@ -48,28 +48,19 @@ export const MANIFEST_ALIASES: Record<string, string> = {
   'floor_default': 'floor_entrance',
   'drawer': 'study_drawer',
   'drawer_open': 'study_drawer_open',
-  'cabinet': 'sideboard',
-  'cabinet_open': 'sideboard_open',
+  'cabinet': 'sideboard_base',
   'table': 'dining_table',
 };
 
-// Hiding spot ID to texture key
+// One-piece hiding spot ID -> texture key (K, opened as K_open). Multi-section units
+// (closet, sofa, sideboard, ...) are drawn from data/drawerSlices.ts instead.
 export const HIDING_SPOT_TEXTURES: Record<string, string> = {
   'study_drawer_1': 'study_drawer',
   'study_drawer_2': 'study_drawer',
   'study_drawer_3': 'study_drawer',
   'bed': 'bed',
   'bedside_drawer': 'bedside_drawer',
-  'closet_drawers': 'closet',
-  'sofa': 'sofa',
   'ottoman': 'ottoman',
-  'tv_unit': 'tv_unit',
-  'sideboard': 'sideboard',
-  'sink_cabinet': 'sink_cabinet',
-  'wall_shelf': 'wall_shelf',
-  'microwave_unit': 'microwave_unit',
-  'kitchen_sink_cabinet': 'kitchen_sink',
   'stove': 'stove',
-  'stove_drawers': 'kitchen_drawer',
   'fridge': 'fridge',
 };
