@@ -17,15 +17,14 @@ import { ColourId, LobbyService, LobbySettings, LocalLobbyService } from '../lob
 import { ColyseusLobbyService, JoinError } from '../net/ColyseusLobbyService';
 import { bindNetOverlay } from '../net/NetOverlay';
 import { JOIN_FAILURE_TEXT, WAKING_TEXT } from '../net/protocol';
+import { OFFLINE_JOIN_TEXT, joinPrompt } from './joinPrompt';
+export { OFFLINE_JOIN_TEXT, joinPrompt };
 
 export interface StartInfo {
   nickname: string; colour?: ColourId; settings?: LobbySettings;
   /** Online room: the connection the game keeps using; absent offline. */
   net?: ColyseusLobbyService;
 }
-
-/** Join with no game server (R12-4). */
-export const OFFLINE_JOIN_TEXT = 'This room is on another device — ask the host for their online invite link.';
 
 const ENDED_TEXT = {
   kicked: 'The host removed you from the room.',
@@ -306,7 +305,7 @@ export class HomeScreen {
   private renderJoin(): void {
     const full = isFullRoomCode(this.roomCode.value);
     this.joinBtn.disabled = !full || this.busy;
-    this.joinMessage.textContent = full ? '' : 'Enter a 6-character code to join.';
+    this.joinMessage.textContent = joinPrompt(full, !!this.server);
   }
 
   private setSound(on: boolean): void {

@@ -197,9 +197,13 @@ export function runTargetingTest(): void {
   {
     const id = selectTarget(870, 376, FACING_VECTORS.left, items, blockers, null)?.id;
     if (id !== 'microwave_unit_d4') errors.push(`R12-6 d4 still from east front (870,376): ${id}`);
+    // R13-4: a 1-frame flicker at the unit's north edge (y=353.7, 10 px off d4) even with d4 sticky.
+    const edge = selectTarget(870, 353.7, FACING_VECTORS.left, items, blockers, 'microwave_unit_d4');
+    if (edge?.id === 'microwave_unit_d4') errors.push('R13-4 microwave_unit_d4 still targeted at (870,353.7)');
+
   }
   if (!errors.some((e) => e.startsWith('R12-5') || e.startsWith('R12-6'))) {
-    console.log('✓ R12-5 empty counter does not target sink d1; R12-6 microwave d4 not targeted from the north nook');
+    console.log('✓ R12-5 empty counter does not target sink d1; R12-6 microwave d4 not targeted from the north nook; R13-4 no d4 flicker at the north edge');
   }
 
   if (errors.length) {

@@ -248,9 +248,16 @@ function frontSection(
   for (const [unitId, { box, sections, side }] of sectionedUnits(items)) {
     const d = distanceToRect(px, py, box);
     if (d > SECTION_RANGE) continue;
-    const tol = curKey === unitId ? HYSTERESIS : 0;
-    const inX = px >= box.x - tol && px <= box.x + box.width + tol;
-    const inY = py >= box.y - tol && py <= box.y + box.height + tol;
+    // Sticky along the front face, but FRONT_SIDES units must not extend past their
+    // ends (R13-4: microwave d4 highlighted for 1 frame just north of the unit).
+    const sticky = curKey === unitId;
+    const endTol = sticky && !(unitId in FRONT_SIDES) ? HYSTERESIS : 0;
+    const faceTol = sticky ? HYSTERESIS : 0;
+    // Left/right fronts: slop on X (stepping off the face), not past the Y ends; top/bottom the other way.
+    const tx = !side ? (sticky ? HYSTERESIS : 0) : (side === 'left' || side === 'right' ? faceTol : endTol);
+    const ty = !side ? (sticky ? HYSTERESIS : 0) : (side === 'top' || side === 'bottom' ? faceTol : endTol);
+    const inX = px >= box.x - tx && px <= box.x + box.width + tx;
+    const inY = py >= box.y - ty && py <= box.y + box.height + ty;
     if (inX === inY) continue; // off a corner (or inside): not in front
     if (side && side !== (inX ? (py < box.y ? 'top' : 'bottom') : (px < box.x ? 'left' : 'right'))) continue;
     const n = inX ? { x: 0, y: py < box.y ? 1 : -1 } : { x: px < box.x ? 1 : -1, y: 0 };

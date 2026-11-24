@@ -3,6 +3,7 @@ import {
   NICKNAME_MAX, cleanNickname, cleanRoomCode, displayNickname, fallbackGraphemes, fixNicknameInput, fixRoomCodeInput, graphemes,
   inviteLink, isFullRoomCode, loadNickname, loadSoundOn, lobbyFromUrl, roomFromUrl, saveNickname, saveSoundOn, skipsHome,
 } from '../home/settings';
+import { joinPrompt, OFFLINE_JOIN_TEXT } from '../home/joinPrompt';
 
 export function runHomeSettingsTest(): void {
   console.log('\n=== HOME SETTINGS TEST ===');
@@ -61,6 +62,9 @@ export function runHomeSettingsTest(): void {
   eq(inviteLink('ABC123', { origin: 'https://x.io', pathname: '/Phatom_escape-/' }), 'https://x.io/Phatom_escape-/?room=ABC123', 'invite link');
   eq(lobbyFromUrl('?lobby=host'), 'host', '?lobby=host'); eq(lobbyFromUrl('?lobby=player'), 'player', '?lobby=player'); eq(lobbyFromUrl('?lobby=x'), null, '?lobby=x ignored');
   eq(skipsHome('?lobby=host'), false, '?lobby= shows the lobby, not the game'); eq(skipsHome('?room=ABC123'), false, '?room= shows the homepage');
+  eq(joinPrompt(false, false), 'Enter a 6-character code to join.', 'incomplete code');
+  eq(joinPrompt(true, false), OFFLINE_JOIN_TEXT, 'R13-3: offline ?room= shows the invite message on load');
+  eq(joinPrompt(true, true), '', 'online full code: no message yet');
   const mem = new Map<string, string>();
   const store = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
   eq(loadNickname(store), '', 'no nickname yet');

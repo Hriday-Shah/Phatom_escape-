@@ -20,6 +20,7 @@ export class RemotePlayer {
   private anim = '';
   private nickname: string;
   private away = false;
+  private labelLift = 0;
 
   constructor(private scene: Phaser.Scene, readonly id: string, nickname: string, colour: string, x: number, y: number) {
     const art = scene.textures.exists('player') && scene.textures.exists('player_tint');
@@ -37,11 +38,12 @@ export class RemotePlayer {
   setInfo(nickname: string, colour: string, away = false): void {
     this.nickname = nickname;
     this.away = away;
-    // Dropped (seat held while reconnecting): greyed out, labelled.
-    const text = away ? `${nickname} (reconnecting…)` : nickname;
+    // Dropped (seat held while reconnecting): greyed name + short tag (R13-2).
+    const text = away ? `${nickname} · away` : nickname;
     if (this.label.text !== text) this.label.setText(text);
+    this.label.setColor(away ? '#b0b0b0' : '#ffffff');
     const a = away ? 0.4 : 1;
-    this.body.setAlpha(a); this.tint?.setAlpha(a); this.label.setAlpha(away ? 0.7 : 1);
+    this.body.setAlpha(a); this.tint?.setAlpha(a); this.label.setAlpha(away ? 0.85 : 1);
     this.tint?.setTint(tintFor(colour));
     if (!this.tint) this.body.setTint(tintFor(colour));
   }
@@ -52,6 +54,8 @@ export class RemotePlayer {
 
   get isAway(): boolean { return this.away; }
   get name(): string { return this.nickname; }
+  /** Extra px the name is raised by (NetSync staggers overlapping labels). */
+  setLabelLift(dy: number): void { this.labelLift = dy; }
 
   get x(): number { return this.body.x; }
   get y(): number { return this.body.y; }
@@ -62,7 +66,7 @@ export class RemotePlayer {
     if (!p) return;
     this.setVisible(true);
     this.body.setPosition(p.x, p.y); this.tint?.setPosition(p.x, p.y);
-    this.label.setPosition(p.x, p.y - 18);
+    this.label.setPosition(p.x, p.y - 18 - this.labelLift);
     const dir = DIRS[p.d] ?? 'down';
     if (!this.tint) return; // placeholder art: no animation
     if (p.m) {

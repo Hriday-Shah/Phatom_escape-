@@ -3,8 +3,9 @@ import { Rect } from '../logic/spotTargeting';
 
 /**
  * What casts shadows: 'furniture' (default) = walls, locked doors, hiding spots and
- * blocking furniture, with furniture art punched back out of the mask so it stays lit;
- * 'walls' = walls and locked doors only (no furniture floor shadows).
+ * blocking furniture, with furniture art punched back out of the mask so it stays lit
+ * where the light can see it; 'walls' = walls and locked doors only (no furniture floor
+ * shadows).
  */
 export const LIGHT_OCCLUDERS: 'furniture' | 'walls' = 'furniture';
 
@@ -12,8 +13,9 @@ export const LIGHT_OCCLUDERS: 'furniture' | 'walls' = 'furniture';
  * Player's limited vision: darkness everywhere except a soft circle of light around the player,
  * with walls, locked doors, and (when LIGHT_OCCLUDERS is 'furniture') hiding spots and
  * blocking furniture casting hard shadows onto the floor behind them. Furniture art and
- * searchable spots are punched back out of the shadow mask so they never self-shadow
- * or shadow neighbouring furniture.
+ * searchable spots are punched back out of the furniture-shadow mask so they never
+ * self-shadow or shadow neighbouring furniture, then walls-only shadow quads are drawn
+ * on top so furniture behind a wall stays as dark as the rest of the unlit house.
  *
  * Cheap by design: the light brush is the approved fx_light_mask texture (no per-frame drawing
  * of the gradient). The darkness is one half-resolution
@@ -48,13 +50,14 @@ export class LightLayer {
 
   private scene: Phaser.Scene;
   private radius: number;
-  /** Occluder rects (grown by SEAM). */
-  private rects: Rect[];
+  /** Walls and locked doors (grown by SEAM). Drawn last so they hide punched furniture. */
+  private wallRects: Rect[];
   /**
-   * Furniture / hiding-spot rects (grown by SEAM) punched out of the shadow mask
-   * so their art stays lit inside the light radius.
+   * Furniture / hiding-spot rects (grown by SEAM): they cast floor shadows, then are
+   * punched out of that shadow so their art stays lit — but only where a wall is not
+   * in the way (wall shadows are applied after the punch).
    */
-  private litRects: Rect[];
+  private furnRects: Rect[];
   private rt!: Phaser.GameObjects.RenderTexture;
   /** Inverse of the light brush: opaque darkness outside the light, transparent inside. */
   private outside!: Phaser.GameObjects.RenderTexture;
@@ -66,13 +69,13 @@ export class LightLayer {
   /** Redraw count (QA / perf scripts). */
   public redraws = 0;
 
-  constructor(scene: Phaser.Scene, radius: number, occluders: Rect[], litRects: Rect[] = []) {
+  constructor(scene: Phaser.Scene, radius: number, wallOccluders: Rect[], furnitureOccluders: Rect[] = []) {
     this.scene = scene;
     this.radius = radius;
     const e = LightLayer.SEAM;
     const grow = (r: Rect): Rect => ({ x: r.x - e, y: r.y - e, width: r.width + 2 * e, height: r.height + 2 * e });
-    this.rects = occluders.map(grow);
-    this.litRects = litRects.map(grow);
+    this.wallRects = wallOccluders.map(grow);
+    this.furnRects = furnitureOccluders.map(grow);
     const d = (radius * 2) / LightLayer.RES;
     // Erase brush at the mask's worldSize (416 world px = radius 208) in texel units.
     this.brush = scene.make.image({ key: LightLayer.MASK_KEY, add: false })
@@ -138,33 +141,37 @@ export class LightLayer {
     // Shadow quads: every edge of an occluder rect in range that faces away from the player,
     // projected away from the player (together: the rect's whole shadow beyond it).
     const g = this.shadows;
-    g.clear();
-    g.fillStyle(0x000000, 1);
     const far = this.radius * 3;
     const quad = (x1: number, y1: number, x2: number, y2: number) => {
       const p1 = { x: x1, y: y1 }, p2 = { x: x2, y: y2 };
       const p3 = project(px, py, p2, far), p4 = project(px, py, p1, far);
       g.fillPoints([p1, p2, p3, p4].map((p) => ({ x: (p.x - ox) / res, y: (p.y - oy) / res })), true);
     };
-    for (const r of this.rects) {
-      if (distToRect(px, py, r) > this.radius) continue;
-      const x0 = r.x, y0 = r.y, x1 = r.x + r.width, y1 = r.y + r.height;
-      if (py > y0) quad(x0, y0, x1, y0); // top edge (player below it)
-      if (py < y1) quad(x0, y1, x1, y1); // bottom edge
-      if (px > x0) quad(x0, y0, x0, y1); // left edge
-      if (px < x1) quad(x1, y0, x1, y1); // right edge
-    }
-    rt.draw(g);
+    const drawShadows = (rects: Rect[]) => {
+      g.clear();
+      g.fillStyle(0x000000, 1);
+      for (const r of rects) {
+        if (distToRect(px, py, r) > this.radius) continue;
+        const x0 = r.x, y0 = r.y, x1 = r.x + r.width, y1 = r.y + r.height;
+        if (py > y0) quad(x0, y0, x1, y0); // top edge (player below it)
+        if (py < y1) quad(x0, y1, x1, y1); // bottom edge
+        if (px > x0) quad(x0, y0, x0, y1); // left edge
+        if (px < x1) quad(x1, y0, x1, y1); // right edge
+      }
+      rt.draw(g);
+    };
 
-    // Punch furniture and hiding-spot rects out of the shadow so their art stays
-    // lit, then restore darkness outside the light (the inverse brush) so unlit
-    // furniture does not show through. Floor shadows beyond the rects remain.
-    if (this.litRects.length) {
+    // Furniture floor shadows first (LIGHT_OCCLUDERS === 'furniture'), then punch the
+    // furniture art back out so it does not self-shadow. Restore darkness outside the
+    // light so unlit furniture does not show. Wall / locked-door shadows are drawn
+    // last: they re-darken any punched furniture the light cannot actually reach.
+    if (this.furnRects.length) {
+      drawShadows(this.furnRects);
       const gPunch = this.punch;
       gPunch.clear();
       gPunch.fillStyle(0xffffff, 1);
       const reach = this.radius + LightLayer.SEAM * 2;
-      for (const r of this.litRects) {
+      for (const r of this.furnRects) {
         if (distToRect(px, py, r) > reach) continue;
         gPunch.fillRect((r.x - ox) / res, (r.y - oy) / res, r.width / res, r.height / res);
       }
@@ -175,6 +182,7 @@ export class LightLayer {
       inv.erase(this.brush, lx, ly);
       rt.draw(inv, 0, 0);
     }
+    drawShadows(this.wallRects);
 
     this.cpuMs += performance.now() - t0;
   }

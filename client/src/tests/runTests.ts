@@ -13,6 +13,7 @@ import { runHomeSettingsTest } from './homeSettingsTest';
 import { runLobbyTest } from './lobbyTest';
 import { runFacingFilterTest } from './facingFilterTest';
 import { runNetTest } from './netTest';
+import { runOnlineSpawnTest } from './onlineSpawnTest';
 
 console.log('Running tests...\n');
 
@@ -28,6 +29,7 @@ try {
   runLobbyTest();
   runFacingFilterTest();
   runNetTest();
+  runOnlineSpawnTest();
   console.log('\n✅ All tests passed!');
   process.exit(0);
 } catch (error) {
