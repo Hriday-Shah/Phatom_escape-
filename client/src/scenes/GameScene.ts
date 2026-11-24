@@ -371,7 +371,7 @@ export class GameScene extends Phaser.Scene {
     return null;
   }
 
-  update(): void {
+  update(_time: number, delta: number): void {
     // Get keyboard input
     let moveX = 0;
     let moveY = 0;
@@ -401,7 +401,7 @@ export class GameScene extends Phaser.Scene {
 
     // Update hiding spot highlights
     this.hidingSpotManager.update(this.player.getPosition());
-    this.keepSpotClearOfPrompt();
+    this.keepSpotClearOfPrompt(delta);
 
     // Check interact key
     if (Phaser.Input.Keyboard.JustDown(this.interactKey)) {
@@ -416,10 +416,13 @@ export class GameScene extends Phaser.Scene {
    * offset, eased by the follow lerp) so the whole spot clears the prompt. Capped so the
    * player stays well inside the screen; back to centred when nothing is highlighted.
    */
-  private keepSpotClearOfPrompt(): void {
+  private keepSpotClearOfPrompt(delta = 1000 / 60): void {
     const cam = this.cameras.main;
     const spot = this.hidingSpotManager.getHighlightedBounds();
     const promptBottomCss: number = (this.uiScene as any)?.getPromptBottom?.() ?? 0;
+    // Both corrections are rate-limited (QA R5-1): applying them in one go made the camera
+    // jump up to a quarter of the screen on the frame the sofa became highlighted.
+    const frames = Math.min(4, Math.max(0, delta) / (1000 / 60));
     let lift = 0;
     if (spot && promptBottomCss > 0) {
       const worldPerCss = gameDpr(this) / cam.zoom;
@@ -429,15 +432,27 @@ export class GameScene extends Phaser.Scene {
       const camTopCentred = this.player.y - viewH / 2;
       const need = camTopCentred + clearTop - spot.y;
       lift = Phaser.Math.Clamp(need, 0, maxLift);
-      // The follow lerp trails the player by up to ~30 world px while walking; don't let that
-      // lag push the spot under the prompt (only within the same lift cap).
+      // The follow lerp trails the player by up to ~30 world px while walking; ease the
+      // camera up out of that lag (never more than CAMERA_STEP per frame) so it can't push
+      // the spot under the prompt. Only within the same lift cap.
       if (need > 0 && need <= maxLift) {
         const maxScrollY = Math.floor(spot.y - clearTop + viewH / 2 - cam.height / 2);
-        if (cam.scrollY > maxScrollY) cam.setScroll(cam.scrollX, maxScrollY);
+        if (cam.scrollY > maxScrollY) {
+          cam.setScroll(cam.scrollX, Math.max(maxScrollY, cam.scrollY - GameScene.CAMERA_STEP * frames));
+        }
       }
     }
-    if (Math.abs(cam.followOffset.y - lift) > 0.5) cam.setFollowOffset(0, lift);
+    // Ease the follow offset toward the lift instead of setting it at once.
+    const step = GameScene.CAMERA_STEP * frames;
+    this.promptLift += Phaser.Math.Clamp(lift - this.promptLift, -step, step);
+    if (Math.abs(cam.followOffset.y - this.promptLift) > 0.01) cam.setFollowOffset(0, this.promptLift);
   }
+
+  /** Current (eased) camera lift for the prompt, in world px. */
+  private promptLift = 0;
+
+  /** Most a prompt correction may move the camera per 60 Hz frame, in world px. */
+  static readonly CAMERA_STEP = 2;
 
   /** CSS px kept between the prompt's bottom edge and a highlighted spot. */
   static readonly PROMPT_CLEARANCE_CSS = 6;
