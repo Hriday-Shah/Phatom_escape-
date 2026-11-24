@@ -9,6 +9,7 @@ import { runContainmentTest } from './containmentTest';
 import { runShellLayoutTest } from './shellLayoutTest';
 import { runTargetingTest } from './targetingTest';
 import { runRealTimerTest } from './realTimerTest';
+import { runHomeSettingsTest } from './homeSettingsTest';
 
 console.log('Running tests...\n');
 
@@ -20,6 +21,7 @@ try {
   runShellLayoutTest();
   runTargetingTest();
   runRealTimerTest();
+  runHomeSettingsTest();
   console.log('\n✅ All tests passed!');
   process.exit(0);
 } catch (error) {

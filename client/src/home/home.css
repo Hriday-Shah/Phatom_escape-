@@ -1,0 +1,136 @@
+/*
+ * Placeholder homepage (feat/homepage). Deliberately plain: restyle freely.
+ *
+ * THEME: every colour, font and spacing value lives in this :root block. The palette is taken
+ * from the approved console art (shell_body, screen_bezel, logo_plate, btn_round).
+ */
+:root {
+  --pe-shell: #36263f;          /* console body */
+  --pe-shell-dark: #22182a;     /* console shadow */
+  --pe-shell-light: #4c3757;    /* console highlight */
+  --pe-outline: #0b0d14;        /* outlines */
+  --pe-screen: #1c2030;         /* screen background */
+  --pe-bezel: #2a3042;          /* screen bezel / panels */
+  --pe-button: #3b3a44;         /* buttons */
+  --pe-button-text: #e8e4da;
+  --pe-text: #e8e4da;           /* main text */
+  --pe-muted: #a9b4c8;          /* secondary text */
+  --pe-accent: #b03a5b;         /* "ESCAPE", primary button */
+  --pe-focus: #a9b4c8;          /* keyboard focus ring */
+
+  --pe-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --pe-font-title: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --pe-title-size: clamp(28px, 7vmin, 56px);
+  --pe-text-size: 16px;         /* >= 16px so iOS doesn't zoom into inputs */
+
+  --pe-gap: 12px;               /* space between elements */
+  --pe-pad: 16px;               /* padding inside panels */
+  --pe-radius: 10px;
+  --pe-border: 3px;
+  --pe-touch: 48px;             /* minimum touch target */
+  --pe-panel-max: 880px;
+}
+
+/* ---- root overlay: fills the viewport inside the safe area ---- */
+#pe-home {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(env(safe-area-inset-top, 0px), 8px) max(env(safe-area-inset-right, 0px), 8px)
+           max(env(safe-area-inset-bottom, 0px), 8px) max(env(safe-area-inset-left, 0px), 8px);
+  background: var(--pe-shell);
+  color: var(--pe-text);
+  font: var(--pe-text-size) / 1.35 var(--pe-font);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+#pe-home[hidden], #pe-home [hidden] { display: none !important; }
+
+/* ---- the "screen": one panel per view, only one visible ---- */
+.pe-screen {
+  width: 100%;
+  max-width: var(--pe-panel-max);
+  max-height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding: var(--pe-pad);
+  background: var(--pe-screen);
+  border: var(--pe-border) solid var(--pe-outline);
+  outline: var(--pe-border) solid var(--pe-bezel);
+  outline-offset: calc(-2 * var(--pe-border));
+  border-radius: var(--pe-radius);
+}
+
+/* Main view: one column in portrait, two in landscape. */
+#pe-view-main {
+  display: grid;
+  gap: var(--pe-gap);
+  grid-template-columns: 1fr;
+  align-content: center;
+}
+@media (orientation: landscape) {
+  #pe-view-main { grid-template-columns: 1fr 1fr; align-items: center; }
+}
+
+/* ---- containers (each element is separable) ---- */
+#pe-title {
+  margin: 0;
+  font: 800 var(--pe-title-size) / 1.05 var(--pe-font-title);
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+#pe-title .pe-title-accent { color: var(--pe-accent); }
+
+.pe-col { display: flex; flex-direction: column; gap: var(--pe-gap); min-width: 0; }
+
+.pe-field { display: flex; flex-direction: column; gap: 4px; }
+.pe-field label { color: var(--pe-muted); }
+.pe-row { display: flex; gap: var(--pe-gap); }
+.pe-row > input { flex: 1 1 auto; min-width: 0; }
+
+#pe-home input {
+  min-height: var(--pe-touch);
+  padding: 0 12px;
+  font: inherit;
+  color: var(--pe-text);
+  background: var(--pe-bezel);
+  border: 2px solid var(--pe-outline);
+  border-radius: var(--pe-radius);
+  -webkit-user-select: text;
+  user-select: text;
+}
+#pe-home input::placeholder { color: var(--pe-muted); opacity: 0.7; }
+
+#pe-home button {
+  min-height: var(--pe-touch);
+  min-width: var(--pe-touch);
+  padding: 0 16px;
+  font: 700 var(--pe-text-size) var(--pe-font);
+  color: var(--pe-button-text);
+  background: var(--pe-button);
+  border: 2px solid var(--pe-outline);
+  border-radius: var(--pe-radius);
+  cursor: pointer;
+}
+#pe-home button:active { transform: translateY(1px); background: var(--pe-shell-dark); }
+#pe-home button.pe-primary { background: var(--pe-accent); }
+#pe-home button[aria-pressed='false'] { color: var(--pe-muted); }
+#pe-home :focus-visible { outline: 3px solid var(--pe-focus); outline-offset: 2px; }
+
+#pe-join-message { min-height: 1.35em; margin: 0; color: var(--pe-muted); }
+
+/* Secondary views (How to play, Story) */
+.pe-view-title { margin: 0 0 var(--pe-gap); font: 800 24px var(--pe-font-title); }
+.pe-view-title + * { margin-top: 0; }
+.pe-section { margin-bottom: var(--pe-gap); }
+.pe-section h3 { margin: 0 0 4px; font-size: 18px; }
+.pe-section ul { margin: 0; padding-left: 20px; }
+.pe-section li { margin: 2px 0; }
+.pe-tag { color: var(--pe-muted); font-weight: 400; }
+.pe-back { margin-top: var(--pe-gap); }
+#pe-home-links { flex-wrap: wrap; }
+#pe-home-links > button { flex: 1 1 auto; }
