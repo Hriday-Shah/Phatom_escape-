@@ -1,7 +1,7 @@
 /** Server room-logic unit tests (npm test -w server). */
 import assert from 'node:assert/strict';
-import { HouseLogic, maxPhantoms, MAX_ELAPSED_MS, RateLimiter, SPEED_JITTER_PX, SPEED_SLACK, parse } from '../houseLogic';
-import { DEFAULT_SETTINGS, MAX_PLAYERS, PLAYER_COLOURS, SETTING_LIMITS } from '../../../client/src/lobby/lobby';
+import { HouseLogic, MAX_ELAPSED_MS, RateLimiter, SPEED_JITTER_PX, SPEED_SLACK, parse } from '../houseLogic';
+import { DEFAULT_SETTINGS, MAX_PLAYERS, maxPhantoms, PLAYER_COLOURS, SETTING_LIMITS } from '../../../client/src/lobby/lobby';
 import { PLAYER_SPEED } from '../../../client/src/config/physicsConfig';
 import { originAllowed } from '../origins';
 
@@ -208,7 +208,7 @@ test('R11: host always counts as ready (also after migration)', () => {
 });
 
 test('R11: Phantoms capped at max(1, players - 1)', () => {
-  assert.deepEqual([1, 2, 3, 4, 8].map(maxPhantoms), [1, 1, 2, 3, 7]);
+  assert.deepEqual([1, 2, 3, 4, 8].map(maxPhantoms), [1, 1, 2, 3, 3]); // client rule, also <= setting max
   const h = room(1);
   h.updateSettings('s0', { patch: { phantoms: 3 } });
   assert.equal(h.snapshot().settings.phantoms, 1, 'alone: 1');

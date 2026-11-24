@@ -81,9 +81,6 @@ export const parse = {
   },
 };
 
-/** R11: at most one Phantom fewer than the players (and at least 1). */
-export function maxPhantoms(players: number): number { return Math.max(1, players - 1); }
-
 interface Track { pose: Pose; at: number; dirty: boolean }
 
 export class HouseLogic {
@@ -137,11 +134,9 @@ export class HouseLogic {
     this.capPhantoms();
   }
 
-  /** Keep the Phantoms setting within maxPhantoms(players) as players come and go. */
+  /** R11: keep Phantoms within maxPhantoms(players) as players come and go (the client's rule). */
   private capPhantoms(): void {
-    const st = this.lobby?.state;
-    if (!st || !st.players.length) return;
-    st.settings.phantoms = Math.min(st.settings.phantoms, maxPhantoms(st.players.length));
+    if (this.lobby?.state.players.length) this.lobby.capPhantoms();
   }
 
   private act(session: string, f: (lobby: LobbyRoom, id: string) => LobbyResult): LobbyResult {
