@@ -82,7 +82,11 @@ export class RemotePlayer {
   /** Draw at the interpolated pose for `now` (performance.now()). */
   update(now: number): void {
     const p = this.buffer.sample(now);
-    if (!p) return;
+    if (!p) {
+      console.log('[RemotePlayer] No sample for', this.nickname, '- buffer size:', this.buffer.size);
+      return;
+    }
+    console.log('[RemotePlayer] Update', this.nickname, 'to', p.x, p.y, '- buffer:', this.buffer.size);
     this.setVisible(true);
     this.body.setPosition(p.x, p.y); this.tint?.setPosition(p.x, p.y);
     this.label.setPosition(p.x, p.y - 18 - this.labelLift);
