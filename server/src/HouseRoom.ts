@@ -76,13 +76,19 @@ export class HouseRoom extends Room {
       return r;
     });
     lobbyAction('start', (c) => {
+      console.log('[HouseRoom] START button pressed by:', c.sessionId);
       const r = this.logic.start(c.sessionId);
+      console.log('[HouseRoom] start() result:', r);
       if (r.ok) {
+        console.log('[HouseRoom] Game starting! Locking room and broadcasting state');
         void this.lock();
         this.broadcast('spots', { open: this.logic.openSpots() });
         const round = this.logic.roundPublic();
+        console.log('[HouseRoom] Round data:', round);
         if (round) this.broadcast('round', round); // items array is empty; contents go per-client
         this.sendItemsToAll();
+      } else {
+        console.log('[HouseRoom] Start FAILED:', r.error);
       }
       return r;
     });
