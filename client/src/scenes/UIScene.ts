@@ -6,6 +6,7 @@ import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { cssSize, gameDpr } from '../config/display';
 import { applyCssCamera, currentShellLayout } from '../ui/currentLayout';
 import { ShellLayout } from '../ui/shellLayout';
+import { RealDeadline } from '../logic/realTimer';
 
 /**
  * HUD scene, above the game and its darkness: the console's buttons and joystick knob
@@ -18,8 +19,9 @@ export class UIScene extends Phaser.Scene {
   private uiControls!: UIControls;
   private hidingSpotPrompt!: Phaser.GameObjects.Text;
   private doorMessageText!: Phaser.GameObjects.Text;
-  private promptTimer: Phaser.Time.TimerEvent | null = null;
-  private doorTimer: Phaser.Time.TimerEvent | null = null;
+  /** Auto-hide deadlines on real time, polled in update() (see realTimer.ts). */
+  private promptDeadline = new RealDeadline();
+  private doorDeadline = new RealDeadline();
 
   private layout!: ShellLayout;
 
@@ -74,6 +76,11 @@ export class UIScene extends Phaser.Scene {
 
   update(): void {
     this.joystick.update();
+    if (this.promptDeadline.due()) this.hideHidingSpotPrompt();
+    if (this.doorDeadline.due()) {
+      this.doorMessageText.setVisible(false);
+      this.stackDoorMessage();
+    }
   }
 
   public getJoystickDirection(): Phaser.Math.Vector2 {
@@ -81,26 +88,18 @@ export class UIScene extends Phaser.Scene {
   }
 
   /**
-   * Show the hiding-spot prompt. Every call cancels the previous auto-hide timer, so a
-   * stale timer from an older message can never blank a newer one.
+   * Show the hiding-spot prompt. Every call cancels the previous auto-hide deadline, so a
+   * stale one from an older message can never blank a newer one.
    */
   public showHidingSpotPrompt(text: string, duration?: number): void {
-    this.promptTimer?.remove(false);
-    this.promptTimer = null;
+    this.promptDeadline.clear();
     this.hidingSpotPrompt.setText(text).setVisible(true);
     this.stackDoorMessage();
-
-    if (duration) {
-      this.promptTimer = this.time.delayedCall(duration, () => {
-        this.promptTimer = null;
-        this.hideHidingSpotPrompt();
-      });
-    }
+    if (duration) this.promptDeadline.set(duration);
   }
 
   public hideHidingSpotPrompt(): void {
-    this.promptTimer?.remove(false);
-    this.promptTimer = null;
+    this.promptDeadline.clear();
     this.hidingSpotPrompt.setVisible(false);
     this.stackDoorMessage();
   }
@@ -117,17 +116,10 @@ export class UIScene extends Phaser.Scene {
   }
 
   public showDoorMessage(text: string, duration?: number): void {
-    this.doorTimer?.remove(false);
-    this.doorTimer = null;
+    this.doorDeadline.clear();
     this.doorMessageText.setText(text).setVisible(true);
     this.stackDoorMessage();
-
-    if (duration) {
-      this.doorTimer = this.time.delayedCall(duration, () => {
-        this.doorTimer = null;
-        this.doorMessageText.setVisible(false);
-      });
-    }
+    if (duration) this.doorDeadline.set(duration);
   }
 
   /**

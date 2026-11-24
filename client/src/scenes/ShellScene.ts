@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { applyCssCamera, currentShellLayout } from '../ui/currentLayout';
 import { Box, SHELL_ART, snapToDevice } from '../ui/shellLayout';
+import { realNow } from '../logic/realTimer';
 
 /**
  * The console body drawn UNDER the game (this scene renders before GameScene): shell_body and
@@ -23,11 +24,13 @@ export class ShellScene extends Phaser.Scene {
     this.scale.on('resize', this.layout, this);
     SafeAreaManager.onInsetsChange(() => this.layout());
     this.layout();
-    // The power LED blinks slowly.
-    this.time.addEvent({
-      delay: 900, loop: true,
-      callback: () => this.led?.setTexture(this.led.texture.key === 'power_led_on' ? 'power_led' : 'power_led_on'),
-    });
+  }
+
+  /** The power LED blinks slowly (900 ms on / 900 ms off), on real time like every timed UI (realTimer.ts). */
+  update(): void {
+    if (!this.led) return;
+    const key = Math.floor(realNow() / 900) % 2 === 0 ? 'power_led_on' : 'power_led';
+    if (this.led.texture.key !== key) this.led.setTexture(key);
   }
 
   /** Shoot label: ready or disabled art (stage 1: always disabled). */

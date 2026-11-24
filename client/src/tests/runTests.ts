@@ -8,6 +8,7 @@ import { runGapRuleTest } from './gapRuleTest';
 import { runContainmentTest } from './containmentTest';
 import { runShellLayoutTest } from './shellLayoutTest';
 import { runTargetingTest } from './targetingTest';
+import { runRealTimerTest } from './realTimerTest';
 
 console.log('Running tests...\n');
 
@@ -18,6 +19,7 @@ try {
   runContainmentTest();
   runShellLayoutTest();
   runTargetingTest();
+  runRealTimerTest();
   console.log('\n✅ All tests passed!');
   process.exit(0);
 } catch (error) {
