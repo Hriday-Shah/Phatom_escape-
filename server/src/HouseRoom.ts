@@ -95,7 +95,10 @@ export class HouseRoom extends Room {
 
     this.onMessage('pos', (client, msg) => {
       if (!this.allow(client, 'pos')) return;
-      this.logic.move(client.sessionId, msg, Date.now());
+      const result = this.logic.move(client.sessionId, msg, Date.now());
+      if (result) {
+        console.log('[HouseRoom] Position update:', this.logic.playerId(client.sessionId), 'at', result.x, result.y);
+      }
     });
     this.onMessage('spot', (client, msg) => {
       if (!this.allow(client, 'act')) return;
@@ -150,6 +153,7 @@ export class HouseRoom extends Room {
       // TODO(stage 3): per-player interest management for positions.
       const p = this.logic.takeDirtyPoses();
       if (p.length) {
+        console.log('[HouseRoom] Broadcasting', p.length, 'position updates:', p);
         this.broadcast('poses', { p });
         // A player who just gained line of sight on an open spot receives its contents.
         this.sendItemsToAll();
