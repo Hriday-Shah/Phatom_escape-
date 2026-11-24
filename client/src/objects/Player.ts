@@ -8,6 +8,7 @@ import {
 } from '../config/playerConfig';
 import { devLog } from '../config/display';
 import { PLAYER_SPEED } from '../config/physicsConfig';
+import { FacingFilter } from '../logic/facingFilter';
 
 // Re-exported so callers (and tests, via config/playerConfig) share one source of truth.
 export { PLAYER_BODY_RADIUS, PLAYER_BODY_RADIUS_FRAME } from '../config/playerConfig';
@@ -166,18 +167,15 @@ export class Player {
    * letting go of two keys a frame apart keeps the diagonal.
    */
   public getFacing(): { x: number; y: number } {
-    return { x: this.facing.x, y: this.facing.y };
+    const f = this.facingFilter.facing;
+    return { x: f.x, y: f.y };
   }
 
-  static readonly FACING_HOLD_FRAMES = 3;
-  private facing = new Phaser.Math.Vector2(0, 1);
-  private pendingFacing = new Phaser.Math.Vector2(0, 1);
-  private pendingFrames = 0;
+  static readonly FACING_HOLD_FRAMES = FacingFilter.HOLD_FRAMES;
+  private facingFilter = new FacingFilter();
 
   private updateFacing(dir: Phaser.Math.Vector2): void {
-    if (this.pendingFacing.distance(dir) < 0.2) this.pendingFrames++;
-    else { this.pendingFacing.copy(dir); this.pendingFrames = 1; }
-    if (this.pendingFrames >= Player.FACING_HOLD_FRAMES) this.facing.copy(this.pendingFacing);
+    this.facingFilter.update(dir);
   }
 
   public getPosition(): Phaser.Math.Vector2 {

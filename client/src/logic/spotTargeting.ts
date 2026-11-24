@@ -27,7 +27,27 @@ export interface Interactable extends Rect {
   range: number;
   /** The whole unit's layout rect (sections sit inside it); its front is what the player touches. */
   unitRect: Rect;
+  /** Front group (FRONT_GROUPS) for separate spots that share one front, else undefined. */
+  group?: string;
 }
+
+/**
+ * Separate layout spots that sit side by side along ONE front, so for targeting they act as
+ * one multi-section unit under the front rule (QA R9-1): the spot in front of the player's
+ * centre wins, with hysteresis, whatever the facing. Each spot keeps its own id, name, art and
+ * open state. `side` is the face the player stands at (the drawers / doors open towards it);
+ * other faces are left to the other rules (e.g. the study drawers' bottom faces the closet).
+ */
+export const FRONT_GROUPS: Record<string, { members: string[]; side: 'top' | 'bottom' | 'left' | 'right' }> = {
+  // Three one-piece drawers stacked in the study table, opening to the right.
+  study_drawers: { members: ['study_drawer_1', 'study_drawer_2', 'study_drawer_3'], side: 'right' },
+  // The stove and the kitchen drawers beside it share the counter front (player above them).
+  stove_counter: { members: ['stove', 'stove_drawers'], side: 'top' },
+  // The sofa's cushions and the ottoman below it: one row along x=490 (the 25 px gap between
+  // them is narrower than the player, so nobody stands between them).
+  sofa_row: { members: ['sofa', 'ottoman'], side: 'right' },
+};
+const GROUP_OF = new Map(Object.entries(FRONT_GROUPS).flatMap(([g, { members }]) => members.map((m) => [m, g] as const)));
 
 /** Max distance (world px) from the player centre to a section rect. Player radius is 16. */
 export const SECTION_RANGE = 44;
@@ -64,7 +84,7 @@ export function buildInteractables(spots: HidingSpot[]): Interactable[] {
       out.push({
         id: spot.id, unitId: spot.id, name: spot.name, drawer: 0, type: spot.type,
         x: spot.x, y: spot.y, width: spot.width, height: spot.height,
-        rangeMode: 'center', range: spot.interactRange, unitRect: spot,
+        rangeMode: 'center', range: spot.interactRange, unitRect: spot, group: GROUP_OF.get(spot.id),
       });
       continue;
     }
@@ -72,7 +92,7 @@ export function buildInteractables(spots: HidingSpot[]): Interactable[] {
       out.push({
         id: `${spot.id}_d${s.drawer}`, unitId: spot.id, name: s.label, drawer: s.drawer, type: spot.type,
         ...sectionRect(spot, s), rangeMode: 'edge', range: SECTION_RANGE,
-        unitRect: { x: spot.x, y: spot.y, width: spot.width, height: spot.height },
+        unitRect: { x: spot.x, y: spot.y, width: spot.width, height: spot.height }, group: GROUP_OF.get(spot.id),
       });
     }
   }
@@ -158,13 +178,29 @@ export const CORNER_SECTIONS: Record<string, { x: number; y: number; neighbour: 
   stove_drawers_d3: { x: D, y: D, neighbour: 'stove_drawers_d2' },
 };
 
-const unitCache = new WeakMap<Interactable[], Map<string, { box: Rect; sections: Interactable[] }>>();
-function sectionedUnits(items: Interactable[]): Map<string, { box: Rect; sections: Interactable[] }> {
+/** Key of the front-rule unit an interactable belongs to: its front group, its sectioned unit, or null. */
+export function frontKey(it: Interactable | null | undefined): string | null {
+  if (!it) return null;
+  return it.group ?? (it.drawer > 0 ? it.unitId : null);
+}
+
+type FrontUnit = { box: Rect; sections: Interactable[]; side?: 'top' | 'bottom' | 'left' | 'right' };
+const unitCache = new WeakMap<Interactable[], Map<string, FrontUnit>>();
+/** Front-rule units: every sectioned unit, plus each FRONT_GROUPS group (box = union of its spots). */
+function sectionedUnits(items: Interactable[]): Map<string, FrontUnit> {
   let m = unitCache.get(items);
   if (m) return m;
   const by = new Map<string, Interactable[]>();
-  for (const it of items) if (it.drawer > 0) (by.get(it.unitId) ?? by.set(it.unitId, []).get(it.unitId)!).push(it);
-  m = new Map([...by].map(([id, secs]) => [id, { box: secs[0].unitRect, sections: secs }]));
+  for (const it of items) {
+    const k = frontKey(it);
+    if (k) (by.get(k) ?? by.set(k, []).get(k)!).push(it);
+  }
+  m = new Map([...by].map(([k, secs]) => {
+    const rects = [...new Set(secs.map((it) => it.unitRect))];
+    const x0 = Math.min(...rects.map((r) => r.x)), y0 = Math.min(...rects.map((r) => r.y));
+    const x1 = Math.max(...rects.map((r) => r.x + r.width)), y1 = Math.max(...rects.map((r) => r.y + r.height));
+    return [k, { box: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, sections: secs, side: FRONT_GROUPS[k]?.side }];
+  }));
   unitCache.set(items, m);
   return m;
 }
@@ -184,13 +220,15 @@ function frontSection(
   // `out` receives every unit's front pick (the corner rule looks at all of them).
   let best: Interactable | undefined;
   let bestKey = Infinity;
-  for (const [unitId, { box, sections }] of sectionedUnits(items)) {
+  const curKey = frontKey(current);
+  for (const [unitId, { box, sections, side }] of sectionedUnits(items)) {
     const d = distanceToRect(px, py, box);
     if (d > SECTION_RANGE) continue;
-    const tol = current?.unitId === unitId ? HYSTERESIS : 0;
+    const tol = curKey === unitId ? HYSTERESIS : 0;
     const inX = px >= box.x - tol && px <= box.x + box.width + tol;
     const inY = py >= box.y - tol && py <= box.y + box.height + tol;
     if (inX === inY) continue; // off a corner (or inside): not in front
+    if (side && side !== (inX ? (py < box.y ? 'top' : 'bottom') : (px < box.x ? 'left' : 'right'))) continue;
     const n = inX ? { x: 0, y: py < box.y ? 1 : -1 } : { x: px < box.x ? 1 : -1, y: 0 };
     const fd = facing.x * n.x + facing.y * n.y;
     if (d > FRONT_TOUCH && fd < 0.5) continue; // neither touching nor facing it
@@ -207,14 +245,36 @@ function frontSection(
     // Hysteresis: keep the current section until the new one's centre is HYSTERESIS px closer
     // to the player's centre than the current one's (switches HYSTERESIS/2 px past the edge,
     // so a section whose span ends at a wall-limited reach is still reachable).
-    if (pick && current?.unitId === unitId && pick !== current) {
+    if (pick && current && curKey === unitId && pick !== current) {
       const mid = (it: Interactable) => { const [a, b] = span(it); return (a + b) / 2; };
-      if (Math.abs(c - mid(current)) - Math.abs(c - mid(pick)) < HYSTERESIS) pick = current;
+      const out = (it: Interactable) => { const [a, b] = span(it); return c < a ? a - c : c > b ? c - b : 0; };
+      // ...or (unequal spans or gaps, e.g. the long stove beside a kitchen drawer, the sofa and
+      // the ottoman: R9-1) once the centre is HYSTERESIS/2 px nearer the new span than the current.
+      const byCentre = Math.abs(c - mid(current)) - Math.abs(c - mid(pick)) >= HYSTERESIS;
+      const byEdge = out(current) - out(pick) >= HYSTERESIS / 2;
+      if (!byCentre && !byEdge) pick = current;
     }
     if (!pick || !isEligible(px, py, pick, blockers)) continue;
     out.push(pick);
     const key = (d <= FRONT_TOUCH ? 0 : 100) - fd * 10 + d / 100;
     if (key < bestKey) { best = pick; bestKey = key; }
+  }
+  if (!best) return best;
+  // A one-piece spot outside the front rule (the fridge beside the stove) that the player touches
+  // from straight in front and doesn't face away from competes on the same key; if it ranks
+  // better, the front rule steps aside and the facing cone decides (R9-1 audit: facing the
+  // fridge in the fridge / stove corner must not pick the stove).
+  for (const it of items) {
+    if (frontKey(it) || it.drawer > 0) continue;
+    const r = it.unitRect;
+    const d = distanceToRect(px, py, r);
+    if (d > FRONT_TOUCH) continue;
+    const inX = px >= r.x && px <= r.x + r.width, inY = py >= r.y && py <= r.y + r.height;
+    if (inX === inY) continue;
+    const n = inX ? { x: 0, y: py < r.y ? 1 : -1 } : { x: px < r.x ? 1 : -1, y: 0 };
+    const fd = facing.x * n.x + facing.y * n.y;
+    if (fd < 0 || !isEligible(px, py, it, blockers)) continue;
+    if (-fd * 10 + d / 100 < bestKey) return undefined;
   }
   return best;
 }
@@ -238,7 +298,8 @@ function cornerOverride(
 
 /**
  * The one spot the player targets.
- * 1. Front rule (frontSection): touching / facing a multi-section unit from straight in front,
+ * 1. Front rule (frontSection): touching / facing a multi-section unit (or a FRONT_GROUPS row of
+ *    separate spots) from straight in front,
  *    the section in front of the player's centre wins, whatever the facing (nudges and diagonal
  *    input never jump ahead). Only the two corner sections are picked by facing (cornerOverride).
  * 2. Otherwise, among eligible spots (in range, line of sight), those in the facing cone first;
