@@ -9,6 +9,7 @@ import {
 import { devLog } from '../config/display';
 import { PLAYER_SPEED } from '../config/physicsConfig';
 import { FacingFilter } from '../logic/facingFilter';
+import { DEFAULT_HOODIE_TINT } from '../lobby/lobby';
 
 // Re-exported so callers (and tests, via config/playerConfig) share one source of truth.
 export { PLAYER_BODY_RADIUS, PLAYER_BODY_RADIUS_FRAME } from '../config/playerConfig';
@@ -22,7 +23,8 @@ export class Player {
   private physics: Phaser.Physics.Arcade.Body;
   private lastDirection: string = 'down';
 
-  constructor(scene: Phaser.Scene, x: number, y: number) {
+  /** `hoodieTint`: colour for the hoodie layer (player_tint.png is a greyscale hoodie-only mask). */
+  constructor(scene: Phaser.Scene, x: number, y: number, hoodieTint: number = DEFAULT_HOODIE_TINT) {
     this.scene = scene;
     this.moveVector = new Phaser.Math.Vector2(0, 0);
     
@@ -66,7 +68,7 @@ export class Player {
       // Layer: tint sprite UNDER body sprite, both at 2x scale
       this.tintSprite = scene.add.sprite(x, y, 'player_tint', 0)
         .setScale(PLAYER_SPRITE_SCALE)
-        .setTint(0x5FD3E6)
+        .setTint(hoodieTint)
         .setDepth(9);
         
       this.bodySprite = scene.add.sprite(x, y, 'player', 0)
@@ -106,6 +108,11 @@ export class Player {
     if (this.tintSprite !== this.bodySprite) {
       this.tintSprite.setPosition(this.bodySprite.x, this.bodySprite.y);
     }
+  }
+
+  /** Current hoodie tint (QA / tests). */
+  public getHoodieTint(): number {
+    return this.tintSprite.tintTopLeft;
   }
 
   /** Body diameter in world units (for runtime sanity checks). */
