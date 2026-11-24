@@ -290,7 +290,7 @@ export class HidingSpotManager {
   /** Online: told about every open / close this player makes (net/NetSync.ts). */
   private localToggle: ((id: string, open: boolean) => void) | null = null;
   public openIds(): string[] { return this.spots.filter((s) => s.isOpen).map((s) => s.data.id); }
-  public highlighted(): { data: { id: string; unitId: string }; isOpen: boolean } | null { return this.highlightedSpot; }
+  public highlighted(): { data: { id: string; unitId: string; name: string }; isOpen: boolean } | null { return this.highlightedSpot; }
 
   public onLocalToggle(cb: (id: string, open: boolean) => void): void { this.localToggle = cb; }
   public onToggle: ((id: string, open: boolean) => void) | null = null;

@@ -9,7 +9,9 @@ import {
   CONTROLLER_ID, PublicItem, WorldItem, isController, makeController,
 } from './items';
 import { MinigameId, selectMinigame, minigameSeed } from './minigames';
+import { createPuzzle, replayWin, type PuzzleSnapshot, type PlayView, playViewOf } from './minigames/replay';
 import { hashSeed, mulberry32, pick } from './seededRng';
+import { clampDrop, reachableWithLos, canUseSpot, losBlockers } from './worldCollision';
 
 export const TV_UNIT = { x: 760, y: 110, width: 40, height: 110, id: 'tv_unit' };
 export const NEAR_TV = 80;
@@ -49,15 +51,18 @@ export function hidingSpotList(): { id: string; x: number; y: number; width: num
   }));
 }
 
-export function createRound(seedText: string, round = 1): { minigame: MinigameId; gameSeed: number; code: EscapeCode; items: WorldItem[] } {
+export function createRound(seedText: string, round = 1): { minigame: MinigameId; gameSeed: number; code: EscapeCode; items: WorldItem[]; puzzle: PuzzleSnapshot } {
   const rng = mulberry32(hashSeed(`${seedText}#items#${round}`));
   const spots = hidingSpotList();
   const spot = pick(rng, spots);
+  const minigame = selectMinigame(seedText, round);
+  const gameSeed = minigameSeed(seedText, round);
   return {
-    minigame: selectMinigame(seedText, round),
-    gameSeed: minigameSeed(seedText, round),
+    minigame,
+    gameSeed,
     code: makeEscapeCode(rng),
     items: [makeController(spot.id, spot.x + spot.width / 2, spot.y + spot.height / 2)],
+    puzzle: createPuzzle(minigame, gameSeed),
   };
 }
 
@@ -72,17 +77,46 @@ export function randomSeedText(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Online only: code and controller spot come from a server-only random seed (R14-3). */
-export function createServerRound(round = 1): { minigame: MinigameId; gameSeed: number; code: EscapeCode; items: WorldItem[] } {
-  return createRound(randomSeedText(), round);
+function randomU32(): number {
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const buf = new Uint32Array(1);
+    globalThis.crypto.getRandomValues(buf);
+    return buf[0]!;
+  }
+  return (Math.random() * 0x100000000) >>> 0;
+}
+
+/**
+ * Online only: gameSeed (game choice + visuals) is a fresh public u32.
+ * The paper code and controller spot come from a second, independent
+ * node-crypto (or Web Crypto) value that is never sent (R15-1).
+ */
+/**
+ * Build a server round from a public gameSeed and a secret hex string that is
+ * never sent. HouseLogic supplies both from node:crypto randomInt / randomBytes (R15-1).
+ */
+export function createServerRoundFrom(gameSeed: number, secretHex: string, round = 1): { minigame: MinigameId; gameSeed: number; code: EscapeCode; items: WorldItem[]; puzzle: PuzzleSnapshot } {
+  const minigame = selectMinigame(gameSeed, round);
+  const rng = mulberry32(hashSeed(`secret:${secretHex}`));
+  const spots = hidingSpotList();
+  const spot = pick(rng, spots);
+  return {
+    minigame,
+    gameSeed,
+    code: makeEscapeCode(rng),
+    items: [makeController(spot.id, spot.x + spot.width / 2, spot.y + spot.height / 2)],
+    puzzle: createPuzzle(minigame, gameSeed),
+  };
+}
+
+export function createServerRound(round = 1): { minigame: MinigameId; gameSeed: number; code: EscapeCode; items: WorldItem[]; puzzle: PuzzleSnapshot } {
+  // Fallback (tests, or if HouseLogic is not the caller): Web Crypto, still independent of gameSeed.
+  return createServerRoundFrom(randomU32(), randomSeedText(), round);
 }
 
 export function itemReachableFrom(pose: { x: number; y: number }, item: { x: number; y: number; spotId?: string | null }, reach = NEAR_ITEM): boolean {
-  if (item.spotId) {
-    const spot = hidingSpotList().find((s) => s.id === item.spotId);
-    if (spot) return distanceToRect(pose.x, pose.y, spot) <= reach;
-  }
-  return Math.hypot(pose.x - item.x, pose.y - item.y) <= reach;
+  if (item.spotId) return canUseSpot(pose, item.spotId, reach);
+  return reachableWithLos(pose, { x: item.x, y: item.y }, reach);
 }
 
 export function visibleItems(items: PublicItem[], openSpots: Iterable<string>): PublicItem[] {
@@ -95,15 +129,17 @@ export class ItemRound {
   gameSeed: number;
   code: EscapeCode;
   items: WorldItem[];
+  puzzle: PuzzleSnapshot;
   private playing = new Set<string>();
   private knows = new Set<string>();
   private attempts = new Map<string, { game: MinigameId; at: number }>();
 
-  constructor(init: { minigame: MinigameId; gameSeed: number; code: EscapeCode; items: WorldItem[] }) {
+  constructor(init: { minigame: MinigameId; gameSeed: number; code: EscapeCode; items: WorldItem[]; puzzle?: PuzzleSnapshot }) {
     this.minigame = init.minigame;
     this.gameSeed = init.gameSeed;
     this.code = init.code;
     this.items = init.items.map((i) => ({ ...i }));
+    this.puzzle = init.puzzle ?? createPuzzle(init.minigame, init.gameSeed);
   }
 
   static fromSeed(seedText: string, round = 1): ItemRound {
@@ -150,6 +186,14 @@ export class ItemRound {
   }
 
   knowsCode(playerId: string): boolean { return this.knows.has(playerId); }
+  isPlaying(playerId: string): boolean { return this.playing.has(playerId); }
+
+  /** Face of a memory card (server reveal only; never sent in the play view). */
+  memoryFace(index: number): number | null {
+    if (this.puzzle.id !== 'memory') return null;
+    if (!Number.isInteger(index) || index < 0 || index >= this.puzzle.cards.length) return null;
+    return this.puzzle.cards[index]!;
+  }
   codeFor(playerId: string): EscapeCode | null { return this.knows.has(playerId) ? this.code : null; }
 
   pickup(playerId: string, itemId: string, pose: { x: number; y: number }, openSpots: Set<string> | string[]): { ok: boolean; error?: string } {
@@ -159,9 +203,8 @@ export class ItemRound {
     const open = openSpots instanceof Set ? openSpots : new Set(openSpots);
     if (item.spotId) {
       if (!open.has(item.spotId)) return { ok: false, error: 'closed' };
-      const spot = hidingSpotList().find((s) => s.id === item.spotId);
-      if (spot && distanceToRect(pose.x, pose.y, spot) > NEAR_ITEM) return { ok: false, error: 'too-far' };
-    } else if (Math.hypot(pose.x - item.x, pose.y - item.y) > NEAR_ITEM) {
+      if (!canUseSpot(pose, item.spotId, NEAR_ITEM)) return { ok: false, error: 'too-far' };
+    } else if (!reachableWithLos(pose, { x: item.x, y: item.y }, NEAR_ITEM)) {
       return { ok: false, error: 'too-far' };
     }
     item.heldBy = playerId;
@@ -183,19 +226,13 @@ export class ItemRound {
       if (openSpots && !open.has(spotId)) return { ok: false, error: 'closed' };
       const spot = hidingSpotList().find((s) => s.id === spotId);
       if (!spot) return { ok: false, error: 'no-spot' };
-      if (distanceToRect(origin.x, origin.y, spot) > NEAR_ITEM) return { ok: false, error: 'too-far' };
+      if (!canUseSpot(origin, spotId, NEAR_ITEM)) return { ok: false, error: 'too-far' };
       dx = spot.x + spot.width / 2;
       dy = spot.y + spot.height / 2;
     } else {
-      const dist = Math.hypot(dx - origin.x, dy - origin.y);
-      if (dist > NEAR_ITEM) {
-        if (dist === 0) { dx = origin.x; dy = origin.y; }
-        else {
-          const t = NEAR_ITEM / dist;
-          dx = origin.x + (dx - origin.x) * t;
-          dy = origin.y + (dy - origin.y) * t;
-        }
-      }
+      const clamped = clampDrop(origin, { x: dx, y: dy }, NEAR_ITEM, losBlockers());
+      dx = clamped.x;
+      dy = clamped.y;
       // A floor drop must not land inside a closed spot (e.g. the bed).
       const inside = hidingSpotList().find((s) => dx >= s.x && dy >= s.y && dx <= s.x + s.width && dy <= s.y + s.height);
       if (inside) {
@@ -221,13 +258,27 @@ export class ItemRound {
     this.cancelMinigame(playerId);
   }
 
-  startMinigame(playerId: string, pose: { x: number; y: number }, now = Date.now()): { ok: boolean; error?: string; minigame?: MinigameId; gameSeed?: number } {
+  startMinigame(playerId: string, pose: { x: number; y: number }, now = Date.now()): { ok: boolean; error?: string; minigame?: MinigameId; gameSeed?: number; puzzle?: PlayView } {
     const item = this.heldBy(playerId);
     if (!isController(item)) return { ok: false, error: 'need-controller' };
     if (!inFrontOfTv(pose.x, pose.y)) return { ok: false, error: 'not-at-tv' };
     this.playing.add(playerId);
     this.attempts.set(playerId, { game: this.minigame, at: now });
-    return { ok: true, minigame: this.minigame, gameSeed: this.gameSeed };
+    return { ok: true, minigame: this.minigame, gameSeed: this.gameSeed, puzzle: playViewOf(this.puzzle) };
+  }
+
+  playView(): PlayView { return playViewOf(this.puzzle); }
+
+  /** Test-only: pin the controller to a known closed spot (R15-8). */
+  placeControllerForTest(spotId: string): void {
+    const spot = hidingSpotList().find((s) => s.id === spotId);
+    if (!spot) throw new Error(`unknown spot ${spotId}`);
+    const item = this.items.find((i) => i.kind === 'game_controller' || i.id.startsWith('item-controller'));
+    if (!item) throw new Error('no controller');
+    item.spotId = spotId;
+    item.heldBy = null;
+    item.x = spot.x + spot.width / 2;
+    item.y = spot.y + spot.height / 2;
   }
 
   cancelMinigame(playerId: string): void {
@@ -240,7 +291,7 @@ export class ItemRound {
    * consumed and there is no noise event. A win needs a matching start and a
    * believable elapsed time (R14-4).
    */
-  winMinigame(playerId: string, now = Date.now()): { ok: boolean; error?: string; code?: EscapeCode } {
+  winMinigame(playerId: string, now = Date.now(), log?: unknown, requireReplay = true): { ok: boolean; error?: string; code?: EscapeCode } {
     const item = this.heldBy(playerId);
     if (!isController(item)) return { ok: false, error: 'need-controller' };
     const att = this.attempts.get(playerId);
@@ -249,6 +300,10 @@ export class ItemRound {
     const min = MIN_WIN_MS[att.game];
     if (elapsed < min) return { ok: false, error: 'too-fast' };
     if (elapsed > 30_000 + WIN_SLACK_MS) return { ok: false, error: 'too-slow' };
+    if (requireReplay) {
+      const replay = replayWin(this.puzzle, log);
+      if (!replay.ok) return { ok: false, error: replay.error ?? 'no-win' };
+    }
     this.playing.delete(playerId);
     this.attempts.delete(playerId);
     this.knows.add(playerId);

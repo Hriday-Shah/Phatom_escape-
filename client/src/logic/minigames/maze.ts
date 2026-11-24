@@ -146,7 +146,15 @@ export class MazeGame implements MinigameEngine<MazeState> {
   readonly ey: number;
   private won = false;
 
-  constructor(seed = 1) {
+  constructor(seed = 1, puzzle?: { grid: number[]; w?: number; h?: number; px: number; py: number; ex: number; ey: number }) {
+    if (puzzle) {
+      this.grid = puzzle.grid.slice();
+      this.px = puzzle.px;
+      this.py = puzzle.py;
+      this.ex = puzzle.ex;
+      this.ey = puzzle.ey;
+      return;
+    }
     const rng = mulberry32(seed >>> 0);
     this.grid = generateMaze(rng, this.w, this.h);
     const ports = mazePorts(this.w, this.h);
@@ -159,6 +167,14 @@ export class MazeGame implements MinigameEngine<MazeState> {
       for (let x = 1; x <= this.ex; x++) this.grid[idx(x, 1, this.w)] = 1;
       for (let y = 1; y <= this.ey; y++) this.grid[idx(this.ex, y, this.w)] = 1;
     }
+  }
+
+  static fromPuzzle(p: { grid: number[]; px: number; py: number; ex: number; ey: number }): MazeGame {
+    return new MazeGame(1, p);
+  }
+  puzzle() {
+    const ports = mazePorts(this.w, this.h);
+    return { grid: this.grid.slice(), px: ports.sx, py: ports.sy, ex: this.ex, ey: this.ey };
   }
 
   state(): MazeState {

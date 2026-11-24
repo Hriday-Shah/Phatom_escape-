@@ -5,12 +5,14 @@ export { SlideGame, isSolvable, isSolved, inversions, makeSolvableBoard, solving
 export type { SlideState } from './slide';
 export { MazeGame, generateMaze, mazePath, mazeWalkable, mazePorts, mazeDeadEnds, punchDeadEndLoops, MAZE_W, MAZE_H } from './maze';
 export type { MazeState } from './maze';
-export { LockPickGame, pickAt, markerAt, inZone, turnDelta, LOCK_HITS_NEEDED, ZONE_DEG } from './lockpick';
+export { LockPickGame, pickAt, markerAt, inZone, turnDelta, LOCK_HITS_NEEDED, ZONE_DEG, HIT_WINDOW_S, LOCK_MISS_COOLDOWN_S, zoneWidthDeg } from './lockpick';
 export type { LockPickState } from './lockpick';
 export { MemoryGame, MEMORY_PAIRS, MEMORY_CARDS, MEMORY_FACES } from './memory';
 export type { MemoryState } from './memory';
 export { ChaseGame, ChaseGame as DotDashGame, DOTDASH_W, DOTDASH_H, CHASE_W, CHASE_H, wallAutotile, fleeChaseStep, runFleeChase, CHASE_WISP_COUNT, CHASE_WISP_DELAY, CHASE_WISP_SPEED, PLAY_WISP_KINDS } from './dotdash';
 export type { DotDashState, ChaseState } from './dotdash';
+export { snapshotOf, playViewOf, engineFromSnapshot, createPuzzle, replayWin, solvingLog } from './replay';
+export type { PuzzleSnapshot, PlayView, LogEvent } from './replay';
 
 import { ChaseGame } from './dotdash';
 import { LockPickGame } from './lockpick';

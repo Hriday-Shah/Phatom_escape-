@@ -120,9 +120,17 @@ export class ItemDirector {
   promptOverride(): string | null {
     if (this.open) return null;
     const touch = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
-    // Holding the controller at the TV still lets you search the TV unit's drawers (R14-10).
-    if (this.holdingController() && this.atTv() && !this.targetingTvDrawer()) {
-      return touch ? 'Use Game Controller' : '[E] Use Game Controller';
+    // Holding + facing the TV: E always uses the controller (R15-5). Drawers stay
+    // searchable with F / a tap / by standing off the TV face.
+    if (this.holdingController() && this.atTv()) {
+      const use = touch ? 'Use Game Controller' : '[E] Use Game Controller';
+            if (this.targetingTvDrawer()) {
+        const name = this.host.hidingSpotManager.highlighted()?.data.name ?? 'TV drawer';
+        const search = touch ? `Search ${name}` : `[F] Search ${name}`;
+        return `${use}    ${search}`;
+      }
+
+      return use;
     }
     if (!this.round?.heldBy(this.selfId) && this.floorItemInReach()) {
       const it = this.floorItemInReach()!;
@@ -132,10 +140,19 @@ export class ItemDirector {
     return null;
   }
 
+  /** F (or a second prompt): search the highlighted TV drawer while holding the controller. */
+  onSearch(): boolean {
+    if (this.open) return false;
+    if (!this.holdingController() || !this.atTv() || !this.targetingTvDrawer()) return false;
+    this.host.hidingSpotManager.interact();
+    return true;
+  }
+
   onUse(): boolean {
     if (this.overlay.isOpen()) { this.overlay.confirm(); return true; }
     if (this.tryPickupFloor()) return true;
-    if (this.holdingController() && this.atTv() && !this.targetingTvDrawer()) {
+    // E always opens the mini-game when holding the controller in front of the TV (R15-5).
+    if (this.holdingController() && this.atTv()) {
       this.openMinigame();
       return true;
     }
@@ -163,7 +180,13 @@ export class ItemDirector {
     const x = this.host.player.x + f.x * 20;
     const y = this.host.player.y + f.y * 20;
     const hl = this.host.hidingSpotManager.highlighted();
-    const into = hl?.isOpen ? hl.data.id : null;
+    let into = hl?.isOpen ? hl.data.id : null;
+    if (hl && !hl.isOpen) {
+      // Drop on the floor in front and tell the player why it did not go in (R15-6).
+      into = null;
+      const ui = this.host.getUIScene() as unknown as { showHidingSpotPrompt?: (t: string, d?: number) => void };
+      ui?.showHidingSpotPrompt?.("Can't hide it in a closed spot — open it first", 2500);
+    }
     const pose = { x: this.host.player.x, y: this.host.player.y };
     const open = this.host.hidingSpotManager.openIds();
     if (this.net) this.net.sendItemDrop(x, y, into);
@@ -185,17 +208,8 @@ export class ItemDirector {
     return false;
   }
 
-  private openMinigame(id?: MinigameId, fromDebug = false): void {
-    if (!this.round || this.overlay.isOpen() || this.opening) return;
-    const pose = { x: this.host.player.x, y: this.host.player.y };
-    if (!fromDebug) {
-      const r = this.round.startMinigame(this.selfId, pose);
-      if (!r.ok) return;
-      if (this.net) this.net.sendMinigameStart();
-    }
-    const game = id ?? this.round.minigame;
-    this.opening = true;
-    this.overlay.open(game, this.round.gameSeed, {
+  private overlayHooks() {
+    return {
       joystick: () => this.host.getUIScene().getJoystickDirection(),
       onWin: () => this.onWin(),
       onClose: () => {
@@ -203,14 +217,32 @@ export class ItemDirector {
         if (this.net && this.overlay.status() !== 'won') this.net.sendMinigameClose();
         else this.round?.cancelMinigame(this.selfId);
       },
-    });
+      requestReveal: this.net ? (index: number) => this.net!.sendMinigameInput(index) : undefined,
+    };
+  }
+
+  private openMinigame(id?: MinigameId, fromDebug = false): void {
+    if (!this.round || this.overlay.isOpen() || this.opening) return;
+    const pose = { x: this.host.player.x, y: this.host.player.y };
+    if (this.net && !fromDebug) {
+      this.opening = true;
+      this.net.sendMinigameStart();
+      return;
+    }
+    if (!fromDebug) {
+      const r = this.round.startMinigame(this.selfId, pose);
+      if (!r.ok) return;
+    }
+    const game = id ?? this.round.minigame;
+    this.opening = true;
+    this.overlay.open(game, this.round.gameSeed, this.overlayHooks());
     this.opening = false;
     this.place();
   }
 
   private onWin(): void {
     if (!this.round) return;
-    if (this.net) { this.net.sendMinigameWin(); return; }
+    if (this.net) { this.net.sendMinigameWin(this.overlay.getLog()); return; }
     const code = this.round.revealLocal(this.selfId);
     if (code) this.code.reveal(code, true);
     this.place();
@@ -233,6 +265,14 @@ export class ItemDirector {
       this.code.reveal(code, true);
       this.place();
     });
+    net.onMinigameStartOk?.((m) => {
+      if (this.overlay.isOpen()) return;
+      this.opening = true;
+      this.overlay.openWithPuzzle(m.puzzle, this.overlayHooks());
+      this.opening = false;
+      this.place();
+    });
+    net.onMinigameReveal?.((m) => this.overlay.revealFace(m.index, m.face));
   }
 
   private syncHeld(): void {

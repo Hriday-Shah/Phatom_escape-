@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { qaHooksAllowed, setOnlineSession, isDevOrQaBuild } from './config/debugFlags';
 import { gameConfig } from './config/gameConfig';
 import { SafeAreaManager } from './utils/SafeAreaManager';
 import { currentRenderDpr } from './config/display';
@@ -8,6 +9,11 @@ import type { StartInfo } from './home/HomeScreen';
 import { serverFromUrl } from './net/serverConfig';
 import { confirmLeave, hideQuitButton, showQuitButton } from './ui/QuitButton';
 import { hideOverlay, setHomeHandler } from './net/NetOverlay';
+
+// Production builds must not leave window.Phaser (or __PE_GAME__) for the console.
+if (typeof window !== 'undefined' && !isDevOrQaBuild()) {
+  delete (window as unknown as { Phaser?: unknown }).Phaser;
+}
 
 // Prevent iOS Safari bounce and zoom
 document.addEventListener('touchmove', (e) => {
@@ -93,6 +99,7 @@ async function quitGame(): Promise<void> {
   });
   game = null;
   delete (window as any).__PE_GAME__;
+  setOnlineSession(false);
   quitting = false;
   const url = new URL(window.location.href);
   if (skipsHome(url.search)) { window.location.href = url.pathname; return; } // QA boot URL: plain homepage
@@ -127,6 +134,7 @@ async function askToLeave(): Promise<boolean> {
  */
 function startGame(info: StartInfo, fromLobby: boolean): void {
   if (game) return;
+  setOnlineSession(!!info.net);
   game = new Phaser.Game(gameConfig);
   // Scenes read these with this.registry.get(...).
   game.registry.set('nickname', info.nickname);
@@ -150,11 +158,9 @@ function startGame(info: StartInfo, fromLobby: boolean): void {
   showQuitButton(() => void askToLeave());
   game.events.once(Phaser.Core.Events.READY, () => applySound(loadSoundOn()));
 
-  // Test hook for QA/Playwright (dev builds or any ?debug=... URL only).
-  // (also the ?lobby= debug entries, so the lobby -> game hand-off can be checked).
-  const q = new URLSearchParams(window.location.search);
-  // ?qa=1 exposes it without changing anything else (online end-to-end test).
-  if (import.meta.env.DEV || q.has('debug') || q.has('lobby') || q.has('qa')) {
+  // Test hook for QA/Playwright: dev/QA builds, or production only when offline
+  // with a boot-time ?debug / ?qa / ?lobby flag. Never set in a production online room.
+  if (qaHooksAllowed()) {
     (window as any).__PE_GAME__ = game;
     // Leak checks after Quit (listeners left behind, canvases).
     (window as any).__PE_STATS__ = () => ({

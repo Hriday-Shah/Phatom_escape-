@@ -29,6 +29,7 @@ export class GameScene extends Phaser.Scene {
     right: Phaser.Input.Keyboard.Key;
   };
   private interactKey!: Phaser.Input.Keyboard.Key;
+  private searchKey!: Phaser.Input.Keyboard.Key;
   private dropKey!: Phaser.Input.Keyboard.Key;
   private wallGroup!: Phaser.Physics.Arcade.StaticGroup;
   private doorGroup!: Phaser.Physics.Arcade.StaticGroup;
@@ -94,6 +95,9 @@ export class GameScene extends Phaser.Scene {
       this.hidingSpotManager.update(this.player.getPosition(), this.player.getFacing());
       const override = this.items?.promptOverride();
       if (override) (this.uiScene as any)?.showHidingSpotPrompt?.(override);
+      else if (!this.hidingSpotManager.highlighted()) {
+        (this.uiScene as any)?.hideHidingSpotPrompt?.();
+      }
       this.items?.updateFx();
     };
     this.events.on(Phaser.Scenes.Events.POST_UPDATE, target);
@@ -457,6 +461,7 @@ export class GameScene extends Phaser.Scene {
     };
     this.interactKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.E);
     this.dropKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
+    this.searchKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.F);
   }
 
   private onInteract(): void {
@@ -545,6 +550,9 @@ export class GameScene extends Phaser.Scene {
     // Desktop DROP (R14-10).
     if (Phaser.Input.Keyboard.JustDown(this.dropKey)) {
       this.onDrop();
+    }
+    if (this.searchKey && Phaser.Input.Keyboard.JustDown(this.searchKey)) {
+      this.items?.onSearch();
     }
   }
 

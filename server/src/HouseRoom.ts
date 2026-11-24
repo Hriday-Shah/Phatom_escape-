@@ -5,11 +5,14 @@
  * Protocol (JSON messages, no Colyseus schema state):
  *   client -> server: colour {colour} | ready {ready} | settings {patch} | kick {id} | start {}
  *                     | pos {x, y, d, m} | spot {id, open}   (any hiding / search spot)
- *                     | itemPickup {id} | itemDrop {x, y, spotId} | minigameStart {} | minigameWin {} | minigameClose {}
+ *                     | itemPickup {id} | itemDrop {x, y, spotId}
+ *                     | minigameStart {} | minigameWin {log} | minigameClose {} | minigameInput {index}
  *   server -> client: welcome {selfId} | lobby PublicLobby | rejected {action, error}
  *                     | kicked {} | poses {p: [id, x, y, d, m][]} | spot {id, open, by}
  *                     | spots {open: id[]} (full state: anything not listed is closed) | left {id}
- *                     | round {minigame, gameSeed, items} | items {items} | codeReveal {code} (winner only)
+ *                     | round {minigame, gameSeed, items} | items {items} (per-client, never every spot's contents)
+ *                     | minigameStartOk {minigame, gameSeed, puzzle} | minigameReveal {index, face}
+ *                     | codeReveal {code} (winner only)
  *
  * Drops: a client that disconnects without leaving keeps its seat for RECONNECT_SECONDS
  * (Colyseus allowReconnection; shown as `away`); a deliberate leave removes it at once.
@@ -75,7 +78,8 @@ export class HouseRoom extends Room {
         void this.lock();
         this.broadcast('spots', { open: this.logic.openSpots() });
         const round = this.logic.roundPublic();
-        if (round) this.broadcast('round', round);
+        if (round) this.broadcast('round', round); // items array is empty; contents go per-client
+        this.sendItemsToAll();
       }
       return r;
     });
@@ -88,9 +92,8 @@ export class HouseRoom extends Room {
       if (!this.allow(client, 'act')) return;
       const d = this.logic.setSpot(client.sessionId, msg);
       if (d) {
-        this.broadcast('spot', d);
-        // Opening a spot may reveal a hidden item; never send closed-spot contents.
-        this.broadcast('items', { items: this.logic.itemList() });
+        this.broadcast('spot', { id: d.id, open: d.open, by: d.by }); // no contents
+        this.sendItemsToAll();
       }
     });
     // Heartbeat: the client's dead-connection check (and, on hosts that sleep when no inbound
@@ -99,23 +102,30 @@ export class HouseRoom extends Room {
     this.onMessage('itemPickup', (client, msg) => {
       if (!this.allow(client, 'act')) return;
       const r = this.logic.pickup(client.sessionId, msg);
-      if (r.ok) this.broadcast('items', { items: this.logic.itemList() });
+      if (r.ok) this.sendItemsToAll();
       else client.send('rejected', { action: 'itemPickup', error: r.error });
     });
     this.onMessage('itemDrop', (client, msg) => {
       if (!this.allow(client, 'act')) return;
       const r = this.logic.dropItem(client.sessionId, msg);
-      if (r.ok) this.broadcast('items', { items: this.logic.itemList() });
+      if (r.ok) this.sendItemsToAll();
       else client.send('rejected', { action: 'itemDrop', error: r.error });
     });
     this.onMessage('minigameStart', (client) => {
       if (!this.allow(client, 'act')) return;
       const r = this.logic.startMinigame(client.sessionId);
-      if (!r.ok) client.send('rejected', { action: 'minigameStart', error: r.error });
+      if (r.ok) client.send('minigameStartOk', { minigame: r.minigame, gameSeed: r.gameSeed, puzzle: r.puzzle });
+      else client.send('rejected', { action: 'minigameStart', error: r.error });
     });
-    this.onMessage('minigameWin', (client) => {
+    this.onMessage('minigameInput', (client, msg) => {
       if (!this.allow(client, 'act')) return;
-      const r = this.logic.winMinigame(client.sessionId);
+      const r = this.logic.inputMinigame(client.sessionId, msg);
+      if (r.ok && r.face != null && r.index != null) client.send('minigameReveal', { index: r.index, face: r.face });
+    });
+    this.onMessage('minigameWin', (client, msg) => {
+      if (!this.allow(client, 'act')) return;
+      const log = msg && typeof msg === 'object' && 'log' in (msg as object) ? (msg as { log: unknown }).log : msg;
+      const r = this.logic.winMinigame(client.sessionId, Date.now(), log);
       // The paper code is sent only to the winner, never broadcast.
       if (r.ok && r.code) client.send('codeReveal', { code: r.code });
       else if (!r.ok) client.send('rejected', { action: 'minigameWin', error: r.error });
@@ -128,8 +138,13 @@ export class HouseRoom extends Room {
     this.onMessage('*', () => {});
 
     this.clock.setInterval(() => {
+      // TODO(stage 3): per-player interest management for positions.
       const p = this.logic.takeDirtyPoses();
-      if (p.length) this.broadcast('poses', { p });
+      if (p.length) {
+        this.broadcast('poses', { p });
+        // A player who just gained line of sight on an open spot receives its contents.
+        this.sendItemsToAll();
+      }
     }, 1000 / TICK_HZ);
   }
 
@@ -182,8 +197,17 @@ export class HouseRoom extends Room {
     this.limits.delete(sid);
     this.noReturn.delete(sid);
     if (id) this.broadcast('left', { id });
-    if (this.logic.started) this.broadcast('items', { items: this.logic.itemList() });
+    if (this.logic.started) this.sendItemsToAll();
     this.broadcastLobby();
+  }
+
+  /** Send each client only the items they are allowed to see (R15-3). */
+  private sendItemsToAll(): void {
+    if (!this.logic.started) return;
+    for (const c of this.clients) {
+      const id = this.logic.playerId(c.sessionId);
+      if (id) c.send('items', { items: this.logic.itemListFor(id) });
+    }
   }
 
   /** Everything a returning client needs: its id, the lobby, and in-game spots + poses. */
@@ -194,7 +218,8 @@ export class HouseRoom extends Room {
       client.send('spots', { open: this.logic.openSpots() });
       const round = this.logic.roundPublic();
       if (round) client.send('round', round);
-      client.send('items', { items: this.logic.itemList() });
+      const pid = this.logic.playerId(client.sessionId);
+      if (pid) client.send('items', { items: this.logic.itemListFor(pid) });
       const p = this.logic.allPoses();
       if (p.length) client.send('poses', { p });
     }
