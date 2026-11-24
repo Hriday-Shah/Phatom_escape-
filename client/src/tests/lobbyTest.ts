@@ -1,5 +1,5 @@
 /** Placeholder lobby logic: colours unique, kick, host-only settings / start, ready, leave. */
-import { DEFAULT_SETTINGS, LobbyRoom, LocalLobbyService, MAX_PLAYERS, NUMERIC_SETTINGS, PLACEHOLDER_HOST_NAME, PLAYER_COLOURS, SETTING_LIMITS, clampSetting, makeRoomCode, validSettings, hoodieTint, DEFAULT_HOODIE_TINT, maxPhantoms, parseSettingInput, placeholderName } from '../lobby/lobby';
+import { DEFAULT_SETTINGS, LobbyRoom, LocalLobbyService, MAX_PLAYERS, NUMERIC_SETTINGS, PLACEHOLDER_HOST_NAME, PLAYER_COLOURS, SETTING_LIMITS, clampSetting, makeRoomCode, validSettings, hoodieTint, DEFAULT_HOODIE_TINT, maxPhantoms, parseSettingInput, placeholderName, placeholderHostName } from '../lobby/lobby';
 
 export function runLobbyTest(): void {
   console.log('\n=== LOBBY TEST ===');
@@ -135,6 +135,12 @@ export function runLobbyTest(): void {
   const many = LocalLobbyService.create('Demo player 2', { placeholders: 7 });
   const nm = many.getState().players.map((p) => p.nickname);
   t(nm.length === 8 && new Set(nm).size === 8, `7 placeholders: unique names ${JSON.stringify(nm)}`);
+  // R12-7: your nickname never clashes with a demo name.
+  for (const me of ['Demo host', 'Demo player 2', 'Demo player 3']) {
+    const names = LocalLobbyService.joinLocal(me, 'CLASH1', { placeholders: 3 }).getState().players.map((p) => p.nickname);
+    t(new Set(names).size === names.length && names.filter((n) => n === me).length === 1, `R12-7: no demo name clashes with "${me}" (${names.join(', ')})`);
+  }
+  t(placeholderHostName([]) === 'Demo host' && placeholderHostName(['Demo host']) === 'Demo host 2', 'placeholderHostName');
   const mj = LocalLobbyService.joinLocal('Me', 'MANY12', { placeholders: 6 }).getState().players.map((p) => p.nickname);
   t(new Set(mj).size === mj.length && mj.length === 8, 'joinLocal: unique names');
 

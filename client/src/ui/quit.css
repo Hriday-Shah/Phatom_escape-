@@ -1,0 +1,33 @@
+/* In-game Quit / Home button and its confirm (placeholder; theme from :root in home.css).
+   #pe-quit's position and size are set inline from the shell layout (>= 48 CSS px). */
+#pe-quit {
+  position: fixed; z-index: 20; box-sizing: border-box; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  min-width: var(--pe-touch); min-height: var(--pe-touch);
+  color: var(--pe-button-text); background: rgb(11 13 20 / 0.72);
+  border: var(--pe-border) solid var(--pe-outline); border-radius: var(--pe-radius);
+  box-shadow: inset 0 0 0 2px var(--pe-bezel);
+  cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+#pe-quit[hidden] { display: none; }
+#pe-quit svg { width: 55%; height: 55%; }
+#pe-quit:active { background: var(--pe-accent); }
+#pe-quit:focus-visible { outline: 3px solid var(--pe-focus); outline-offset: 2px; }
+
+#pe-quit-confirm {
+  position: fixed; inset: 0; margin: auto; height: fit-content;
+  max-width: min(26em, calc(100vw - 32px)); padding: var(--pe-pad); color: var(--pe-text);
+  font-family: var(--pe-font); font-size: var(--pe-text-size);
+  background: var(--pe-screen); border: var(--pe-border) solid var(--pe-outline); border-radius: var(--pe-radius);
+  box-shadow: inset 0 0 0 2px var(--pe-bezel);
+}
+#pe-quit-confirm::backdrop { background: rgb(0 0 0 / 0.6); }
+#pe-quit-confirm-text { margin: 0 0 6px; font-weight: 700; font-size: 18px; }
+#pe-quit-confirm-detail { margin: 0 0 var(--pe-gap); color: var(--pe-muted); }
+#pe-quit-confirm-actions { display: flex; flex-wrap: wrap; gap: var(--pe-gap); }
+#pe-quit-confirm-actions > button {
+  flex: 1 1 8em; min-height: var(--pe-touch); font: inherit; color: var(--pe-button-text);
+  background: var(--pe-button); border: var(--pe-border) solid var(--pe-outline); border-radius: var(--pe-radius);
+}
+#pe-quit-confirm-actions > button.pe-primary { background: var(--pe-accent); }
+#pe-quit-confirm-actions > button:focus-visible { outline: 3px solid var(--pe-focus); outline-offset: 2px; }

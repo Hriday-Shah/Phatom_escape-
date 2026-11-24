@@ -1,9 +1,10 @@
 /**
- * Phantom Escape game server (online trial). Plain Node http server + Colyseus over WebSocket.
+ * Phantom Escape game server (stage 2). Plain Node http server + Colyseus over WebSocket.
  *   GET /health        -> {ok, rooms, players, uptime}
  *   GET /rooms/CODE    -> {status: 'open' | 'full' | 'started' | 'missing'} (friendly join errors)
  *   /matchmake/...     -> Colyseus (create 'house', joinById CODE)
- * PORT (default 2567). CORS / WebSocket origins: see origins.ts.
+ * Env: PORT (default 2567), ALLOWED_ORIGINS (origins.ts), RECONNECT_SECONDS (default 30).
+ * SIGTERM / SIGINT: graceful shutdown (rooms are disposed, clients get a clean close).
  */
 import http from 'node:http';
 import { Server, matchMaker } from '@colyseus/core';
@@ -54,6 +55,7 @@ const server = http.createServer((req, res) => {
 });
 
 const gameServer = new Server({
+  gracefullyShutdown: false, // our own SIGTERM/SIGINT handler below
   transport: new WebSocketTransport({
     server,
     maxPayload: 2 * 1024,
@@ -76,6 +78,13 @@ server.on('request', (req: http.IncomingMessage, res: http.ServerResponse) => {
 
 gameServer.listen(PORT).then(() => console.log(`[phantom-escape] server listening on :${PORT}`));
 
-const stop = () => { void gameServer.gracefullyShutdown(true).then(() => process.exit(0)); };
-process.on('SIGTERM', stop);
-process.on('SIGINT', stop);
+let stopping = false;
+const stop = (sig: string) => {
+  if (stopping) return;
+  stopping = true;
+  console.log(`[phantom-escape] ${sig}: shutting down`);
+  setTimeout(() => process.exit(0), 10_000).unref(); // never hang a deploy
+  void gameServer.gracefullyShutdown(false).finally(() => process.exit(0));
+};
+process.on('SIGTERM', () => stop('SIGTERM'));
+process.on('SIGINT', () => stop('SIGINT'));

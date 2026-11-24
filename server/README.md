@@ -1,8 +1,11 @@
-# Phantom Escape Server (online trial)
+# Phantom Escape Server (online, stage 2)
 
-Authoritative [Colyseus](https://colyseus.io) 0.16 server for online rooms. Trial scope: lobby
-(players, unique colours, ready, host-only settings / kick / start, host migration, max 8) and
-in-game sync of player positions and drawer open / close. No Phantom gameplay or timers yet.
+Authoritative [Colyseus](https://colyseus.io) 0.16 server for online rooms: lobby (players, unique
+colours, ready, host-only settings / kick / start, host migration, max 8), in-game sync of player
+positions and every hiding spot (drawers, sofa, bed, … incl. late state for a rejoiner), and
+disconnect / rejoin (a dropped player's seat, colour and host role are kept for
+`RECONNECT_SECONDS`, default 30; a deliberate leave removes the player at once). No Phantom
+gameplay or timers yet. Hosting: see [docs/DEPLOY-SERVER.md](../docs/DEPLOY-SERVER.md).
 
 ```
 npm install            # at the repo root (npm workspaces)
@@ -16,12 +19,13 @@ PE_SERVER=http://localhost:2567 npx tsx server/src/tests/integration.ts   # sock
   `create('house')` and joins with `joinById(CODE)`.
 - The lobby rules are the client's own `LobbyRoom` (`client/src/lobby/lobby.ts`) and nicknames are
   cleaned with `displayNickname` (`client/src/home/settings.ts`), so online and offline behave alike.
-- Allowed browser origins: `https://hriday-shah.github.io` and localhost (add more with
-  `PE_ALLOWED_ORIGINS=a,b`). Every client message is validated; movement is rate-limited and
+- Allowed browser origins: `ALLOWED_ORIGINS` (comma-separated), default
+  `https://hriday-shah.github.io,localhost`. Every client message is validated; movement is rate-limited and
   speed-checked; nothing personal is stored (nickname, colour and ready only, in memory).
 
 ## Pointing the game at a server
 
-The client never has a server built in. Open the game with `?server=wss://HOST` (remembered for
-the tab); the lobby's invite link then carries both: `…/Phatom_escape-/?server=wss%3A%2F%2FHOST&room=CODE`.
-Without `?server=` the game stays in the offline (this device only) mode.
+The Pages build takes its default server from the repository variable `VITE_SERVER_URL`
+(empty = offline / demo mode; see docs/DEPLOY-SERVER.md). `?server=wss://HOST` overrides it for
+the tab (`?server=off` forces offline); the lobby's invite link carries both:
+`…/Phatom_escape-/?server=wss%3A%2F%2FHOST&room=CODE`.

@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
-import { SafeAreaManager } from '../utils/SafeAreaManager';
-import { applyCssCamera, currentShellLayout } from '../ui/currentLayout';
+import { applyCssCamera, currentShellLayout, watchInsets } from '../ui/currentLayout';
 import { Box, SHELL_ART, snapToDevice } from '../ui/shellLayout';
 import { realNow } from '../logic/realTimer';
 
@@ -22,7 +21,7 @@ export class ShellScene extends Phaser.Scene {
 
   create(): void {
     this.scale.on('resize', this.layout, this);
-    SafeAreaManager.onInsetsChange(() => this.layout());
+    watchInsets(this, () => this.layout());
     this.layout();
   }
 

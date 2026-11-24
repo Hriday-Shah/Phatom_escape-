@@ -14,10 +14,12 @@ import { displayNickname } from '../../client/src/home/settings';
 import { PLAYER_SPEED } from '../../client/src/config/physicsConfig';
 
 export type JoinError = 'full' | 'started';
+/** A lobby player as everyone sees it; `away` = dropped, the seat is kept while they reconnect. */
+export type PublicPlayer = LobbyPlayer & { away: boolean };
 export interface PublicLobby {
   code: string;
   hostId: string;
-  players: LobbyPlayer[];
+  players: PublicPlayer[];
   settings: LobbySettings;
   started: boolean;
 }
@@ -26,10 +28,12 @@ export interface PublicLobby {
 export interface Pose { x: number; y: number; d: number; m: number }
 
 const COLOUR_IDS = new Set<string>(PLAYER_COLOURS.map((c) => c.id));
-/** Spot / section ids look like `study_desk_d2`; anything else is refused. */
+/** Spot / section ids (drawers, sofa cushions, bed, fridge...) look like `sofa_d1`; anything else is refused. */
 const SPOT_ID = /^[A-Za-z0-9_-]{1,48}$/;
-/** At most this many distinct drawer ids per room (the house has far fewer). */
-export const MAX_DRAWERS = 256;
+/** At most this many distinct spot ids per room (the house has far fewer). */
+export const MAX_SPOTS = 256;
+/** A dropped player keeps their seat (colour, host) this long while reconnecting. */
+export const RECONNECT_SECONDS = Number(process.env.RECONNECT_SECONDS) > 0 ? Number(process.env.RECONNECT_SECONDS) : 30;
 /** Any position outside this box is refused (the house is well inside it). */
 export const WORLD_LIMIT = 6000;
 /** Speed sanity: allowed distance = speed x elapsed x SLACK + JITTER (elapsed capped). */
@@ -71,7 +75,7 @@ export const parse = {
     const d = m.d === 0 || m.d === 1 || m.d === 2 || m.d === 3 ? m.d : 0;
     return { x: Math.round(m.x * 10) / 10, y: Math.round(m.y * 10) / 10, d, m: m.m === 1 || m.m === true ? 1 : 0 };
   },
-  drawer(m: unknown): { id: string; open: boolean } | null {
+  spot(m: unknown): { id: string; open: boolean } | null {
     return isObj(m) && typeof m.id === 'string' && SPOT_ID.test(m.id) && typeof m.open === 'boolean' ? { id: m.id, open: m.open } : null;
   },
   join(o: unknown): { nickname: string; colour?: ColourId } {
@@ -81,9 +85,6 @@ export const parse = {
   },
 };
 
-/** R11: at most one Phantom fewer than the players (and at least 1). */
-export function maxPhantoms(players: number): number { return Math.max(1, players - 1); }
-
 interface Track { pose: Pose; at: number; dirty: boolean }
 
 export class HouseLogic {
@@ -91,7 +92,10 @@ export class HouseLogic {
   /** session id -> lobby player id (and back). */
   private bySession = new Map<string, string>();
   private poses = new Map<string, Track>();
-  private drawers = new Map<string, boolean>();
+  /** Open / closed state of every hiding / search spot touched (drawers, sofa, bed, ...). */
+  private spots = new Map<string, boolean>();
+  /** Dropped players (by session) whose seats are held for reconnection. */
+  private away = new Set<string>();
   /** Movement corrections (speed sanity) since start, for logs / tests. */
   corrections = 0;
 
@@ -132,17 +136,32 @@ export class HouseLogic {
     const id = this.bySession.get(session);
     if (!id) return;
     this.bySession.delete(session);
+    this.away.delete(session);
     this.poses.delete(id);
     if (this.lobby?.state.players.some((p) => p.id === id)) this.lobby.leave(id);
     this.capPhantoms();
   }
 
-  /** Keep the Phantoms setting within maxPhantoms(players) as players come and go. */
+  /** R11: keep Phantoms within maxPhantoms(players) as players come and go (the client's rule). */
   private capPhantoms(): void {
-    const st = this.lobby?.state;
-    if (!st || !st.players.length) return;
-    st.settings.phantoms = Math.min(st.settings.phantoms, maxPhantoms(st.players.length));
+    if (this.lobby?.state.players.length) this.lobby.capPhantoms();
   }
+
+  /**
+   * Connection dropped (not a deliberate leave): the seat, colour and host status are kept and
+   * others see the player as away. `leave()` once the reconnection window runs out.
+   */
+  drop(session: string): boolean {
+    if (!this.bySession.has(session)) return false;
+    this.away.add(session);
+    return true;
+  }
+  /** Back in time: still a player? (false when kicked meanwhile). */
+  reconnect(session: string): boolean {
+    this.away.delete(session);
+    return this.bySession.has(session);
+  }
+  isAway(session: string): boolean { return this.away.has(session); }
 
   private act(session: string, f: (lobby: LobbyRoom, id: string) => LobbyResult): LobbyResult {
     const id = this.bySession.get(session);
@@ -175,7 +194,7 @@ export class HouseLogic {
     const r = this.act(session, (l, id) => l.kick(id, target));
     if (!r.ok) return r;
     const s = this.sessionOf(target);
-    if (s) { this.bySession.delete(s); this.poses.delete(target); }
+    if (s) { this.bySession.delete(s); this.away.delete(s); this.poses.delete(target); }
     return { ok: true, session: s };
   }
   start(session: string): LobbyResult {
@@ -219,17 +238,18 @@ export class HouseLogic {
     return [...this.poses].map(([id, t]) => [id, t.pose.x, t.pose.y, t.pose.d, t.pose.m]);
   }
 
-  /** In-game drawer open / close (anyone in the room, after start). */
-  setDrawer(session: string, msg: unknown): { id: string; open: boolean; by: string } | null {
+  /** In-game open / close of any hiding or search spot (anyone in the room, after start). */
+  setSpot(session: string, msg: unknown): { id: string; open: boolean; by: string } | null {
     const by = this.bySession.get(session);
-    if (!by || !this.started) return null;
-    const d = parse.drawer(msg); if (!d) return null;
-    if (!this.drawers.has(d.id) && this.drawers.size >= MAX_DRAWERS) return null;
-    if (this.drawers.get(d.id) === d.open) return null; // no change, nothing to broadcast
-    this.drawers.set(d.id, d.open);
+    if (!by || !this.started || this.away.has(session)) return null;
+    const d = parse.spot(msg); if (!d) return null;
+    if (!this.spots.has(d.id) && this.spots.size >= MAX_SPOTS) return null;
+    if (this.spots.get(d.id) === d.open) return null; // no change, nothing to broadcast
+    this.spots.set(d.id, d.open);
     return { ...d, by };
   }
-  openDrawers(): string[] { return [...this.drawers].filter(([, o]) => o).map(([id]) => id); }
+  /** Every open spot (the full state a (re)joining client applies; anything else is closed). */
+  openSpots(): string[] { return [...this.spots].filter(([, o]) => o).map(([id]) => id); }
 
   /** What every client sees (no session ids, no addresses: only nickname / colour / ready). */
   snapshot(): PublicLobby {
@@ -237,7 +257,10 @@ export class HouseLogic {
     if (!s) return { code: this.code, hostId: '', players: [], settings: {} as LobbySettings, started: false };
     return {
       code: s.code, hostId: s.hostId, started: s.started, settings: { ...s.settings },
-      players: s.players.map((p) => ({ id: p.id, nickname: p.nickname, colour: p.colour, isHost: p.isHost, ready: p.isHost || p.ready })),
+      players: s.players.map((p) => {
+        const sess = this.sessionOf(p.id);
+        return { id: p.id, nickname: p.nickname, colour: p.colour, isHost: p.isHost, ready: p.isHost || p.ready, away: !!sess && this.away.has(sess) };
+      }),
     };
   }
 }

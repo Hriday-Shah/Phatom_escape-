@@ -75,6 +75,8 @@
         <!-- Online trial: connecting / errors for Create room; mode line (online server or this device). -->
         <p id="pe-home-message" role="status" aria-live="polite"></p>
         <p id="pe-online-status"></p>
+        <!-- Shown only when the game server can't be reached. -->
+        <button id="pe-offline-choice" type="button" hidden>Play offline instead</button>
         <div id="pe-join-box" class="pe-field">
           <label for="pe-room-code">Room code</label>
           <div class="pe-row">
@@ -196,6 +198,32 @@
       </dialog>
     </section>
   </div>
+  <!--
+    Online (stage 2) connection UI, over the lobby and the game. Placeholder: restyle via
+    net.css (#pe-net-*), theme from the :root variables in home.css. Ids are the hooks.
+  -->
+  <div id="pe-net-overlay" role="alertdialog" aria-modal="true" aria-labelledby="pe-net-title" hidden>
+    <div id="pe-net-box">
+      <p id="pe-net-title"></p>
+      <p id="pe-net-detail"></p>
+      <button id="pe-net-home" type="button" class="pe-primary" hidden>Back to home</button>
+    </div>
+  </div>
+  <p id="pe-net-toast" role="status" aria-live="polite" hidden></p>
+  <!-- In-game Quit / Home (placeholder; restyle via ui/quit.css, ids are the hooks). -->
+  <button id="pe-quit" type="button" aria-label="Leave game" title="Leave game" hidden>
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 1 1 7.5h2V15h4v-4h2v4h4V7.5h2z"/></svg>
+  </button>
+  <dialog id="pe-quit-confirm" aria-labelledby="pe-quit-confirm-text">
+    <form method="dialog" id="pe-quit-confirm-form">
+      <p id="pe-quit-confirm-text">Leave game?</p>
+      <p id="pe-quit-confirm-detail">You'll go back to the homepage.</p>
+      <div id="pe-quit-confirm-actions">
+        <button id="pe-quit-cancel" type="submit" value="cancel">Cancel</button>
+        <button id="pe-quit-ok" type="submit" value="ok" class="pe-primary">Leave</button>
+      </div>
+    </form>
+  </dialog>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

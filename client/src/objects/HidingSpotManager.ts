@@ -293,6 +293,12 @@ export class HidingSpotManager {
     if (this.highlightedSpot === spot) this.showPrompt(spot);
   }
 
+  /** Online: the room's full spot state (listed = open, every other spot closed). */
+  public syncOpen(openIds: readonly string[]): void {
+    const open = new Set(openIds);
+    for (const sp of this.spots) this.setOpen(sp.data.id, open.has(sp.data.id));
+  }
+
   private toggleSpot(spot: SpotState): void {
     spot.isOpen = !spot.isOpen;
     this.drawSpot(spot);

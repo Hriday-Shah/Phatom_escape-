@@ -18,6 +18,8 @@ export class RemotePlayer {
   private tint: Phaser.GameObjects.Sprite | null;
   private label: Phaser.GameObjects.Text;
   private anim = '';
+  private nickname: string;
+  private away = false;
 
   constructor(private scene: Phaser.Scene, readonly id: string, nickname: string, colour: string, x: number, y: number) {
     const art = scene.textures.exists('player') && scene.textures.exists('player_tint');
@@ -25,14 +27,21 @@ export class RemotePlayer {
     this.body = art
       ? scene.add.sprite(x, y, 'player', 0).setScale(PLAYER_SPRITE_SCALE).setDepth(8.5)
       : scene.add.sprite(x, y, 'ph_' + TextureKeys.PLAYER).setTint(tintFor(colour)).setDepth(8.5);
+    this.nickname = nickname;
     this.label = scene.add.text(x, y - 22, nickname, {
       fontFamily: 'system-ui, sans-serif', fontSize: '9px', color: '#ffffff', stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5, 1).setDepth(8.6).setResolution(4);
     this.setVisible(false);
   }
 
-  setInfo(nickname: string, colour: string): void {
-    if (this.label.text !== nickname) this.label.setText(nickname);
+  setInfo(nickname: string, colour: string, away = false): void {
+    this.nickname = nickname;
+    this.away = away;
+    // Dropped (seat held while reconnecting): greyed out, labelled.
+    const text = away ? `${nickname} (reconnecting…)` : nickname;
+    if (this.label.text !== text) this.label.setText(text);
+    const a = away ? 0.4 : 1;
+    this.body.setAlpha(a); this.tint?.setAlpha(a); this.label.setAlpha(away ? 0.7 : 1);
     this.tint?.setTint(tintFor(colour));
     if (!this.tint) this.body.setTint(tintFor(colour));
   }
@@ -40,6 +49,9 @@ export class RemotePlayer {
   setVisible(v: boolean): void {
     this.body.setVisible(v); this.tint?.setVisible(v); this.label.setVisible(v);
   }
+
+  get isAway(): boolean { return this.away; }
+  get name(): string { return this.nickname; }
 
   get x(): number { return this.body.x; }
   get y(): number { return this.body.y; }

@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
-import { snapToDevice } from '../ui/shellLayout';
+import { quitButtonBox, snapToDevice } from '../ui/shellLayout';
+import { placeQuitButton } from '../ui/QuitButton';
 import { VirtualJoystick } from '../objects/VirtualJoystick';
 import { UIControls } from '../objects/UIControls';
-import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { cssSize, gameDpr } from '../config/display';
-import { applyCssCamera, currentShellLayout } from '../ui/currentLayout';
+import { applyCssCamera, currentShellLayout, watchInsets } from '../ui/currentLayout';
 import { ShellLayout } from '../ui/shellLayout';
 import { RealDeadline } from '../logic/realTimer';
 
@@ -62,7 +62,7 @@ export class UIScene extends Phaser.Scene {
     this.onResize();
 
     // Reposition on safe area changes
-    SafeAreaManager.onInsetsChange(() => this.onResize());
+    watchInsets(this, () => this.onResize());
 
     // Listen for interact button press and forward to GameScene
     this.events.on('interact', () => {
@@ -150,7 +150,11 @@ export class UIScene extends Phaser.Scene {
     this.joystick.resize(this.layout);
     const slot = this.uiControls.getItemSlotBounds();
     const pad = 2 * this.layout.s;
-    const reserve = scr.x + scr.w - slot.x + pad; // item slot width + margins, mirrored
+    // Quit / Home (HTML #pe-quit) in the screen's top-left corner, mirroring the item slot.
+    placeQuitButton(this.layout);
+    const quit = quitButtonBox(this.layout);
+    // Item slot / quit button width + margins, mirrored, so the centred prompt clears both.
+    const reserve = Math.max(scr.x + scr.w - slot.x, quit.x + quit.w - scr.x) + pad;
     const usable = scr.w - reserve * 2;
     const narrow = usable < 160;
     const fontPx = Math.min(width, height) >= 600 ? 24 : 18;
@@ -160,7 +164,7 @@ export class UIScene extends Phaser.Scene {
       // Too narrow beside the slot (small portrait screens): wrap under it instead.
       t.setWordWrapWidth(Math.max(120, narrow ? scr.w - pad * 4 : usable), true);
     }
-    const top = narrow ? slot.y + slot.height + pad : scr.y + pad * 2;
+    const top = narrow ? Math.max(slot.y + slot.height, quit.y + quit.h) + pad : scr.y + pad * 2;
     this.promptCenterX = snapToDevice(scr.x + scr.w / 2, dpr);
     this.hidingSpotPrompt.setPosition(this.promptCenterX, snapToDevice(top, dpr));
     this.stackDoorMessage();

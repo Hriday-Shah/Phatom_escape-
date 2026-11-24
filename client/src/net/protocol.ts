@@ -12,8 +12,15 @@ export const SEND_HZ = 12;
 /** Remote players are drawn this far in the past, interpolating between received poses. */
 export const INTERP_DELAY_MS = 150;
 
-/** Close / error codes from the server. */
+/** Close / error codes from the server (4000 = closed by the server, e.g. shutdown). */
+export const CLOSE_CONSENTED = 4000;
 export const CLOSE_KICKED = 4001;
+export const CLOSE_FLOOD = 4002;
+
+/** The server holds a dropped player's seat this long (server RECONNECT_SECONDS default). */
+export const RECONNECT_WINDOW_MS = 32_000; // the server keeps the seat 30 s (RECONNECT_SECONDS), plus a little slack
+/** Time between reconnection attempts. */
+export const RECONNECT_RETRY_MS = 2_000;
 
 export type JoinFailure = 'not-found' | 'full' | 'started' | 'unreachable' | 'unknown';
 export const JOIN_FAILURE_TEXT: Record<JoinFailure, string> = {
@@ -23,3 +30,11 @@ export const JOIN_FAILURE_TEXT: Record<JoinFailure, string> = {
   unreachable: "Can't reach the game server. Check your connection or ask the host for a fresh link.",
   unknown: "Couldn't join the room. Please try again.",
 };
+
+/** Client heartbeat ('hb', answered by the server) and the silence after which the link counts as dropped. */
+export const HEARTBEAT_MS = 3000;
+export const SILENCE_DROP_MS = 10000;
+/** How long Create / Join wait for a sleeping free-tier server to wake (Render free: about a minute). */
+export const WAKE_MAX_MS = 75000;
+/** Shown while waiting for it. */
+export const WAKING_TEXT = 'Waking up the game server… free hosting can take up to a minute.';

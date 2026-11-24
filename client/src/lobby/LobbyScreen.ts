@@ -16,11 +16,11 @@ export interface LobbyCallbacks {
   /** The host started: stage 1 starts the house with this player's nickname and colour. */
   onStart(self: LobbyPlayer, settings: LobbySettings): void;
   /** Online only: the room ended for this player (kicked, connection lost). */
-  onEnded?(reason: 'kicked' | 'disconnected'): void;
+  onEnded?(reason: 'kicked' | 'lost' | 'closed'): void;
 }
 
 /** Online services can also end on their own (kicked / connection lost). */
-type EndingService = LobbyService & { onEnd?(cb: (r: 'kicked' | 'disconnected') => void): () => void };
+type EndingService = LobbyService & { onEnd?(cb: (r: 'kicked' | 'lost' | 'closed') => void): () => void };
 
 const NOISE_LABEL: Record<DrawerNoise, string> = { off: 'Off', quiet: 'Quiet', normal: 'Normal', loud: 'Loud' };
 const numberText = (d: NumericSettingDef, v: number) => (d.unit ? `${v} ${d.unit}` : String(v));
@@ -132,6 +132,11 @@ export class LobbyScreen {
     }
     // Online rooms are real: replace the offline "only on this device" notice.
     if (server) $('pe-lobby-notice').textContent = 'Online trial room: friends with the invite link can join (up to 8).';
+    // R12-4: an offline room is only on this device; an invite link would lead nowhere.
+    const copy = $<HTMLButtonElement>('pe-lobby-copy');
+    copy.disabled = !server;
+    if (!server) { share.hidden = true; this.copyStatus.textContent = 'Offline room: invites need the online game (a game server).'; }
+    else this.copyStatus.textContent = '';
     this.render(this.svc.getState());
   }
 
@@ -189,6 +194,7 @@ export class LobbyScreen {
       const li = document.createElement('li');
       li.className = 'pe-lobby-player'; li.dataset.playerId = p.id;
       if (p.id === s.selfId) li.classList.add('pe-self');
+      if (p.away) li.classList.add('pe-away'); // online: dropped, seat held while reconnecting
       const sw = document.createElement('span'); sw.className = 'pe-lobby-swatch';
       sw.style.setProperty('--pe-swatch', PLAYER_COLOURS.find((c) => c.id === p.colour)!.hex);
       sw.title = PLAYER_COLOURS.find((c) => c.id === p.colour)!.name;
@@ -200,6 +206,7 @@ export class LobbyScreen {
         const r = document.createElement('span'); r.className = 'pe-lobby-ready-state'; r.dataset.ready = String(p.ready);
         r.textContent = p.ready ? 'Ready' : 'Not ready'; tags.append(r);
       }
+      if (p.away) { const a = document.createElement('span'); a.className = 'pe-lobby-away'; a.textContent = 'Reconnecting…'; tags.append(a); }
       li.append(sw, name, tags);
       if (isHost && p.id !== s.selfId) {
         const k = document.createElement('button'); k.type = 'button'; k.className = 'pe-lobby-kick'; k.dataset.playerId = p.id;

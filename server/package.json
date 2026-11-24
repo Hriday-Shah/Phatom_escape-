@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Phantom Escape game server (Colyseus): online trial of stage 2",
   "scripts": {
-    "start": "tsx src/index.ts",
+    "start": "node --import tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "test": "tsx src/tests/runServerTests.ts",
     "typecheck": "tsc -p tsconfig.json",
@@ -14,11 +14,14 @@
   "dependencies": {
     "@colyseus/core": "^0.16.26",
     "@colyseus/schema": "^3.0.76",
-    "@colyseus/ws-transport": "^0.16.5"
+    "@colyseus/ws-transport": "^0.16.5",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
-    "tsx": "^4.23.15",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

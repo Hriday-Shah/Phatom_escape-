@@ -1,9 +1,9 @@
 /** Server room-logic unit tests (npm test -w server). */
 import assert from 'node:assert/strict';
-import { HouseLogic, maxPhantoms, MAX_ELAPSED_MS, RateLimiter, SPEED_JITTER_PX, SPEED_SLACK, parse } from '../houseLogic';
-import { DEFAULT_SETTINGS, MAX_PLAYERS, PLAYER_COLOURS, SETTING_LIMITS } from '../../../client/src/lobby/lobby';
+import { HouseLogic, MAX_ELAPSED_MS, RateLimiter, SPEED_JITTER_PX, SPEED_SLACK, parse } from '../houseLogic';
+import { DEFAULT_SETTINGS, MAX_PLAYERS, maxPhantoms, PLAYER_COLOURS, SETTING_LIMITS } from '../../../client/src/lobby/lobby';
 import { PLAYER_SPEED } from '../../../client/src/config/physicsConfig';
-import { originAllowed } from '../origins';
+import { originAllowed, parseOrigins } from '../origins';
 
 let n = 0;
 const test = (name: string, f: () => void) => { f(); n++; console.log(`  ✓ ${name}`); };
@@ -28,7 +28,7 @@ test('first player is host; nicknames cleaned like the client', () => {
   assert.equal(s.players[1].nickname, 'Player');
   h.join('c', { nickname: 'x'.repeat(5000) });
   assert.equal(pl(h, 'c').nickname.length, 16);
-  assert.deepEqual(Object.keys(s.players[0]).sort(), ['colour', 'id', 'isHost', 'nickname', 'ready']);
+  assert.deepEqual(Object.keys(s.players[0]).sort(), ['away', 'colour', 'id', 'isHost', 'nickname', 'ready']);
 });
 
 test('colours are unique and server-enforced', () => {
@@ -159,21 +159,21 @@ test('movement: only after start, validated, speed-sane', () => {
   assert.equal(h.takeDirtyPoses().length, 0);
 });
 
-test('drawers: validated, idempotent, synced state', () => {
+test('spots (drawers, sofa, bed...): validated, idempotent, synced state', () => {
   const h = room(2);
-  assert.equal(h.setDrawer('s0', { id: 'kitchen_d1', open: true }), null); // lobby: dropped
+  assert.equal(h.setSpot('s0', { id: 'kitchen_d1', open: true }), null); // lobby: dropped
   h.start('s0');
-  assert.deepEqual(h.setDrawer('s1', { id: 'kitchen_d1', open: true }), { id: 'kitchen_d1', open: true, by: h.playerId('s1') });
-  assert.equal(h.setDrawer('s0', { id: 'kitchen_d1', open: true }), null); // no change
-  assert.equal(h.setDrawer('s0', { id: '<img onerror>', open: true }), null);
-  assert.equal(h.setDrawer('s0', { id: 'x'.repeat(100), open: true }), null);
-  assert.equal(h.setDrawer('s0', { id: 'bed', open: 1 }), null);
-  assert.equal(h.setDrawer('ghost', { id: 'bed', open: true }), null);
-  assert.deepEqual(h.openDrawers(), ['kitchen_d1']);
-  h.setDrawer('s0', { id: 'kitchen_d1', open: false });
-  assert.deepEqual(h.openDrawers(), []);
-  for (let i = 0; i < 300; i++) h.setDrawer('s0', { id: `d${i}`, open: true });
-  assert.equal(h.openDrawers().length, 255); // + kitchen_d1 (closed) = MAX_DRAWERS ids
+  assert.deepEqual(h.setSpot('s1', { id: 'kitchen_d1', open: true }), { id: 'kitchen_d1', open: true, by: h.playerId('s1') });
+  assert.equal(h.setSpot('s0', { id: 'kitchen_d1', open: true }), null); // no change
+  assert.equal(h.setSpot('s0', { id: '<img onerror>', open: true }), null);
+  assert.equal(h.setSpot('s0', { id: 'x'.repeat(100), open: true }), null);
+  assert.equal(h.setSpot('s0', { id: 'bed', open: 1 }), null);
+  assert.equal(h.setSpot('ghost', { id: 'bed', open: true }), null);
+  assert.deepEqual(h.openSpots(), ['kitchen_d1']);
+  h.setSpot('s0', { id: 'kitchen_d1', open: false });
+  assert.deepEqual(h.openSpots(), []);
+  for (let i = 0; i < 300; i++) h.setSpot('s0', { id: `d${i}`, open: true });
+  assert.equal(h.openSpots().length, 255); // + kitchen_d1 (closed) = MAX_DRAWERS ids
 });
 
 test('rate limiter: burst then sustained rate', () => {
@@ -194,6 +194,11 @@ test('join options and origins', () => {
   assert.ok(!originAllowed('https://evil.example'));
   assert.ok(!originAllowed('https://hriday-shah.github.io.evil.example'));
   assert.ok(!originAllowed('http://localhost.evil.example'));
+  const only = parseOrigins('https://a.example, https://b.example/');
+  assert.ok(originAllowed('https://b.example', only));
+  assert.ok(!originAllowed('http://localhost:5173', only), 'no localhost unless listed');
+  assert.ok(originAllowed('http://localhost:5173', parseOrigins('https://a.example,localhost')));
+  assert.ok(originAllowed('https://hriday-shah.github.io', parseOrigins('')), 'empty -> default');
 });
 
 test('R11: host always counts as ready (also after migration)', () => {
@@ -208,7 +213,7 @@ test('R11: host always counts as ready (also after migration)', () => {
 });
 
 test('R11: Phantoms capped at max(1, players - 1)', () => {
-  assert.deepEqual([1, 2, 3, 4, 8].map(maxPhantoms), [1, 1, 2, 3, 7]);
+  assert.deepEqual([1, 2, 3, 4, 8].map(maxPhantoms), [1, 1, 2, 3, 3]); // client rule, also <= setting max
   const h = room(1);
   h.updateSettings('s0', { patch: { phantoms: 3 } });
   assert.equal(h.snapshot().settings.phantoms, 1, 'alone: 1');
@@ -222,6 +227,54 @@ test('R11: Phantoms capped at max(1, players - 1)', () => {
   assert.equal(h.snapshot().settings.phantoms, 1, 'players leaving lower it');
   h.join('s4', {}); h.kick('s0', { id: h.playerId('s4') });
   assert.equal(h.snapshot().settings.phantoms, 1);
+});
+
+test('stage 2: a drop keeps seat, colour and host; others see it as away', () => {
+  const h = room(3);
+  h.setColour('s1', { colour: 'pink' });
+  h.setReady('s1', { ready: true });
+  assert.equal(h.drop('s0'), true);
+  assert.equal(h.drop('ghost'), false);
+  let s = h.snapshot();
+  assert.equal(s.hostId, h.playerId('s0'), 'host kept while reconnecting');
+  assert.deepEqual(s.players.map((p) => p.away), [true, false, false]);
+  assert.equal(h.canJoin(), null);
+  h.drop('s1');
+  assert.equal(h.setColour('s2', { colour: 'pink' }).ok, false, 'colour still held');
+  assert.equal(h.reconnect('s1'), true);
+  assert.equal(pl(h, 's1').colour, 'pink'); assert.equal(pl(h, 's1').ready, true); assert.equal((pl(h, 's1') as any).away, false);
+  assert.equal(h.reconnect('s0'), true);
+  s = h.snapshot();
+  assert.equal(s.hostId, h.playerId('s0'));
+  assert.ok(s.players.every((p) => !p.away));
+});
+
+test('stage 2: reconnection window runs out -> removed, host migrates; kicked while away -> no way back', () => {
+  const h = room(3);
+  h.start('s0');
+  h.drop('s0');
+  h.leave('s0'); // window ran out
+  assert.equal(h.snapshot().hostId, h.playerId('s1'));
+  assert.equal(h.snapshot().players.length, 2);
+  h.drop('s2');
+  assert.equal(h.kick('s1', { id: h.playerId('s2') }).ok, true);
+  assert.equal(h.reconnect('s2'), false);
+  assert.equal(h.snapshot().players.length, 1);
+  assert.equal(h.canJoin(), 'started', 'new players still refused mid-game');
+});
+
+test('stage 2: spot state (sofa, bed, drawers) for a returning player; away players cannot act', () => {
+  const h = room(2);
+  h.start('s0');
+  h.setSpot('s0', { id: 'sofa_d1', open: true });
+  h.setSpot('s0', { id: 'bed', open: true });
+  h.setSpot('s0', { id: 'kitchen_drawers_d2', open: true });
+  h.drop('s1');
+  assert.equal(h.setSpot('s1', { id: 'fridge', open: true }), null, 'away: ignored');
+  h.setSpot('s0', { id: 'bed', open: false }); // closed while s1 was away
+  h.reconnect('s1');
+  assert.deepEqual(h.openSpots().sort(), ['kitchen_drawers_d2', 'sofa_d1']);
+  assert.ok(h.setSpot('s1', { id: 'fridge', open: true }));
 });
 
 console.log(`\n✅ ${n} server tests passed`);
