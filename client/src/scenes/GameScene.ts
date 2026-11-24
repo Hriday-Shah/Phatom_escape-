@@ -10,18 +10,9 @@ import { PLAYER_BODY_RADIUS } from '../objects/Player';
 import { gameDpr } from '../config/display';
 import { hasDebugFlag } from '../config/debugFlags';
 import { currentShellLayout } from '../ui/currentLayout';
+import { snappedCameraZoom } from '../logic/cameraZoom';
 
-/** World units shown across the short side of the screen (before snapping). */
-const TARGET_VIEW_WORLD = 280;
-
-/**
- * Camera zoom in DEVICE px per world unit, snapped so that one art px (2 world units)
- * always covers a whole number of device pixels: zoom is a multiple of 0.5.
- */
-export function snappedCameraZoom(shortSideDevicePx: number): number {
-  const raw = shortSideDevicePx / TARGET_VIEW_WORLD;
-  return Math.max(1, Math.round(raw * 2) / 2);
-}
+export { snappedCameraZoom };
 
 export class GameScene extends Phaser.Scene {
   private player!: Player;
@@ -87,6 +78,11 @@ export class GameScene extends Phaser.Scene {
     // Create hiding spot manager
     this.hidingSpotManager = new HidingSpotManager(this, houseLayout.hidingSpots);
     this.hidingSpotManager.setWallGroup(this.wallGroup);
+    // Targeting after Arcade has synced the sprite to this frame's body position (POST_UPDATE),
+    // so the highlight never lags a frame behind the player (QA R7-1 at low frame rates).
+    const target = () => this.hidingSpotManager.update(this.player.getPosition(), this.player.getFacing());
+    this.events.on(Phaser.Scenes.Events.POST_UPDATE, target);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.POST_UPDATE, target));
 
     // Limited vision (off with ?debug=nolight for QA).
     if (!hasDebugFlag('nolight') && LightLayer.available(this)) this.createLight();
@@ -438,8 +434,7 @@ export class GameScene extends Phaser.Scene {
     this.player.setMovement(moveX, moveY);
     this.player.update();
 
-    // Update hiding spot highlights
-    this.hidingSpotManager.update(this.player.getPosition(), this.player.getFacing());
+    // Hiding spot highlights are updated at POST_UPDATE (see create), from this frame's position.
     this.keepSpotClearOfPrompt(delta);
 
     // Check interact key

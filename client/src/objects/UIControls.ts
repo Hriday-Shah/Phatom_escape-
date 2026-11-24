@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { gameDpr } from '../config/display';
-import { ButtonId, ShellLayout } from '../ui/shellLayout';
+import { ButtonId, ShellLayout, snapToDevice } from '../ui/shellLayout';
 
 const ICONS: Record<ButtonId, string> = {
   interact: 'icon_interact', drop: 'icon_drop', sneak: 'icon_sneak', shoot: 'icon_shoot',
@@ -57,7 +57,7 @@ export class UIControls {
     if (!b || !this.layout) return;
     const L = this.layout, s = L.s, box = L.buttons[id].button;
     if (b.enabled) b.face.setTexture(pressed ? 'btn_round_pressed' : 'btn_round');
-    b.icon.setPosition(box.x + 6 * s, box.y + (pressed ? 6 : 5) * s);
+    b.icon.setPosition(box.x + 6 * s, box.y + (pressed ? 6 : 5) * s); // k*6/dpr: whole device px
   }
 
   /** Centre of a button in CSS px (tests derive tap positions from this). */
@@ -81,7 +81,7 @@ export class UIControls {
     const scr = layout.screen;
     const size = Math.min(60, Math.floor(scr.w * 0.2), Math.floor(scr.h * 0.2));
     const m = 2 * s;
-    this.itemSlot.setPosition(scr.x + scr.w - m - size, scr.y + m);
+    this.itemSlot.setPosition(snapToDevice(scr.x + scr.w - m - size, layout.dpr), snapToDevice(scr.y + m, layout.dpr));
     const first = this.itemSlot.list[0] as any;
     if (first instanceof Phaser.GameObjects.Image) first.setDisplaySize(size, size);
     else this.itemSlot.setScale(size / 60);

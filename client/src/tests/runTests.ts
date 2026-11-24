@@ -7,6 +7,7 @@ import { runManifestTest } from './manifestTest';
 import { runGapRuleTest } from './gapRuleTest';
 import { runContainmentTest } from './containmentTest';
 import { runShellLayoutTest } from './shellLayoutTest';
+import { runTargetingTest } from './targetingTest';
 
 console.log('Running tests...\n');
 
@@ -16,6 +17,7 @@ try {
   runGapRuleTest();
   runContainmentTest();
   runShellLayoutTest();
+  runTargetingTest();
   console.log('\n✅ All tests passed!');
   process.exit(0);
 } catch (error) {

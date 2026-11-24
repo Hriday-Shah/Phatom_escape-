@@ -1,13 +1,13 @@
 import Phaser from 'phaser';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { applyCssCamera, currentShellLayout } from '../ui/currentLayout';
-import { Box, SHELL_ART } from '../ui/shellLayout';
+import { Box, SHELL_ART, snapToDevice } from '../ui/shellLayout';
 
 /**
  * The console body drawn UNDER the game (this scene renders before GameScene): shell_body and
  * screen_bezel 9-slices, joystick well, button sockets and labels, logo, LED and speaker grille.
  * Interactive pieces (buttons, knob) and the prompts live in UIScene, above the game.
- * Every piece is 1x art at the integer shell scale (nearest-neighbour via pixelArt).
+ * Every piece is 1x art at a whole number of device px per art px (nearest-neighbour via pixelArt).
  */
 export class ShellScene extends Phaser.Scene {
   private parts: Phaser.GameObjects.GameObject[] = [];
@@ -37,7 +37,7 @@ export class ShellScene extends Phaser.Scene {
   }
 
   private img(key: string, b: Box, s: number, depth = 2): Phaser.GameObjects.Image | null {
-    if (!this.textures.exists(key)) return null;
+    if (!this.textures.exists(key) || b.w <= 0) return null; // zero box: piece dropped by the layout
     const i = this.add.image(b.x, b.y, key).setOrigin(0, 0).setScale(s).setDepth(depth);
     this.parts.push(i);
     return i;
@@ -79,8 +79,8 @@ export class ShellScene extends Phaser.Scene {
       const key = labelKeys[id];
       if (!this.textures.exists(key)) continue;
       const lbl = this.add.image(b.labelX, b.labelY, key).setOrigin(0.5, 0).setScale(s).setDepth(2);
-      // Keep the label on whole CSS px (its width can be odd at 1x).
-      lbl.setX(Math.round(b.labelX - lbl.displayWidth / 2) + lbl.displayWidth / 2);
+      // Keep the label on whole device px (its width can be odd at 1x).
+      lbl.setX(snapToDevice(b.labelX - lbl.displayWidth / 2, L.dpr) + lbl.displayWidth / 2);
       this.parts.push(lbl);
       this.labels.set(id, lbl);
     }

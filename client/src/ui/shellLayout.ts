@@ -1,14 +1,22 @@
 /**
  * Handheld-console shell layout (console-shell/README.md), in CSS px. Pure, so the node tests
- * can check every aspect ratio. Art is 1x pixel art shown at an integer scale `s`; 9-slice
- * pieces (body, bezel) stretch without distortion, everything else is anchored.
+ * can check every aspect ratio and DPR. Art is 1x pixel art shown at a whole number `k` of
+ * DEVICE px per art px (s = k / dpr CSS px); 9-slice pieces (body, bezel) stretch without
+ * distortion, everything else is anchored, and every edge is on a whole device px.
  */
 export interface Box { x: number; y: number; w: number; h: number; }
 export interface Insets { top: number; right: number; bottom: number; left: number; }
 export type ButtonId = 'shoot' | 'interact' | 'drop' | 'sneak';
 
 export interface ShellLayout {
+  /** CSS px per art px: k / dpr (may be fractional at fractional DPRs, e.g. 6 / 2.625). */
   s: number;
+  /** Device px per art px: always a whole number (QA R7-5). */
+  k: number;
+  /** Render DPR the layout was computed for; every box edge is on a whole device px. */
+  dpr: number;
+  /** Landscape with narrow wings (no logo, half margins): small windows keep a bigger screen. */
+  compact: boolean;
   portrait: boolean;
   /** Whole window: shell_body 9-slice (may extend under the notch / home bar). */
   body: Box;
@@ -34,9 +42,10 @@ export const SHELL_ART = {
 } as const;
 
 /**
- * Shell scale: portrait 3 when the short side is >= 390 CSS px, else 2 (4 on tablets, short
- * side >= 700). Landscape 2 (buttons exactly 48 CSS px), 3 when the short side is >= 600
- * (desktop / tablet), 4 when >= 1000. Never below 2, so buttons are never under 48 CSS px.
+ * Shell scale (CSS px per art px, the README rule): portrait 3 when the short side is >= 390
+ * CSS px, else 2 (4 on tablets, short side >= 700). Landscape 2 (buttons exactly 48 CSS px), 3
+ * when the short side is >= 600 (desktop / tablet), 4 when >= 1000. Never below 2, so buttons
+ * are never under 48 CSS px. computeShellLayout turns it into whole device px per art px.
  */
 export function shellScale(width: number, height: number): number {
   const short = Math.min(width, height);
@@ -45,22 +54,48 @@ export function shellScale(width: number, height: number): number {
 }
 
 const R = Math.round;
+const EPS = 1e-6;
+/** Landscape: the game screen keeps at least this share of the window area (R7-6). */
+export const MIN_SCREEN_SHARE = 0.45;
 
-export function computeShellLayout(width: number, height: number, insets: Insets): ShellLayout {
-  // Narrow safe areas: step the scale down (never below 2) until the controls row fits.
-  for (let s = shellScale(width, height); s > 2; s--) {
-    const l = layoutAt(width, height, insets, s);
-    const wellRight = l.well.x + l.well.w;
-    if (!l.portrait || wellRight + 2 * s <= l.buttons.drop.socket.x) return l;
+/**
+ * Layout for a window of width x height CSS px at render DPR `dpr`.
+ * - Art is drawn at k whole DEVICE px per art px (R7-5): k = floor(scale x dpr), but never
+ *   below ceil(2 x dpr) so buttons stay >= 48 CSS px. E.g. Pixel 7 (2.625): 2 -> 6, 3 -> 7.
+ * - Every box is computed in device px and lands on whole device px.
+ * - Narrow safe areas (portrait): the scale steps down (whole CSS steps) until the controls fit.
+ * - Landscape (R7-6): the scale steps down while the game screen would get under
+ *   MIN_SCREEN_SHARE of the window (800x600 at 3x: 36%), and at 2x the compact wing (no logo,
+ *   half margins) is used when the screen is still narrower than tall (800x600 desktop,
+ *   568x320 phones), so the game camera keeps its zoom.
+ */
+export function computeShellLayout(width: number, height: number, insets: Insets, dpr = 1): ShellLayout {
+  const kMin = Math.ceil(2 * dpr - EPS);
+  const portrait = height > width;
+  // Candidate k per whole CSS scale step (so integer DPRs keep integer CSS scales).
+  const ks: number[] = [];
+  for (let sc = shellScale(width, height); sc >= 2; sc--) {
+    const k = Math.max(kMin, Math.floor(sc * dpr + EPS));
+    if (k > kMin && !ks.includes(k)) ks.push(k);
   }
-  return layoutAt(width, height, insets, 2);
+  for (const k of ks) {
+    const l = layoutAt(width, height, insets, dpr, k, false);
+    if (portrait) {
+      if (l.well.x + l.well.w + 2 * l.s <= l.buttons.drop.socket.x + EPS) return l;
+    } else if (l.screen.w * l.screen.h >= MIN_SCREEN_SHARE * width * height) return l;
+  }
+  const l = layoutAt(width, height, insets, dpr, kMin, false);
+  if (!portrait && l.screen.w < l.screen.h) return layoutAt(width, height, insets, dpr, kMin, true);
+  return l;
 }
 
-function layoutAt(width: number, height: number, insets: Insets, s: number): ShellLayout {
+function layoutAt(width: number, height: number, insets: Insets, dpr: number, k: number, compact: boolean): ShellLayout {
   const A = SHELL_ART;
   const portrait = height > width;
-  const m = 4 * s;
-  const L = R(insets.left), T = R(insets.top), Rt = R(width - insets.right), B = R(height - insets.bottom);
+  const s = k; // device px per art px; everything below is in device px
+  const m = (compact ? 2 : 4) * s;
+  const W = R(width * dpr), H = R(height * dpr);
+  const L = R(insets.left * dpr), T = R(insets.top * dpr), Rt = W - R(insets.right * dpr), B = H - R(insets.bottom * dpr);
   const clusterW = (A.colPitch + A.socket) * s; // 58*s
   const clusterH = 2 * A.rowPitch * s; // 72*s
   const well = A.well * s;
@@ -76,18 +111,18 @@ function layoutAt(width: number, height: number, insets: Insets, s: number): She
     // Decoration only: dropped when there is no room between the well and the cluster.
     if (grille.x < wellBox.x + well + s || grille.x + gw > clusterX - s) grille = { x: 0, y: 0, w: 0, h: 0 };
     const lw = A.logo.w * s, lh = A.logo.h * s;
-    logo = { x: R(width / 2 - lw / 2), y: clusterY - m - lh, w: lw, h: lh };
+    logo = { x: R(W / 2 - lw / 2), y: clusterY - m - lh, w: lw, h: lh };
     led = { x: L + m + 2 * s, y: R(logo.y + lh / 2 - (A.led * s) / 2), w: A.led * s, h: A.led * s };
     bezel = { x: L + m, y: T + m, w: Rt - m - (L + m), h: logo.y - m - (T + m) };
   } else {
-    const wing = Math.max(clusterW, A.logo.w * s) + 2 * m;
+    const wing = (compact ? clusterW : Math.max(clusterW, A.logo.w * s)) + 2 * m;
     bezel = { x: L + wing, y: T + m, w: Rt - wing - (L + wing), h: B - m - (T + m) };
     const cy = R(T + (B - T) * 0.58);
     clusterX = Rt - m - clusterW;
     clusterY = R(cy - clusterH / 2);
     wellBox = { x: R(L + wing / 2 - well / 2), y: R(cy - well / 2), w: well, h: well };
     const lw = A.logo.w * s, lh = A.logo.h * s;
-    logo = { x: R(L + wing / 2 - lw / 2), y: T + m, w: lw, h: lh };
+    logo = compact ? { x: 0, y: 0, w: 0, h: 0 } : { x: R(L + wing / 2 - lw / 2), y: T + m, w: lw, h: lh };
     led = { x: R(Rt - wing / 2 - (A.led * s) / 2), y: T + m + 2 * s, w: A.led * s, h: A.led * s };
     const gw = A.grille.w * s, gh = A.grille.h * s;
     grille = { x: R(L + wing / 2 - gw / 2), y: B - m - gh, w: gw, h: gh };
@@ -105,12 +140,21 @@ function layoutAt(width: number, height: number, insets: Insets, s: number): She
       labelY: socket.y + sock + A.labelGap * s,
     };
   };
+  const c = (b: Box): Box => ({ x: b.x / dpr, y: b.y / dpr, w: b.w / dpr, h: b.h / dpr });
+  const btns = { drop: at(0, 0), shoot: at(1, 0), sneak: at(0, 1), interact: at(1, 1) };
   return {
-    s, portrait,
+    s: k / dpr, k, dpr, compact, portrait,
     body: { x: 0, y: 0, w: width, h: height },
-    bezel, screen, well: wellBox, knobTravel: A.knobTravel * s,
+    bezel: c(bezel), screen: c(screen), well: c(wellBox), knobTravel: (A.knobTravel * s) / dpr,
     // Order (README): Shoot top-right, Use bottom-right, Drop top-left, Sneak bottom-left.
-    buttons: { drop: at(0, 0), shoot: at(1, 0), sneak: at(0, 1), interact: at(1, 1) },
-    logo, led, grille,
+    buttons: Object.fromEntries(Object.entries(btns).map(([id, b]) => [id, {
+      socket: c(b.socket), button: c(b.button), labelX: b.labelX / dpr, labelY: b.labelY / dpr,
+    }])) as ShellLayout['buttons'],
+    logo: c(logo), led: c(led), grille: c(grille),
   };
+}
+
+/** Snap a CSS coordinate to the nearest whole device px. */
+export function snapToDevice(v: number, dpr: number): number {
+  return Math.round(v * dpr) / dpr;
 }

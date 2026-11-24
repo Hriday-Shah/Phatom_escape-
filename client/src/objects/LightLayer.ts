@@ -9,14 +9,25 @@ import { Rect } from '../logic/spotTargeting';
  * of the gradient). The darkness is one half-resolution
  * RenderTexture the size of the camera view plus a margin; it is only redrawn (fill, erase the
  * brush, draw the shadow quads of the few walls in range) when the player has moved
- * REDRAW_STEP world px or the camera has scrolled past the margin. Standing still costs nothing.
+ * REDRAW_STEP world px or the camera view (now, or where the camera follow is heading this
+ * frame) would leave the texture. Standing still costs nothing.
+ *
+ * Shadows (QA R7-2/R7-3): every occluder is its full rectangle. Each edge that faces away from
+ * the player casts a quad, so the shadow starts at the rect's far silhouette (the wall itself
+ * stays lit) and touching rects (door + adjoining walls, jambs) leave no seams. Rects are
+ * grown by SEAM px so rasterised edges of neighbours overlap.
  */
 export class LightLayer {
   /** World px per RenderTexture texel (1 art px): soft gradient, pixel-art shadow edges. */
   static readonly RES = 2;
   static readonly REDRAW_STEP = 2;
-  /** Extra world px on each side of the view, so small camera moves need no redraw. */
-  static readonly MARGIN = 24;
+  /**
+   * Extra world px on each side of the view, so small camera moves need no redraw, and the
+   * view the camera follow reaches this frame is always covered (QA R7-4: >= 32).
+   */
+  static readonly MARGIN = 48;
+  /** World px each occluder rect is grown by, so neighbouring rects' shadows overlap. */
+  static readonly SEAM = 0.75;
   /** Opacity of the darkness (1 = pitch black). */
   static readonly DARKNESS = 0.97;
   /**
@@ -27,8 +38,8 @@ export class LightLayer {
 
   private scene: Phaser.Scene;
   private radius: number;
-  /** Occluders as segments (wall centre lines): the near half of a wall stays lit. */
-  private segments: { x1: number; y1: number; x2: number; y2: number }[];
+  /** Occluder rects (walls, locked doors), grown by SEAM. */
+  private rects: Rect[];
   private rt!: Phaser.GameObjects.RenderTexture;
   private brush: Phaser.GameObjects.Image;
   private shadows: Phaser.GameObjects.Graphics;
@@ -40,9 +51,8 @@ export class LightLayer {
   constructor(scene: Phaser.Scene, radius: number, occluders: Rect[]) {
     this.scene = scene;
     this.radius = radius;
-    this.segments = occluders.map((r) => (r.width >= r.height
-      ? { x1: r.x, y1: r.y + r.height / 2, x2: r.x + r.width, y2: r.y + r.height / 2 }
-      : { x1: r.x + r.width / 2, y1: r.y, x2: r.x + r.width / 2, y2: r.y + r.height }));
+    const e = LightLayer.SEAM;
+    this.rects = occluders.map((r) => ({ x: r.x - e, y: r.y - e, width: r.width + 2 * e, height: r.height + 2 * e }));
     const d = (radius * 2) / LightLayer.RES;
     // Erase brush at the mask's worldSize (416 world px = radius 208) in texel units.
     this.brush = scene.make.image({ key: LightLayer.MASK_KEY, add: false })
@@ -71,9 +81,18 @@ export class LightLayer {
   public update(px: number, py: number, force = false): void {
     const res = LightLayer.RES;
     const rt = this.rt;
-    const view = this.scene.cameras.main.worldView;
-    const covered = view.x >= rt.x && view.y >= rt.y
-      && view.right <= rt.x + rt.width * res && view.bottom <= rt.y + rt.height * res;
+    const cam = this.scene.cameras.main;
+    const view = cam.worldView;
+    // The camera follow runs after this (in the render step) and moves the view lerp of the
+    // way toward its target: the texture must cover both the current and that next view.
+    const fv = followTargetView(cam);
+    const tgt = { x: view.x + (fv.x - view.x) * cam.lerp.x, y: view.y + (fv.y - view.y) * cam.lerp.y };
+    const need = {
+      x: Math.min(view.x, tgt.x) - 1, y: Math.min(view.y, tgt.y) - 1,
+      right: Math.max(view.right, tgt.x + view.width) + 1, bottom: Math.max(view.bottom, tgt.y + view.height) + 1,
+    };
+    const covered = need.x >= rt.x && need.y >= rt.y
+      && need.right <= rt.x + rt.width * res && need.bottom <= rt.y + rt.height * res;
     if (!force && covered && Math.abs(px - this.lastX) < LightLayer.REDRAW_STEP
       && Math.abs(py - this.lastY) < LightLayer.REDRAW_STEP) return;
     const t0 = performance.now();
@@ -82,8 +101,9 @@ export class LightLayer {
     this.redraws++;
 
     // Cover the view plus the margin; snapped to whole art px so the light doesn't shimmer.
-    const ox = Math.floor((view.centerX - (rt.width * res) / 2) / res) * res;
-    const oy = Math.floor((view.centerY - (rt.height * res) / 2) / res) * res;
+    const cx = (need.x + need.right) / 2, cy = (need.y + need.bottom) / 2;
+    const ox = Math.floor((cx - (rt.width * res) / 2) / res) * res;
+    const oy = Math.floor((cy - (rt.height * res) / 2) / res) * res;
     rt.setPosition(ox, oy);
     const lx = (px - ox) / res, ly = (py - oy) / res;
 
@@ -91,16 +111,24 @@ export class LightLayer {
     rt.fill(0x000000, 1);
     rt.erase(this.brush, lx, ly);
 
-    // Shadow quads: each wall segment in range projected away from the player.
+    // Shadow quads: every edge of an occluder rect in range that faces away from the player,
+    // projected away from the player (together: the rect's whole shadow beyond it).
     const g = this.shadows;
     g.clear();
     g.fillStyle(0x000000, 1);
     const far = this.radius * 3;
-    for (const s of this.segments) {
-      if (distToSegment(px, py, s) > this.radius) continue;
-      const p1 = { x: s.x1, y: s.y1 }, p2 = { x: s.x2, y: s.y2 };
+    const quad = (x1: number, y1: number, x2: number, y2: number) => {
+      const p1 = { x: x1, y: y1 }, p2 = { x: x2, y: y2 };
       const p3 = project(px, py, p2, far), p4 = project(px, py, p1, far);
       g.fillPoints([p1, p2, p3, p4].map((p) => ({ x: (p.x - ox) / res, y: (p.y - oy) / res })), true);
+    };
+    for (const r of this.rects) {
+      if (distToRect(px, py, r) > this.radius) continue;
+      const x0 = r.x, y0 = r.y, x1 = r.x + r.width, y1 = r.y + r.height;
+      if (py > y0) quad(x0, y0, x1, y0); // top edge (player below it)
+      if (py < y1) quad(x0, y1, x1, y1); // bottom edge
+      if (px > x0) quad(x0, y0, x0, y1); // left edge
+      if (px < x1) quad(x1, y0, x1, y1); // right edge
     }
     rt.draw(g);
     this.cpuMs += performance.now() - t0;
@@ -126,8 +154,23 @@ function project(px: number, py: number, p: { x: number; y: number }, far: numbe
   return { x: p.x + (dx / len) * far, y: p.y + (dy / len) * far };
 }
 
-function distToSegment(px: number, py: number, s: { x1: number; y1: number; x2: number; y2: number }): number {
-  const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
-  const t = Math.max(0, Math.min(1, ((px - s.x1) * dx + (py - s.y1) * dy) / (dx * dx + dy * dy || 1)));
-  return Math.hypot(px - (s.x1 + t * dx), py - (s.y1 + t * dy));
+function distToRect(px: number, py: number, r: Rect): number {
+  const dx = Math.max(r.x - px, 0, px - (r.x + r.width));
+  const dy = Math.max(r.y - py, 0, py - (r.y + r.height));
+  return Math.hypot(dx, dy);
+}
+
+/** Top-left of the view the camera follow is heading to (follow target, offset, bounds). */
+function followTargetView(cam: Phaser.Cameras.Scene2D.Camera): { x: number; y: number } {
+  const view = cam.worldView;
+  const f = (cam as any)._follow as { x: number; y: number } | null;
+  if (!f) return { x: view.x, y: view.y };
+  let x = f.x - cam.followOffset.x - view.width / 2;
+  let y = f.y - cam.followOffset.y - view.height / 2;
+  if (cam.useBounds) {
+    const b = cam.getBounds();
+    x = b.width <= view.width ? b.centerX - view.width / 2 : Phaser.Math.Clamp(x, b.x, b.right - view.width);
+    y = b.height <= view.height ? b.centerY - view.height / 2 : Phaser.Math.Clamp(y, b.y, b.bottom - view.height);
+  }
+  return { x, y };
 }
