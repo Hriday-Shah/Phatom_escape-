@@ -107,6 +107,7 @@ export class NetSync {
     const d = m ? (this.lastMoveDir = dirOf(v.x, v.y, this.me.getFacing())) : this.lastMoveDir;
     const s = this.lastSent;
     if (x === s.x && y === s.y && d === s.d && m === s.m && now - s.at < 1000) return;
+    console.log('[NetSync] Sending MY position:', x, y, '- velocity:', v.x, v.y);
     this.lastSent = { x, y, d, m, at: now };
     this.link.sendPose(x, y, d, m);
   }
