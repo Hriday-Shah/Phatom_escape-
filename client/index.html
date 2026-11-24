@@ -152,13 +152,23 @@
           <div id="pe-lobby-settings" class="pe-section">
             <h3>Room settings <span id="pe-lobby-settings-note" class="pe-tag"></span></h3>
             <div id="pe-lobby-host-settings">
-              <label for="pe-set-round">Round length</label>
-              <select id="pe-set-round"></select>
-              <label for="pe-set-hide">Hide time</label>
-              <select id="pe-set-hide"></select>
-              <label for="pe-set-phantoms">Phantoms</label>
+              <label for="pe-set-hiding"><span class="pe-set-label">Hiding time</span><span class="pe-set-hint">The Phantom hides items</span></label>
+              <select id="pe-set-hiding"></select>
+              <label for="pe-set-search"><span class="pe-set-label">Search time</span><span class="pe-set-hint">The Phantom is blindfolded; players search</span></label>
+              <select id="pe-set-search"></select>
+              <label for="pe-set-chase"><span class="pe-set-label">Escape / chase time</span></label>
+              <select id="pe-set-chase"></select>
+              <label for="pe-set-stun"><span class="pe-set-label">Stun duration</span><span class="pe-set-hint">How long a stun-gun hit lasts</span></label>
+              <select id="pe-set-stun"></select>
+              <label for="pe-set-reload"><span class="pe-set-label">Stun gun reload</span></label>
+              <select id="pe-set-reload"></select>
+              <label for="pe-set-sneak"><span class="pe-set-label">Sneak duration</span></label>
+              <select id="pe-set-sneak"></select>
+              <label for="pe-set-sneak-cd"><span class="pe-set-label">Sneak cooldown</span></label>
+              <select id="pe-set-sneak-cd"></select>
+              <label for="pe-set-phantoms"><span class="pe-set-label">Phantoms</span></label>
               <select id="pe-set-phantoms"></select>
-              <label for="pe-set-noise">Drawer noise</label>
+              <label for="pe-set-noise"><span class="pe-set-label">Drawer noise</span><span class="pe-set-hint">How far the Phantom hears drawers</span></label>
               <select id="pe-set-noise"></select>
             </div>
             <dl id="pe-lobby-settings-readonly"></dl>
@@ -171,6 +181,16 @@
         <p id="pe-lobby-wait" class="pe-tag">Waiting for the host to start.</p>
         <button id="pe-lobby-leave" type="button">Leave</button>
       </div>
+      <dialog id="pe-lobby-confirm" aria-labelledby="pe-lobby-confirm-text">
+        <form method="dialog" id="pe-lobby-confirm-form">
+          <p id="pe-lobby-confirm-text">Not everyone is ready. Start anyway?</p>
+          <p id="pe-lobby-confirm-detail" class="pe-tag"></p>
+          <div id="pe-lobby-confirm-actions">
+            <button id="pe-lobby-confirm-cancel" type="submit" value="cancel">Cancel</button>
+            <button id="pe-lobby-confirm-ok" type="submit" value="ok" class="pe-primary">Start anyway</button>
+          </div>
+        </form>
+      </dialog>
     </section>
   </div>
   <script type="module" src="/src/main.ts"></script>

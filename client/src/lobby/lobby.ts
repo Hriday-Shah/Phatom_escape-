@@ -19,33 +19,73 @@ export const PLAYER_COLOURS = [
 export type ColourId = (typeof PLAYER_COLOURS)[number]['id'];
 export const MAX_PLAYERS = PLAYER_COLOURS.length;
 
+/** Hoodie tint with no lobby colour (?debug, ?play, ...): the original cyan. */
+export const DEFAULT_HOODIE_TINT = 0x5fd3e6;
+/** Phaser tint for a lobby colour id (anything unknown -> the default cyan). */
+export function hoodieTint(colour: unknown): number {
+  const c = PLAYER_COLOURS.find((x) => x.id === colour);
+  return c ? parseInt(c.hex.slice(1), 16) : DEFAULT_HOODIE_TINT;
+}
+
 export type DrawerNoise = 'off' | 'quiet' | 'normal' | 'loud';
 
 export interface LobbySettings {
-  /** Round length, minutes. */
-  roundMinutes: number;
-  /** Head start before the Phantom may hunt, seconds. */
-  hideSeconds: number;
+  /** Hiding phase: the Phantom hides items, minutes. */
+  hidingMinutes: number;
+  /** Search phase: the Phantom is blindfolded and players search, minutes. */
+  searchMinutes: number;
+  /** Escape / chase phase, minutes. */
+  chaseMinutes: number;
+  /** How long a stun-gun hit stuns the Phantom, seconds. */
+  stunSeconds: number;
+  /** Stun gun reload time, minutes. */
+  reloadMinutes: number;
+  /** How long one sneak lasts, seconds. */
+  sneakSeconds: number;
+  /** Wait before sneaking again, seconds. */
+  sneakCooldownSeconds: number;
   /** Number of Phantoms. */
   phantoms: number;
   /** How loud opening / closing drawers is (how far the Phantom hears it). */
   drawerNoise: DrawerNoise;
 }
 
-/** Placeholder ranges and defaults (the host can change them; players see them read-only). */
+export type NumericSettingKey = Exclude<keyof LobbySettings, 'drawerNoise'>;
+export interface NumericSettingDef { key: NumericSettingKey; label: string; unit: 'min' | 's' | ''; min: number; max: number; step: number; default: number }
+
+/**
+ * Numeric settings in display order (the host can change every one; players see them
+ * read-only). `elementId` in LobbyScreen maps each to its #pe-set-* select.
+ */
+export const NUMERIC_SETTINGS: readonly NumericSettingDef[] = [
+  { key: 'hidingMinutes', label: 'Hiding time', unit: 'min', min: 1, max: 10, step: 1, default: 5 },
+  { key: 'searchMinutes', label: 'Search time', unit: 'min', min: 1, max: 10, step: 1, default: 5 },
+  { key: 'chaseMinutes', label: 'Escape / chase time', unit: 'min', min: 5, max: 40, step: 1, default: 20 },
+  { key: 'stunSeconds', label: 'Stun duration', unit: 's', min: 10, max: 60, step: 5, default: 30 },
+  { key: 'reloadMinutes', label: 'Stun gun reload', unit: 'min', min: 1, max: 10, step: 1, default: 5 },
+  { key: 'sneakSeconds', label: 'Sneak duration', unit: 's', min: 5, max: 20, step: 1, default: 10 },
+  { key: 'sneakCooldownSeconds', label: 'Sneak cooldown', unit: 's', min: 10, max: 90, step: 5, default: 30 },
+  { key: 'phantoms', label: 'Phantoms', unit: '', min: 1, max: 3, step: 1, default: 1 },
+];
+
+export const DRAWER_NOISE = { options: ['off', 'quiet', 'normal', 'loud'] as DrawerNoise[], default: 'normal' as DrawerNoise };
+
+/** Limits by key (`SETTING_LIMITS.chaseMinutes.max`, ...). */
 export const SETTING_LIMITS = {
-  roundMinutes: { min: 3, max: 15, step: 1, default: 8 },
-  hideSeconds: { min: 15, max: 60, step: 15, default: 30 },
-  phantoms: { min: 1, max: 3, step: 1, default: 1 },
-  drawerNoise: { options: ['off', 'quiet', 'normal', 'loud'] as DrawerNoise[], default: 'normal' as DrawerNoise },
-} as const;
+  ...(Object.fromEntries(NUMERIC_SETTINGS.map((d) => [d.key, d])) as Record<NumericSettingKey, NumericSettingDef>),
+  drawerNoise: DRAWER_NOISE,
+};
 
 export const DEFAULT_SETTINGS: LobbySettings = {
-  roundMinutes: SETTING_LIMITS.roundMinutes.default,
-  hideSeconds: SETTING_LIMITS.hideSeconds.default,
-  phantoms: SETTING_LIMITS.phantoms.default,
-  drawerNoise: SETTING_LIMITS.drawerNoise.default,
+  ...(Object.fromEntries(NUMERIC_SETTINGS.map((d) => [d.key, d.default])) as Record<NumericSettingKey, number>),
+  drawerNoise: DRAWER_NOISE.default,
 };
+
+/** Snap to the setting's step and clamp into its range. */
+export function clampSetting(def: NumericSettingDef, v: number): number {
+  const snapped = def.min + Math.round((v - def.min) / def.step) * def.step;
+  return Math.min(def.max, Math.max(def.min, snapped));
+}
 
 export interface LobbyPlayer {
   id: string;
@@ -82,6 +122,8 @@ export interface LobbyService {
   updateSettings(patch: Partial<LobbySettings>): LobbyResult;
   kick(playerId: string): LobbyResult;
   start(): LobbyResult;
+  /** True when everyone except the host is ready. */
+  allReady(): boolean;
 }
 
 const ok: LobbyResult = { ok: true };
@@ -95,14 +137,22 @@ export function makeRoomCode(rand: () => number = Math.random): string {
   return s;
 }
 
-/** Clamp / validate a settings patch; null when any value is invalid. */
+/**
+ * Apply a settings patch: numbers are snapped to their step and clamped into their range;
+ * null when a value is not a finite number, the noise is unknown, or the key is unknown.
+ */
 export function validSettings(cur: LobbySettings, patch: Partial<LobbySettings>): LobbySettings | null {
-  const next = { ...cur, ...patch };
-  for (const k of ['roundMinutes', 'hideSeconds', 'phantoms'] as const) {
-    const l = SETTING_LIMITS[k]; const v = next[k];
-    if (!Number.isInteger(v) || v < l.min || v > l.max || (v - l.min) % l.step !== 0) return null;
+  const next: LobbySettings = { ...cur };
+  for (const [k, v] of Object.entries(patch) as [keyof LobbySettings, unknown][]) {
+    if (k === 'drawerNoise') {
+      if (!DRAWER_NOISE.options.includes(v as DrawerNoise)) return null;
+      next.drawerNoise = v as DrawerNoise;
+      continue;
+    }
+    const def = SETTING_LIMITS[k as NumericSettingKey];
+    if (!def || typeof v !== 'number' || !Number.isFinite(v)) return null;
+    next[k as NumericSettingKey] = clampSetting(def, v);
   }
-  if (!SETTING_LIMITS.drawerNoise.options.includes(next.drawerNoise)) return null;
   return next;
 }
 
@@ -185,18 +235,20 @@ export class LobbyRoom {
     }
   }
 
-  /** Stage 1: the host can start whenever (stage 2 may require everyone ready). */
+  /** The host can always start; the screen asks to confirm first when allReady() is false. */
   start(actor: string): LobbyResult {
     if (actor !== this.s.hostId) return fail('not-host');
     this.s.started = true;
     return ok;
   }
 
+  /** Everyone except the host has pressed Ready (pressing Start is the host's "ready"). */
   allReady(): boolean { return this.s.players.every((p) => p.ready || p.id === this.s.hostId); }
 }
 
 /** Placeholder players for the stage-1 preview (and the ?lobby= debug entries). */
-export const PLACEHOLDER_NAMES = ['Mira', 'Kabir', 'Zoe'];
+export const PLACEHOLDER_HOST_NAME = 'Demo host';
+export const PLACEHOLDER_NAMES = ['Demo player 2', 'Demo player 3', 'Demo player 4'];
 
 /**
  * Stage 1: the room lives in this browser. As host, `create()`; as a player, `joinLocal()` puts
@@ -225,8 +277,8 @@ export class LocalLobbyService implements LobbyService {
   static joinLocal(nickname: string, code: string, opts: { placeholders?: number } = {}): LocalLobbyService {
     const room = new LobbyRoom(code, 'Host', undefined);
     room.state.players[0].placeholder = true;
-    room.state.players[0].nickname = PLACEHOLDER_NAMES[0];
-    for (let i = 1; i < 1 + (opts.placeholders ?? 0); i++) {
+    room.state.players[0].nickname = PLACEHOLDER_HOST_NAME;
+    for (let i = 0; i < (opts.placeholders ?? 0); i++) {
       const p = room.add(PLACEHOLDER_NAMES[i % PLACEHOLDER_NAMES.length], undefined, true);
       p.ready = true;
     }
@@ -272,4 +324,6 @@ export class LocalLobbyService implements LobbyService {
   updateSettings(patch: Partial<LobbySettings>): LobbyResult { return this.act(() => this.room.updateSettings(this.selfId, patch)); }
   kick(playerId: string): LobbyResult { return this.act(() => this.room.kick(this.selfId, playerId)); }
   start(): LobbyResult { return this.act(() => this.room.start(this.selfId)); }
+  /** Everyone except the host is ready (the screen confirms before starting otherwise). */
+  allReady(): boolean { return this.room.allReady(); }
 }

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { Player } from '../objects/Player';
+import { hoodieTint } from '../lobby/lobby';
 import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { houseLayout } from '../data/houseLayout';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
@@ -57,7 +58,8 @@ export class GameScene extends Phaser.Scene {
 
     // Create player at spawn point (supports ?spawn=kitchen for dev/screenshots)
     const spawnPoint = this.getSpawnPoint();
-    this.player = new Player(this, spawnPoint.x, spawnPoint.y);
+    // Hoodie colour from the lobby (registry 'colour'); no lobby -> the default cyan.
+    this.player = new Player(this, spawnPoint.x, spawnPoint.y, hoodieTint(this.registry.get('colour')));
 
     // Runtime guard for QA N1: the body must be a 32px circle centred on the sprite.
     const expected = PLAYER_BODY_RADIUS * 2;

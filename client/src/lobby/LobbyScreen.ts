@@ -5,7 +5,8 @@
  */
 import './lobby.css';
 import {
-  ColourId, DrawerNoise, LobbyPlayer, LobbyService, LobbySettings, LobbyState, PLAYER_COLOURS, SETTING_LIMITS,
+  ColourId, DRAWER_NOISE, DrawerNoise, LobbyPlayer, LobbyService, LobbySettings, LobbyState, NUMERIC_SETTINGS,
+  NumericSettingDef, NumericSettingKey, PLAYER_COLOURS,
 } from './lobby';
 import { inviteLink } from '../home/settings';
 
@@ -17,11 +18,19 @@ export interface LobbyCallbacks {
 }
 
 const NOISE_LABEL: Record<DrawerNoise, string> = { off: 'Off', quiet: 'Quiet', normal: 'Normal', loud: 'Loud' };
-const SETTING_TEXT = {
-  roundMinutes: (v: number) => `${v} min`,
-  hideSeconds: (v: number) => `${v} s`,
-  phantoms: (v: number) => String(v),
-  drawerNoise: (v: DrawerNoise) => NOISE_LABEL[v],
+const numberText = (d: NumericSettingDef, v: number) => (d.unit ? `${v} ${d.unit}` : String(v));
+
+/** Setting -> its <select> id in index.html (restyle hooks). */
+export const SETTING_ELEMENT_IDS: Record<keyof LobbySettings, string> = {
+  hidingMinutes: 'pe-set-hiding',
+  searchMinutes: 'pe-set-search',
+  chaseMinutes: 'pe-set-chase',
+  stunSeconds: 'pe-set-stun',
+  reloadMinutes: 'pe-set-reload',
+  sneakSeconds: 'pe-set-sneak',
+  sneakCooldownSeconds: 'pe-set-sneak-cd',
+  phantoms: 'pe-set-phantoms',
+  drawerNoise: 'pe-set-noise',
 };
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
@@ -37,12 +46,10 @@ export class LobbyScreen {
   private readyBtn = $<HTMLButtonElement>('pe-lobby-ready');
   private copyStatus = $('pe-lobby-copy-status');
   private linkBox = $<HTMLInputElement>('pe-lobby-link');
-  private selects = {
-    roundMinutes: $<HTMLSelectElement>('pe-set-round'),
-    hideSeconds: $<HTMLSelectElement>('pe-set-hide'),
-    phantoms: $<HTMLSelectElement>('pe-set-phantoms'),
-    drawerNoise: $<HTMLSelectElement>('pe-set-noise'),
-  };
+  private selects = Object.fromEntries(
+    Object.entries(SETTING_ELEMENT_IDS).map(([k, id]) => [k, $<HTMLSelectElement>(id)]),
+  ) as Record<keyof LobbySettings, HTMLSelectElement>;
+  private confirm = $<HTMLDialogElement>('pe-lobby-confirm');
   private colourBtns = new Map<ColourId, HTMLButtonElement>();
   private unsub: () => void;
   private ac = new AbortController();
@@ -65,19 +72,27 @@ export class LobbyScreen {
       sel.replaceChildren(...values.map((v) => { const o = document.createElement('option'); o.value = String(v); o.textContent = text(v); return o; }));
     };
     const range = (l: { min: number; max: number; step: number }) => { const r: number[] = []; for (let v = l.min; v <= l.max; v += l.step) r.push(v); return r; };
-    fill(this.selects.roundMinutes, range(SETTING_LIMITS.roundMinutes), SETTING_TEXT.roundMinutes);
-    fill(this.selects.hideSeconds, range(SETTING_LIMITS.hideSeconds), SETTING_TEXT.hideSeconds);
-    fill(this.selects.phantoms, range(SETTING_LIMITS.phantoms), SETTING_TEXT.phantoms);
-    fill(this.selects.drawerNoise, [...SETTING_LIMITS.drawerNoise.options], SETTING_TEXT.drawerNoise);
-    for (const k of ['roundMinutes', 'hideSeconds', 'phantoms'] as const) on(this.selects[k], 'change', () => this.svc.updateSettings({ [k]: Number(this.selects[k].value) }));
+    for (const d of NUMERIC_SETTINGS) {
+      const sel = this.selects[d.key];
+      fill(sel, range(d), (v: number) => numberText(d, v));
+      on(sel, 'change', () => this.svc.updateSettings({ [d.key]: Number(sel.value) }));
+    }
+    fill(this.selects.drawerNoise, [...DRAWER_NOISE.options], (v: DrawerNoise) => NOISE_LABEL[v]);
     on(this.selects.drawerNoise, 'change', () => this.svc.updateSettings({ drawerNoise: this.selects.drawerNoise.value as DrawerNoise }));
 
     on(this.readyBtn, 'click', () => { const me = this.self(); if (me) this.svc.setReady(!me.ready); });
     on($('pe-lobby-start'), 'click', () => {
-      if (!this.svc.start().ok) return;
-      const st = this.svc.getState(); const me = st.players.find((p) => p.id === st.selfId);
-      if (me) this.cb.onStart(me, st.settings);
+      if (this.svc.allReady()) { this.start(); return; }
+      // Not everyone is ready: ask first (HTML dialog, restyle via #pe-lobby-confirm).
+      const s = this.svc.getState();
+      const waiting = s.players.filter((p) => !p.ready && p.id !== s.hostId).map((p) => p.nickname);
+      $('pe-lobby-confirm-detail').textContent = `Not ready: ${waiting.join(', ')}`;
+      this.confirm.returnValue = '';
+      this.confirm.showModal();
+      $('pe-lobby-confirm-cancel').focus();
     });
+    // Closing the dialog (buttons, Escape) resolves it; only "ok" starts.
+    on(this.confirm, 'close', () => { if (this.confirm.returnValue === 'ok') this.start(); });
     on($('pe-lobby-leave'), 'click', () => this.leave());
     on($('pe-lobby-copy'), 'click', () => this.copyLink());
     const share = $<HTMLButtonElement>('pe-lobby-share');
@@ -92,8 +107,15 @@ export class LobbyScreen {
     this.render(this.svc.getState());
   }
 
+  private start(): void {
+    if (!this.svc.start().ok) return;
+    const st = this.svc.getState(); const me = st.players.find((p) => p.id === st.selfId);
+    if (me) this.cb.onStart(me, st.settings);
+  }
+
   /** Leave the room (Leave button, browser Back). */
   leave(): void {
+    if (this.confirm.open) this.confirm.close();
     this.svc.leave();
     this.destroy();
     this.cb.onLeave();
@@ -155,12 +177,10 @@ export class LobbyScreen {
     $('pe-lobby-settings-note').textContent = isHost ? '' : '(set by the host)';
     for (const k of Object.keys(this.selects) as (keyof LobbySettings)[]) this.selects[k].value = String(s.settings[k]);
     const dl = $('pe-lobby-settings-readonly');
-    dl.replaceChildren(...([
-      ['Round length', SETTING_TEXT.roundMinutes(s.settings.roundMinutes)],
-      ['Hide time', SETTING_TEXT.hideSeconds(s.settings.hideSeconds)],
-      ['Phantoms', SETTING_TEXT.phantoms(s.settings.phantoms)],
-      ['Drawer noise', SETTING_TEXT.drawerNoise(s.settings.drawerNoise)],
-    ] as const).flatMap(([k, v]) => { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; return [dt, dd]; }));
+    dl.replaceChildren(...[
+      ...NUMERIC_SETTINGS.map((d) => [d.label, numberText(d, s.settings[d.key as NumericSettingKey])] as const),
+      ['Drawer noise', NOISE_LABEL[s.settings.drawerNoise]] as const,
+    ].flatMap(([k, v]) => { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; return [dt, dd]; }));
 
     // Actions.
     this.readyBtn.setAttribute('aria-pressed', String(!!me?.ready));
