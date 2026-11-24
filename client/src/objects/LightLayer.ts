@@ -2,8 +2,18 @@ import Phaser from 'phaser';
 import { Rect } from '../logic/spotTargeting';
 
 /**
+ * What casts shadows: 'furniture' (default) = walls, locked doors, hiding spots and
+ * blocking furniture, with furniture art punched back out of the mask so it stays lit;
+ * 'walls' = walls and locked doors only (no furniture floor shadows).
+ */
+export const LIGHT_OCCLUDERS: 'furniture' | 'walls' = 'furniture';
+
+/**
  * Player's limited vision: darkness everywhere except a soft circle of light around the player,
- * with walls, locked doors, hiding spots and blocking furniture casting hard shadows.
+ * with walls, locked doors, and (when LIGHT_OCCLUDERS is 'furniture') hiding spots and
+ * blocking furniture casting hard shadows onto the floor behind them. Furniture art and
+ * searchable spots are punched back out of the shadow mask so they never self-shadow
+ * or shadow neighbouring furniture.
  *
  * Cheap by design: the light brush is the approved fx_light_mask texture (no per-frame drawing
  * of the gradient). The darkness is one half-resolution
@@ -38,26 +48,37 @@ export class LightLayer {
 
   private scene: Phaser.Scene;
   private radius: number;
-  /** Occluder rects (walls, locked doors, hiding spots, blocking furniture), grown by SEAM. */
+  /** Occluder rects (grown by SEAM). */
   private rects: Rect[];
+  /**
+   * Furniture / hiding-spot rects (grown by SEAM) punched out of the shadow mask
+   * so their art stays lit inside the light radius.
+   */
+  private litRects: Rect[];
   private rt!: Phaser.GameObjects.RenderTexture;
+  /** Inverse of the light brush: opaque darkness outside the light, transparent inside. */
+  private outside!: Phaser.GameObjects.RenderTexture;
   private brush: Phaser.GameObjects.Image;
   private shadows: Phaser.GameObjects.Graphics;
+  private punch: Phaser.GameObjects.Graphics;
   private lastX = NaN;
   private lastY = NaN;
   /** Redraw count (QA / perf scripts). */
   public redraws = 0;
 
-  constructor(scene: Phaser.Scene, radius: number, occluders: Rect[]) {
+  constructor(scene: Phaser.Scene, radius: number, occluders: Rect[], litRects: Rect[] = []) {
     this.scene = scene;
     this.radius = radius;
     const e = LightLayer.SEAM;
-    this.rects = occluders.map((r) => ({ x: r.x - e, y: r.y - e, width: r.width + 2 * e, height: r.height + 2 * e }));
+    const grow = (r: Rect): Rect => ({ x: r.x - e, y: r.y - e, width: r.width + 2 * e, height: r.height + 2 * e });
+    this.rects = occluders.map(grow);
+    this.litRects = litRects.map(grow);
     const d = (radius * 2) / LightLayer.RES;
     // Erase brush at the mask's worldSize (416 world px = radius 208) in texel units.
     this.brush = scene.make.image({ key: LightLayer.MASK_KEY, add: false })
       .setOrigin(0.5).setDisplaySize(d, d);
     this.shadows = scene.make.graphics({}, false);
+    this.punch = scene.make.graphics({}, false);
     this.createTexture();
   }
 
@@ -73,8 +94,11 @@ export class LightLayer {
     const h = Math.ceil((cam.height / cam.zoom + LightLayer.MARGIN * 2) / LightLayer.RES) + 2;
     if (this.rt && this.rt.width === w && this.rt.height === h) return;
     this.rt?.destroy();
+    this.outside?.destroy();
     this.rt = this.scene.add.renderTexture(0, 0, w, h)
       .setOrigin(0, 0).setScale(LightLayer.RES).setDepth(50).setAlpha(LightLayer.DARKNESS);
+    this.outside = this.scene.make.renderTexture({ x: 0, y: 0, width: w, height: h }, false);
+    this.outside.setOrigin(0, 0);
     this.lastX = NaN;
   }
 
@@ -131,6 +155,27 @@ export class LightLayer {
       if (px < x1) quad(x1, y0, x1, y1); // right edge
     }
     rt.draw(g);
+
+    // Punch furniture and hiding-spot rects out of the shadow so their art stays
+    // lit, then restore darkness outside the light (the inverse brush) so unlit
+    // furniture does not show through. Floor shadows beyond the rects remain.
+    if (this.litRects.length) {
+      const gPunch = this.punch;
+      gPunch.clear();
+      gPunch.fillStyle(0xffffff, 1);
+      const reach = this.radius + LightLayer.SEAM * 2;
+      for (const r of this.litRects) {
+        if (distToRect(px, py, r) > reach) continue;
+        gPunch.fillRect((r.x - ox) / res, (r.y - oy) / res, r.width / res, r.height / res);
+      }
+      rt.erase(gPunch);
+      const inv = this.outside;
+      inv.clear();
+      inv.fill(0x000000, 1);
+      inv.erase(this.brush, lx, ly);
+      rt.draw(inv, 0, 0);
+    }
+
     this.cpuMs += performance.now() - t0;
   }
 
@@ -143,8 +188,10 @@ export class LightLayer {
 
   public destroy(): void {
     this.rt.destroy();
+    this.outside?.destroy();
     this.brush.destroy();
     this.shadows.destroy();
+    this.punch.destroy();
   }
 }
 

@@ -172,6 +172,36 @@ export function runTargetingTest(): void {
     if (t !== 'kitchen_sink_cabinet_d1') errors.push(`sink d1 straight-on at (995,548): ${t}`);
     else console.log('✓ sink door 1 is targeted straight-on from (995,548) facing down');
   }
+  // R12-5: facing the empty SE counter (south or east run) must not target sink door 1.
+  for (const [x, y, face, label] of [
+    [1048, 548, FACING_VECTORS.down, 'south counter (1048,548) facing down'],
+    [1028, 537, FACING_VECTORS.right, 'east counter (1028,537) facing right'],
+  ] as const) {
+    const id = selectTarget(x, y, face, items, blockers, null)?.id ?? null;
+    if (id) errors.push(`R12-5 ${label}: ${id} (want none)`);
+  }
+  {
+    const id = selectTarget(995, 548, FACING_VECTORS.down, items, blockers, null)?.id;
+    if (id !== 'kitchen_sink_cabinet_d1') errors.push(`R12-5 sink d1 still straight-on at (995,548): ${id}`);
+  }
+  // R12-6: microwave door 4 must not target from the NW nook / doorway north of the unit.
+  for (const [x, y, face, label] of [
+    [836, 338, FACING_VECTORS.down, '(836,338) facing down'],
+    [836, 338, FACING_VECTORS.left, '(836,338) facing left'],
+    [871, 340, FACING_VECTORS.down, '(871,340) facing down'],
+    [871, 340, FACING_VECTORS.left, '(871,340) facing left'],
+  ] as const) {
+    const id = selectTarget(x, y, face, items, blockers, null)?.id ?? null;
+    if (id === 'microwave_unit_d4') errors.push(`R12-6 ${label}: microwave_unit_d4`);
+  }
+  {
+    const id = selectTarget(870, 376, FACING_VECTORS.left, items, blockers, null)?.id;
+    if (id !== 'microwave_unit_d4') errors.push(`R12-6 d4 still from east front (870,376): ${id}`);
+  }
+  if (!errors.some((e) => e.startsWith('R12-5') || e.startsWith('R12-6'))) {
+    console.log('✓ R12-5 empty counter does not target sink d1; R12-6 microwave d4 not targeted from the north nook');
+  }
+
   if (errors.length) {
     errors.slice(0, 30).forEach((e) => console.log(`✗ ${e}`));
     throw new Error(`Targeting test failed with ${errors.length} problem(s)`);

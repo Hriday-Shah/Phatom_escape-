@@ -48,6 +48,15 @@ export const FRONT_GROUPS: Record<string, { members: string[]; side: 'top' | 'bo
   // them is narrower than the player, so nobody stands between them).
   sofa_row: { members: ['sofa', 'ottoman'], side: 'right' },
 };
+/**
+ * Front face of a sectioned unit that is not in FRONT_GROUPS. The player must stand
+ * on this side to target it (R12-5, R12-6): the empty SE counter is not the sink's
+ * front, and the nook north of the microwave is not its east-face front.
+ */
+export const FRONT_SIDES: Record<string, 'top' | 'bottom' | 'left' | 'right'> = {
+  kitchen_sink_cabinet: 'top',
+  microwave_unit: 'right',
+};
 const GROUP_OF = new Map(Object.entries(FRONT_GROUPS).flatMap(([g, { members }]) => members.map((m) => [m, g] as const)));
 
 /** Max distance (world px) from the player centre to a section rect. Player radius is 16. */
@@ -202,10 +211,22 @@ function sectionedUnits(items: Interactable[]): Map<string, FrontUnit> {
     const rects = [...new Set(secs.map((it) => it.unitRect))];
     const x0 = Math.min(...rects.map((r) => r.x)), y0 = Math.min(...rects.map((r) => r.y));
     const x1 = Math.max(...rects.map((r) => r.x + r.width)), y1 = Math.max(...rects.map((r) => r.y + r.height));
-    return [k, { box: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, sections: secs, side: FRONT_GROUPS[k]?.side }];
+    return [k, { box: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, sections: secs, side: FRONT_GROUPS[k]?.side ?? FRONT_SIDES[k] }];
   }));
   unitCache.set(items, m);
   return m;
+}
+
+
+/** True when the player stands straight in front of `box` (not off a corner or inside), on `side` if given. */
+export function isInFrontOfUnit(
+  px: number, py: number, box: Rect, side?: 'top' | 'bottom' | 'left' | 'right', slop = 0,
+): boolean {
+  const inX = px >= box.x - slop && px <= box.x + box.width + slop;
+  const inY = py >= box.y - slop && py <= box.y + box.height + slop;
+  if (inX === inY) return false;
+  if (side && side !== (inX ? (py < box.y ? 'top' : 'bottom') : (px < box.x ? 'left' : 'right'))) return false;
+  return true;
 }
 
 /**
@@ -321,8 +342,18 @@ export function selectTarget(
   if (front) return cornerOverride(px, py, facing, items, blockers, current, fronts) ?? front;
   let best: Interactable | null = null;
   let bestKey = Infinity, curKey = Infinity;
+  const units = sectionedUnits(items);
   for (const it of items) {
     if (!isEligible(px, py, it, blockers)) continue;
+    // R12-5 / R12-6: units with an explicit FRONT_SIDES face are only targeted from
+    // that front, not from a neighbouring empty counter or a corner nook. Other
+    // front groups (e.g. sofa_row / ottoman) keep the usual cone fallback so they
+    // can still be used from a non-declared side.
+    const fk = frontKey(it);
+    if (fk && fk in FRONT_SIDES) {
+      const u = units.get(fk);
+      if (u && !isInFrontOfUnit(px, py, u.box, u.side)) continue;
+    }
     const inCone = facingDot(px, py, facing, it) >= FACING_CONE_COS;
     const key = targetScore(px, py, facing, it) + (inCone ? 0 : 1e6);
     if (it === current) curKey = key;
