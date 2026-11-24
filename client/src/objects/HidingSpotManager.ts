@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { HidingSpot, houseLayout } from '../data/houseLayout';
 import { DRAWER_UNITS, DrawerUnit, baseTextureKey, sectionOpenTextureKey } from '../data/drawerSlices';
 import { HIDING_SPOT_TEXTURES } from '../utils/artHelpers';
+import { RealDeadline } from '../logic/realTimer';
 import {
   CORNER_SECTIONS, Interactable, Rect, buildInteractables, isEligible, selectTarget, sightBlockers,
 } from '../logic/spotTargeting';
@@ -31,7 +32,8 @@ export class HidingSpotManager {
   private spots: SpotState[] = [];
   private highlightedSpot: SpotState | null = null;
   private eligible = new Set<SpotState>();
-  private messageTimer: Phaser.Time.TimerEvent | null = null;
+  /** Expiry of a timed message ('Empty'), on real time (see realTimer.ts). */
+  private messageDeadline = new RealDeadline();
   private blockers: Rect[] = sightBlockers(houseLayout);
   /** Pulsing outline drawn around just the targeted spot / section. */
   private highlightGfx: Phaser.GameObjects.Graphics;
@@ -173,6 +175,7 @@ export class HidingSpotManager {
   static readonly OUTLINE_PAD = 5;
 
   public update(playerPosition: Phaser.Math.Vector2, facing: { x: number; y: number } = { x: 0, y: 1 }): void {
+    this.tickMessage();
     const px = playerPosition.x, py = playerPosition.y;
     this.eligible.clear();
     for (const s of this.spots) if (isEligible(px, py, s.data, this.blockers)) this.eligible.add(s);
@@ -287,39 +290,29 @@ export class HidingSpotManager {
   }
 
   private showMessage(text: string, duration?: number): void {
-    // Every new message cancels the previous timer, so a stale timer can never
+    // Every new message replaces the previous deadline, so a stale one can never
     // blank or replace a newer message.
-    if (this.messageTimer) {
-      this.messageTimer.destroy();
-      this.messageTimer = null;
-    }
-
+    this.messageDeadline.clear();
     // Show message via UIScene (UIScene itself never auto-hides the spot prompt;
-    // this manager owns the only timer).
+    // this manager owns the only deadline).
     const uiScene = this.scene.scene.get('UIScene');
     if (uiScene && (uiScene as any).showHidingSpotPrompt) {
       (uiScene as any).showHidingSpotPrompt(text);
-      if (duration) {
-        this.messageTimer = this.scene.time.delayedCall(duration, () => {
-          this.messageTimer = null;
-          // Re-show the highlight prompt if still highlighted, else hide.
-          if (this.highlightedSpot) {
-            (uiScene as any).showHidingSpotPrompt(this.promptText(this.highlightedSpot));
-          } else {
-            (uiScene as any).hideHidingSpotPrompt?.();
-          }
-        });
-      }
+      if (duration) this.messageDeadline.set(duration);
     }
   }
 
-  private hideMessage(): void {
-    // Cancel timer
-    if (this.messageTimer) {
-      this.messageTimer.destroy();
-      this.messageTimer = null;
-    }
+  /** Polled every frame: when a timed message expires, back to the name prompt (or hide). */
+  private tickMessage(): void {
+    if (!this.messageDeadline.due()) return;
+    const uiScene = this.scene.scene.get('UIScene') as any;
+    if (!uiScene) return;
+    if (this.highlightedSpot) uiScene.showHidingSpotPrompt?.(this.promptText(this.highlightedSpot));
+    else uiScene.hideHidingSpotPrompt?.();
+  }
 
+  private hideMessage(): void {
+    this.messageDeadline.clear();
     const uiScene = this.scene.scene.get('UIScene');
     if (uiScene && (uiScene as any).hideHidingSpotPrompt) {
       (uiScene as any).hideHidingSpotPrompt();
@@ -331,9 +324,7 @@ export class HidingSpotManager {
   }
 
   public destroy(): void {
-    if (this.messageTimer) {
-      this.messageTimer.destroy();
-    }
+    this.messageDeadline.clear();
     this.highlightTween?.stop();
     this.highlightGfx.destroy();
     this.units.forEach((u) => {

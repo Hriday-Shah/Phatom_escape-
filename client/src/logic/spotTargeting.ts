@@ -142,16 +142,17 @@ export const FRONT_TOUCH = 22;
  */
 export const HYSTERESIS = 6;
 /**
- * Facing that counts as diagonal into a unit (cos 20..70 deg off its front normal). Only then
- * does the facing cone decide; straight-on and sideways facings use the section in front.
- */
-const DIAGONAL_MIN = Math.cos((70 * Math.PI) / 180);
-const DIAGONAL_MAX = Math.cos((20 * Math.PI) / 180);
-/**
  * Corner sections no player can stand straight in front of (the kitchen sink cabinet fills the
- * corner below / above them). They are picked by facing diagonally into the corner; the game
- * shows a faint hint outline on them while the player targets the neighbouring section.
+ * corner below / above them). They are the ONLY sections picked by facing (QA R8-1): while the
+ * section in front is the corner's neighbour and the facing is within CORNER_WINDOW_DEG of the
+ * corner's diagonal (its whole 45-degree keyboard / joystick octant), the corner section wins.
+ * The game shows a faint hint outline on them while the player targets the neighbour.
  */
+export const CORNER_WINDOW_DEG = 22.5;
+/** Once picked, a corner section is kept until the facing leaves this wider window (hysteresis). */
+export const CORNER_KEEP_DEG = 30;
+const CORNER_WINDOW_COS = Math.cos((CORNER_WINDOW_DEG * Math.PI) / 180);
+const CORNER_KEEP_COS = Math.cos((CORNER_KEEP_DEG * Math.PI) / 180);
 export const CORNER_SECTIONS: Record<string, { x: number; y: number; neighbour: string }> = {
   microwave_unit_d4: { x: D, y: -D, neighbour: 'microwave_unit_d3' },
   stove_drawers_d3: { x: D, y: D, neighbour: 'stove_drawers_d2' },
@@ -171,14 +172,16 @@ function sectionedUnits(items: Interactable[]): Map<string, { box: Rect; section
 /**
  * Front rule: when the player touches or faces a multi-section unit from straight in front of
  * it (its centre projects onto the unit's front), the section the centre projects onto wins,
- * with HYSTERESIS px of stickiness at section edges. Returns undefined when it does not apply
- * (not in front, or facing diagonally into the unit: the cone rule handles corners).
+ * with HYSTERESIS px of stickiness at section edges, whatever the facing (straight, sideways or
+ * diagonal; QA R8-1). Returns undefined when the player isn't in front of any unit.
  */
 function frontSection(
   px: number, py: number, facing: { x: number; y: number }, items: Interactable[], blockers: Rect[],
   current: Interactable | null,
+  out: Interactable[] = [],
 ): Interactable | undefined {
   // Rank: touching before merely facing, then most squarely faced, then nearest.
+  // `out` receives every unit's front pick (the corner rule looks at all of them).
   let best: Interactable | undefined;
   let bestKey = Infinity;
   for (const [unitId, { box, sections }] of sectionedUnits(items)) {
@@ -191,7 +194,6 @@ function frontSection(
     const n = inX ? { x: 0, y: py < box.y ? 1 : -1 } : { x: px < box.x ? 1 : -1, y: 0 };
     const fd = facing.x * n.x + facing.y * n.y;
     if (d > FRONT_TOUCH && fd < 0.5) continue; // neither touching nor facing it
-    if (fd > DIAGONAL_MIN && fd < DIAGONAL_MAX) return undefined; // diagonal: cone decides
     const c = inX ? px : py;
     const span = (it: Interactable) => (inX ? [it.x, it.x + it.width] : [it.y, it.y + it.height]);
     // The section in front: its span contains c (else the nearest span).
@@ -210,16 +212,35 @@ function frontSection(
       if (Math.abs(c - mid(current)) - Math.abs(c - mid(pick)) < HYSTERESIS) pick = current;
     }
     if (!pick || !isEligible(px, py, pick, blockers)) continue;
+    out.push(pick);
     const key = (d <= FRONT_TOUCH ? 0 : 100) - fd * 10 + d / 100;
     if (key < bestKey) { best = pick; bestKey = key; }
   }
   return best;
 }
 
+/** Corner rule (see CORNER_SECTIONS): the corner section instead of its neighbour in front. */
+function cornerOverride(
+  px: number, py: number, facing: { x: number; y: number }, items: Interactable[], blockers: Rect[],
+  current: Interactable | null, fronts: Interactable[],
+): Interactable | null {
+  for (const [id, c] of Object.entries(CORNER_SECTIONS)) {
+    // The player stands in front of the corner's neighbour (in a corner the player can touch
+    // two units; the neighbour need not be the top-ranked one).
+    if (!fronts.some((f) => f.id === c.neighbour)) continue;
+    const cos = current?.id === id ? CORNER_KEEP_COS : CORNER_WINDOW_COS;
+    if (facing.x * c.x + facing.y * c.y < cos - 1e-9) continue;
+    const corner = items.find((it) => it.id === id);
+    if (corner && isEligible(px, py, corner, blockers)) return corner;
+  }
+  return null;
+}
+
 /**
  * The one spot the player targets.
  * 1. Front rule (frontSection): touching / facing a multi-section unit from straight in front,
- *    the section in front of the player's centre wins (sideways nudges never jump ahead).
+ *    the section in front of the player's centre wins, whatever the facing (nudges and diagonal
+ *    input never jump ahead). Only the two corner sections are picked by facing (cornerOverride).
  * 2. Otherwise, among eligible spots (in range, line of sight), those in the facing cone first;
  *    within the chosen group the lowest targetScore (nearest, facing breaks near-ties).
  * `currentId` (the target last frame) adds hysteresis: it is kept until another spot is
@@ -231,8 +252,9 @@ export function selectTarget(
   currentId: string | null = null,
 ): Interactable | null {
   const current = currentId ? items.find((it) => it.id === currentId) ?? null : null;
-  const front = frontSection(px, py, facing, items, blockers, current);
-  if (front) return front;
+  const fronts: Interactable[] = [];
+  const front = frontSection(px, py, facing, items, blockers, current, fronts);
+  if (front) return cornerOverride(px, py, facing, items, blockers, current, fronts) ?? front;
   let best: Interactable | null = null;
   let bestKey = Infinity, curKey = Infinity;
   for (const it of items) {
