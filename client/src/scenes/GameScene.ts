@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { Player } from '../objects/Player';
 import { hoodieTint } from '../lobby/lobby';
 import { HidingSpotManager } from '../objects/HidingSpotManager';
+import { NetSync } from '../net/NetSync';
+import type { GameLink } from '../net/ColyseusLobbyService';
 import { houseLayout } from '../data/houseLayout';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { createComposedWalls } from '../utils/wallRenderer';
@@ -30,6 +32,8 @@ export class GameScene extends Phaser.Scene {
   private doorGroup!: Phaser.Physics.Arcade.StaticGroup;
   private uiScene!: Phaser.Scene;
   private lightLayer: LightLayer | null = null;
+  /** Online only (QA reads netSync.remotePositions()). */
+  public netSync: NetSync | null = null;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -85,6 +89,10 @@ export class GameScene extends Phaser.Scene {
     const target = () => this.hidingSpotManager.update(this.player.getPosition(), this.player.getFacing());
     this.events.on(Phaser.Scenes.Events.POST_UPDATE, target);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.POST_UPDATE, target));
+
+    // Online room (trial): other players + drawer sync. Offline (no 'net') is unchanged.
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    if (net) this.netSync = new NetSync(this, net, this.player, this.hidingSpotManager);
 
     // Limited vision (off with ?debug=nolight for QA).
     if (!hasDebugFlag('nolight') && LightLayer.available(this)) this.createLight();

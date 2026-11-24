@@ -277,8 +277,38 @@ export class HidingSpotManager {
     }
   }
 
+  /** Online: told about every open / close this player makes (net/NetSync.ts). */
+  private localToggle: ((id: string, open: boolean) => void) | null = null;
+  public onLocalToggle(cb: (id: string, open: boolean) => void): void { this.localToggle = cb; }
+
+  /**
+   * Online: another player opened / closed spot `id` (no 'Empty' message here; if it is the
+   * one this player targets, its prompt follows). Unknown ids are ignored.
+   */
+  public setOpen(id: string, open: boolean): void {
+    const spot = this.spots.find((s) => s.data.id === id);
+    if (!spot || spot.isOpen === open) return;
+    spot.isOpen = open;
+    this.drawSpot(spot);
+    if (this.highlightedSpot === spot) this.showPrompt(spot);
+  }
+
   private toggleSpot(spot: SpotState): void {
     spot.isOpen = !spot.isOpen;
+    this.drawSpot(spot);
+    this.localToggle?.(spot.data.id, spot.isOpen);
+
+    if (spot.isOpen) {
+      // Only OPENING reveals the contents; the name comes back after 2 s.
+      this.showMessage('Empty', 2000);
+    } else if (this.highlightedSpot === spot) {
+      // Closing: straight back to the name prompt (cancels any pending 'Empty' timer).
+      this.showPrompt(spot);
+    }
+  }
+
+  /** Open / closed art for one spot or section. */
+  private drawSpot(spot: SpotState): void {
     const unit = spot.unit;
 
     if (spot.data.drawer > 0) {
@@ -291,14 +321,6 @@ export class HidingSpotManager {
     // Opened (or closed) art is never tinted.
     if (unit.sprite instanceof Phaser.GameObjects.Image) unit.sprite.clearTint();
     unit.overlays.forEach((o) => o.clearTint());
-
-    if (spot.isOpen) {
-      // Only OPENING reveals the contents; the name comes back after 2 s.
-      this.showMessage('Empty', 2000);
-    } else if (this.highlightedSpot === spot) {
-      // Closing: straight back to the name prompt (cancels any pending 'Empty' timer).
-      this.showPrompt(spot);
-    }
   }
 
   private showMessage(text: string, duration?: number): void {

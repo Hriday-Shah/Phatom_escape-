@@ -12,6 +12,7 @@ import { runRealTimerTest } from './realTimerTest';
 import { runHomeSettingsTest } from './homeSettingsTest';
 import { runLobbyTest } from './lobbyTest';
 import { runFacingFilterTest } from './facingFilterTest';
+import { runNetTest } from './netTest';
 
 console.log('Running tests...\n');
 
@@ -26,6 +27,7 @@ try {
   runHomeSettingsTest();
   runLobbyTest();
   runFacingFilterTest();
+  runNetTest();
   console.log('\n✅ All tests passed!');
   process.exit(0);
 } catch (error) {

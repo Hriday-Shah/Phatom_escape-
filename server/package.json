@@ -3,9 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Authoritative game server for Phantom Escape (Stage 2)",
+  "description": "Phantom Escape game server (Colyseus): online trial of stage 2",
   "scripts": {
-    "dev": "echo 'Server not implemented yet (Stage 2)'",
-    "build": "echo 'Server not implemented yet (Stage 2)'"
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "test": "tsx src/tests/runServerTests.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@colyseus/core": "^0.16.26",
+    "@colyseus/schema": "^3.0.76",
+    "@colyseus/ws-transport": "^0.16.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
   }
 }
