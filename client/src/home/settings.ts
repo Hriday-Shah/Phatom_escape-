@@ -59,8 +59,13 @@ export function fallbackGraphemes(s: string): string[] {
  * leading space dropped and at most NICKNAME_MAX grapheme clusters (16 emoji fit, a ZWJ emoji
  * is never split). `trimEnd` (default) also drops trailing space; the input keeps it while typing.
  */
+/** Invisible characters stripped and whitespace collapsed (no trimming, no length limit). */
+function normaliseNick(raw: string): string {
+  return stripZwj(raw.replace(INVISIBLE, '')).replace(/\s+/g, ' ');
+}
+
 export function cleanNickname(raw: string, trimEnd = true): string {
-  let s = stripZwj(raw.replace(INVISIBLE, '')).replace(/\s+/g, ' ').replace(/^ /, '');
+  let s = normaliseNick(raw).replace(/^ /, '');
   s = graphemes(s).slice(0, NICKNAME_MAX).join('');
   return trimEnd ? s.trim() : s;
 }
@@ -92,6 +97,23 @@ export function fixRoomCodeInput(value: string, caret: number): { value: string;
   const after = codeChars(value.slice(caret)).slice(0, ROOM_CODE_MAX);
   if (before.length + after.length > ROOM_CODE_MAX) before = before.slice(0, Math.max(0, ROOM_CODE_MAX - after.length));
   return { value: before + after, caret: before.length };
+}
+
+/**
+ * Nickname input after an edit (R11-3, like the room code): text left and right of the caret
+ * are cleaned separately and the caret stays put; when the result would exceed NICKNAME_MAX
+ * graphemes, the graphemes just typed (left of the caret) are refused instead of dropping the
+ * last one.
+ */
+export function fixNicknameInput(value: string, caret: number): { value: string; caret: number } {
+  const b = normaliseNick(value.slice(0, caret)).replace(/^ /, '');
+  let a = normaliseNick(value.slice(caret));
+  if (b === '' || b.endsWith(' ')) a = a.replace(/^ /, ''); // no leading / double space across the caret
+  const ga = graphemes(a).slice(0, NICKNAME_MAX);
+  let gb = graphemes(b);
+  if (gb.length + ga.length > NICKNAME_MAX) gb = gb.slice(0, Math.max(0, NICKNAME_MAX - ga.length));
+  const before = gb.join('');
+  return { value: before + ga.join(''), caret: before.length };
 }
 
 export function loadNickname(store: Store | null = defaultStore()): string {

@@ -13,20 +13,22 @@
 #pe-lobby-code-box { display: flex; flex-wrap: wrap; align-items: center; gap: var(--pe-gap); }
 #pe-lobby-code-label { color: var(--pe-muted); }
 #pe-lobby-code { font-size: 24px; letter-spacing: 0.15em; font-family: ui-monospace, Menlo, Consolas, monospace; }
-#pe-lobby-link { flex: 1 1 100%; }
+#pe-lobby-link { flex: 1 1 100%; min-width: 0; width: 100%; }
 #pe-lobby-copy-status { margin: 0; color: var(--pe-muted); flex-basis: 100%; }
 #pe-lobby-copy-status:empty { display: none; }
 #pe-lobby-notice { margin: 0; }
 
-#pe-lobby-body { display: grid; gap: var(--pe-gap); grid-template-columns: 1fr; }
+/* minmax(0, 1fr): a long nickname must never widen a column (R11-1); it ellipsis-truncates. */
+#pe-lobby-body { display: grid; gap: var(--pe-gap); grid-template-columns: minmax(0, 1fr); }
 @media (orientation: landscape) {
-  #pe-lobby-body { grid-template-columns: 1fr 1fr; align-items: start; }
+  #pe-lobby-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
 }
+#pe-lobby-players { min-width: 0; }
 #pe-lobby-side { display: flex; flex-direction: column; gap: var(--pe-gap); min-width: 0; }
 
 #pe-lobby-player-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .pe-lobby-player {
-  display: flex; align-items: center; gap: 10px; min-height: calc(var(--pe-touch) + 4px);
+  display: flex; align-items: center; gap: 10px; min-height: calc(var(--pe-touch) + 4px); min-width: 0;
   padding: 0 10px; background: var(--pe-bezel); border: 2px solid var(--pe-outline); border-radius: var(--pe-radius);
 }
 .pe-lobby-player.pe-self { border-color: var(--pe-muted); }
@@ -40,7 +42,11 @@
 
 #pe-lobby-colours { border: 0; margin: 0; padding: 0; min-width: 0; }
 #pe-lobby-colours legend { padding: 0; margin-bottom: 4px; font-weight: 700; font-size: 18px; }
-#pe-lobby-colour-grid { display: grid; grid-template-columns: repeat(4, var(--pe-swatch-size)); gap: 8px; }
+/* Up to 4 per row; fewer (wrapping) when the column is narrower. */
+#pe-lobby-colour-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, var(--pe-swatch-size)); gap: 8px;
+  max-width: calc(4 * var(--pe-swatch-size) + 3 * 8px);
+}
 #pe-home .pe-colour {
   width: var(--pe-swatch-size); height: var(--pe-swatch-size); min-width: 0; padding: 0;
   background: var(--pe-swatch); border: 3px solid var(--pe-outline);
@@ -50,7 +56,9 @@
 #pe-home .pe-colour:disabled::after { content: '×'; color: var(--pe-outline); font-size: 28px; line-height: 1; }
 
 /* Settings: label (+ optional hint) on the left, select on the right; the screen scrolls. */
-#pe-lobby-host-settings { display: grid; grid-template-columns: minmax(0, 1fr) minmax(7.5em, auto); gap: 6px var(--pe-gap); align-items: center; }
+#pe-lobby-host-settings { display: grid; grid-template-columns: minmax(0, 1fr) minmax(6.5em, max-content); gap: 6px var(--pe-gap); align-items: center; }
+#pe-lobby-host-settings select { min-width: 0; max-width: 100%; width: 100%; }
+.pe-set-label, .pe-set-hint { overflow-wrap: anywhere; }
 #pe-lobby-host-settings label { color: var(--pe-muted); display: flex; flex-direction: column; min-width: 0; }
 .pe-set-label { color: var(--pe-text); }
 .pe-set-hint { font-size: 13px; line-height: 1.25; color: var(--pe-muted); }
