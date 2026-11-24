@@ -5,6 +5,7 @@ import { currentRenderDpr } from './config/display';
 import { HomeScreen } from './home/HomeScreen';
 import { displayNickname, loadNickname, loadSoundOn, lobbyFromUrl, roomFromUrl, skipsHome } from './home/settings';
 import type { StartInfo } from './home/HomeScreen';
+import { serverFromUrl } from './net/serverConfig';
 
 // Prevent iOS Safari bounce and zoom
 document.addEventListener('touchmove', (e) => {
@@ -47,7 +48,11 @@ window.addEventListener('load', () => {
     onStartGame: (info) => { home.close(); startGame(info, true); },
     onSoundChange: applySound,
   });
-  home.open({ room: roomFromUrl(window.location.search), lobby: lobbyFromUrl(window.location.search) });
+  // Online trial: ?server=wss://... (from an invite link; remembered for this tab).
+  home.open({
+    room: roomFromUrl(window.location.search), lobby: lobbyFromUrl(window.location.search),
+    server: serverFromUrl(window.location.search),
+  });
 });
 
 const LEAVE_GAME = 'Leave the game and go back to the homepage?';
@@ -63,6 +68,8 @@ function startGame(info: StartInfo, fromLobby: boolean): void {
   game.registry.set('nickname', info.nickname);
   game.registry.set('colour', info.colour ?? null);
   game.registry.set('lobbySettings', info.settings ?? null);
+  // Online room (trial): GameScene adds the other players and drawer sync (net/NetSync.ts).
+  game.registry.set('net', info.net ?? null);
   // History: the game is the top entry (it replaces the lobby's); Back pops it -> confirm.
   if (fromLobby) history.replaceState({ peView: 'game' }, '');
   else history.pushState({ peView: 'game' }, '');
@@ -75,7 +82,8 @@ function startGame(info: StartInfo, fromLobby: boolean): void {
   // Test hook for QA/Playwright (dev builds or any ?debug=... URL only).
   // (also the ?lobby= debug entries, so the lobby -> game hand-off can be checked).
   const q = new URLSearchParams(window.location.search);
-  if (import.meta.env.DEV || q.has('debug') || q.has('lobby')) {
+  // ?qa=1 exposes it without changing anything else (online end-to-end test).
+  if (import.meta.env.DEV || q.has('debug') || q.has('lobby') || q.has('qa')) {
     (window as any).__PE_GAME__ = game;
   }
 

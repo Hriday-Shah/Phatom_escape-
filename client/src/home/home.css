@@ -125,6 +125,10 @@
 #pe-home button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 #pe-join-message { min-height: 1.35em; margin: 0; color: var(--pe-muted); }
+#pe-home-message { margin: 0; color: var(--pe-muted); }
+#pe-home-message:empty { display: none; }
+#pe-online-status { margin: 0; font-size: 0.85em; color: var(--pe-muted); }
+#pe-online-status:empty { display: none; }
 
 /* Secondary views (How to play, Story) */
 .pe-view-title { margin: 0 0 var(--pe-gap); font: 800 24px var(--pe-font-title); }

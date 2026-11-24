@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { Player } from '../objects/Player';
 import { hoodieTint } from '../lobby/lobby';
 import { HidingSpotManager } from '../objects/HidingSpotManager';
+import { NetSync } from '../net/NetSync';
+import type { GameLink } from '../net/ColyseusLobbyService';
 import { houseLayout } from '../data/houseLayout';
 import { SafeAreaManager } from '../utils/SafeAreaManager';
 import { createComposedWalls } from '../utils/wallRenderer';
@@ -30,6 +32,8 @@ export class GameScene extends Phaser.Scene {
   private doorGroup!: Phaser.Physics.Arcade.StaticGroup;
   private uiScene!: Phaser.Scene;
   private lightLayer: LightLayer | null = null;
+  /** Online only (QA reads netSync.remotePositions()). */
+  public netSync: NetSync | null = null;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -57,7 +61,7 @@ export class GameScene extends Phaser.Scene {
     this.createFurniture();
 
     // Create player at spawn point (supports ?spawn=kitchen for dev/screenshots)
-    const spawnPoint = this.getSpawnPoint();
+    const spawnPoint = this.onlineSpawn(this.getSpawnPoint());
     // Hoodie colour from the lobby (registry 'colour'); no lobby -> the default cyan.
     this.player = new Player(this, spawnPoint.x, spawnPoint.y, hoodieTint(this.registry.get('colour')));
 
@@ -85,6 +89,10 @@ export class GameScene extends Phaser.Scene {
     const target = () => this.hidingSpotManager.update(this.player.getPosition(), this.player.getFacing());
     this.events.on(Phaser.Scenes.Events.POST_UPDATE, target);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.POST_UPDATE, target));
+
+    // Online room (trial): other players + drawer sync. Offline (no 'net') is unchanged.
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    if (net) this.netSync = new NetSync(this, net, this.player, this.hidingSpotManager);
 
     // Limited vision (off with ?debug=nolight for QA).
     if (!hasDebugFlag('nolight') && LightLayer.available(this)) this.createLight();
@@ -337,6 +345,17 @@ export class GameScene extends Phaser.Scene {
       );
       this.wallGroup.add(body);
     });
+  }
+
+  /**
+   * Online: spread players around the spawn by their place in the room (a row of 4, two rows)
+   * so they don't all start on top of each other. Offline: the spawn as is.
+   */
+  private onlineSpawn(p: { x: number; y: number }): { x: number; y: number } {
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    if (!net || new URLSearchParams(window.location.search).has('spawn')) return p;
+    const i = Math.max(0, net.players().findIndex((q) => q.id === net.selfId));
+    return { x: p.x + ((i % 4) - 1.5) * 36, y: p.y + (i < 4 ? 0 : 26) };
   }
 
   private getSpawnPoint(): { x: number; y: number } {

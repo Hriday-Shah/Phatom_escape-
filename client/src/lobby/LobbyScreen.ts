@@ -8,14 +8,19 @@ import {
   ColourId, DRAWER_NOISE, DrawerNoise, LobbyPlayer, LobbyService, LobbySettings, LobbyState, NUMERIC_SETTINGS,
   NumericSettingDef, NumericSettingKey, PLAYER_COLOURS,
 } from './lobby';
-import { inviteLink } from '../home/settings';
+import { onlineInviteLink } from '../net/serverConfig';
 
 export interface LobbyCallbacks {
   /** Leave pressed (the service has already been left). */
   onLeave(): void;
   /** The host started: stage 1 starts the house with this player's nickname and colour. */
   onStart(self: LobbyPlayer, settings: LobbySettings): void;
+  /** Online only: the room ended for this player (kicked, connection lost). */
+  onEnded?(reason: 'kicked' | 'disconnected'): void;
 }
+
+/** Online services can also end on their own (kicked / connection lost). */
+type EndingService = LobbyService & { onEnd?(cb: (r: 'kicked' | 'disconnected') => void): () => void };
 
 const NOISE_LABEL: Record<DrawerNoise, string> = { off: 'Off', quiet: 'Quiet', normal: 'Normal', loud: 'Loud' };
 const numberText = (d: NumericSettingDef, v: number) => (d.unit ? `${v} ${d.unit}` : String(v));
@@ -52,9 +57,12 @@ export class LobbyScreen {
   private confirm = $<HTMLDialogElement>('pe-lobby-confirm');
   private colourBtns = new Map<ColourId, HTMLButtonElement>();
   private unsub: () => void;
+  private unsubEnd: () => void = () => {};
+  private startedFired = false;
   private ac = new AbortController();
 
-  constructor(private svc: LobbyService, private cb: LobbyCallbacks) {
+  /** `server`: the online game server (the invite link carries it), or null when offline. */
+  constructor(private svc: EndingService, private cb: LobbyCallbacks, private server: string | null = null) {
     const on = (el: EventTarget, ev: string, f: (e: Event) => void) => el.addEventListener(ev, f, { signal: this.ac.signal });
     // Colour buttons (built once).
     this.grid.replaceChildren();
@@ -97,20 +105,33 @@ export class LobbyScreen {
     on($('pe-lobby-copy'), 'click', () => this.copyLink());
     const share = $<HTMLButtonElement>('pe-lobby-share');
     share.hidden = typeof navigator.share !== 'function';
-    on(share, 'click', () => navigator.share?.({ title: 'Phantom Escape', text: `Join my Phantom Escape room ${this.svc.getState().code}`, url: inviteLink(this.svc.getState().code) }).catch(() => {}));
+    on(share, 'click', () => navigator.share?.({ title: 'Phantom Escape', text: `Join my Phantom Escape room ${this.svc.getState().code}`, url: this.link() }).catch(() => {}));
     on(this.list, 'click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>('.pe-lobby-kick');
       if (b?.dataset.playerId) this.svc.kick(b.dataset.playerId);
     });
 
     this.unsub = this.svc.onChange((s) => this.render(s));
+    if (this.svc.onEnd) {
+      this.unsubEnd = this.svc.onEnd((reason) => {
+        if (this.confirm.open) this.confirm.close();
+        this.destroy();
+        this.cb.onEnded?.(reason);
+      });
+    }
+    // Online rooms are real: replace the offline "only on this device" notice.
+    if (server) $('pe-lobby-notice').textContent = 'Online trial room: friends with the invite link can join (up to 8).';
     this.render(this.svc.getState());
   }
 
+  /** Host: ask to start. The game starts for everyone once the room says it started (render). */
   private start(): void {
-    if (!this.svc.start().ok) return;
-    const st = this.svc.getState(); const me = st.players.find((p) => p.id === st.selfId);
-    if (me) this.cb.onStart(me, st.settings);
+    this.svc.start();
+  }
+
+  /** ?room=CODE, plus &server= when online (a friend only has to open it). */
+  private link(): string {
+    return onlineInviteLink(this.svc.getState().code, this.server, window.location);
   }
 
   /** Leave the room (Leave button, browser Back). */
@@ -123,6 +144,7 @@ export class LobbyScreen {
 
   destroy(): void {
     this.unsub();
+    this.unsubEnd();
     this.ac.abort();
   }
 
@@ -132,6 +154,13 @@ export class LobbyScreen {
   }
 
   private render(s: LobbyState): void {
+    if (s.started && !this.startedFired) {
+      // Started (by this host, or online by the room's host): everyone goes into the house.
+      this.startedFired = true;
+      const self = s.players.find((p) => p.id === s.selfId);
+      if (self) this.cb.onStart(self, s.settings);
+      return;
+    }
     const me = s.players.find((p) => p.id === s.selfId);
     const isHost = s.selfId === s.hostId;
     this.root.dataset.role = isHost ? 'host' : 'player';
@@ -189,9 +218,9 @@ export class LobbyScreen {
     $('pe-lobby-wait').hidden = isHost;
   }
 
-  /** Copy the ?room=CODE link: Clipboard API, then execCommand, then show it selected. */
+  /** Copy the invite link: Clipboard API, then execCommand, then show it selected. */
   private async copyLink(): Promise<void> {
-    const link = inviteLink(this.svc.getState().code);
+    const link = this.link();
     let copied = false;
     try { await navigator.clipboard.writeText(link); copied = true; } catch { /* no permission / insecure context */ }
     if (!copied) {
