@@ -3,6 +3,7 @@ import { join } from 'path';
 import { DRAWER_UNITS, baseTextureKey, sectionOpenTextureKey } from '../data/drawerSlices';
 import { HIDING_SPOT_TEXTURES } from '../utils/artHelpers';
 import { houseLayout } from '../data/houseLayout';
+import { spriteTopLeft, spotRotation } from '../data/spotArt';
 
 export function runManifestTest(): void {
   console.log('=== MANIFEST TEST ===');
@@ -53,9 +54,11 @@ export function runManifestTest(): void {
     if (unit) {
       const base = byKey.get(baseTextureKey(unit));
       if (!base) { artErrors.push(`${spot.id}: no approved ${baseTextureKey(unit)}`); continue; }
-      if (base.width * 2 !== spot.width || base.height * 2 !== spot.height) {
-        artErrors.push(`${spot.id}: ${base.key} is ${base.width}x${base.height}, layout is ${spot.width}x${spot.height}`);
+      if (spot.artSize && (spot.artSize.w !== base.width || spot.artSize.h !== base.height)) {
+        artErrors.push(`${spot.id}: artSize ${spot.artSize.w}x${spot.artSize.h} != ${base.key} ${base.width}x${base.height}`);
       }
+      const laid = layoutCoveredByArt(spot, base.width, base.height);
+      if (laid) artErrors.push(`${spot.id}: ${laid} (${base.key} is ${base.width}x${base.height}, layout is ${spot.width}x${spot.height})`);
       for (const s of unit.sections) {
         const open = byKey.get(sectionOpenTextureKey(unit, s.drawer));
         if (!open) artErrors.push(`${spot.id}: no approved ${sectionOpenTextureKey(unit, s.drawer)}`);
@@ -67,6 +70,14 @@ export function runManifestTest(): void {
     } else {
       const k = HIDING_SPOT_TEXTURES[spot.id];
       if (!k || !byKey.has(k) || !byKey.has(`${k}_open`)) artErrors.push(`${spot.id}: missing approved ${k} / ${k}_open`);
+      const base = k ? byKey.get(k) : undefined;
+      if (base && (spot.rotation || spot.artSize || spot.spriteOffset)) {
+        if (spot.artSize && (spot.artSize.w !== base.width || spot.artSize.h !== base.height)) {
+          artErrors.push(`${spot.id}: artSize ${spot.artSize.w}x${spot.artSize.h} != ${base.key} ${base.width}x${base.height}`);
+        }
+        const laid = layoutCoveredByArt(spot, base.width, base.height);
+        if (laid) artErrors.push(`${spot.id}: ${laid} (${base.key} is ${base.width}x${base.height}, layout is ${spot.width}x${spot.height})`);
+      }
     }
   }
   if (artErrors.length) {
@@ -84,4 +95,20 @@ export function runManifestTest(): void {
   console.log(`✓ manifest.json is committed and valid\n`);
   
   console.log('✅ MANIFEST TEST PASSED');
+}
+
+/** Null if the layout body sits on/inside the (rotated, offset) sprite; else a short reason. */
+function layoutCoveredByArt(spot: typeof houseLayout.hidingSpots[number], artW: number, artH: number): string | null {
+  const rot = spotRotation(spot);
+  const art = spot.artSize ?? { w: artW, h: artH };
+  if (art.w !== artW || art.h !== artH) return null; // artSize mismatch is reported separately
+  // Recompute expected sprite size from the file, not from spot.artSize, so a wrong artSize still fails coverage.
+  const rw = (rot === 90 || rot === 270) ? artH : artW;
+  const rh = (rot === 90 || rot === 270) ? artW : artH;
+  const o = spriteTopLeft(spot);
+  const sx = o.x - spot.x, sy = o.y - spot.y, sw = rw * 2, sh = rh * 2;
+  if (0 < sx || 0 < sy || spot.width > sx + sw || spot.height > sy + sh) {
+    return `layout ${spot.width}x${spot.height} is not covered by rotated art ${sw}x${sh} at offset ${sx},${sy}`;
+  }
+  return null;
 }
