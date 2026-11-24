@@ -40,6 +40,19 @@ export interface HidingSpot {
   type: 'drawer' | 'closet' | 'cabinet' | 'appliance' | 'furniture';
   contents: string[];
   interactRange: number;
+  /**
+   * Clockwise rotation of the unit art, in degrees. Layout width/height are the
+   * axis-aligned body after rotation (and after any trim via spriteOffset).
+   */
+  rotation?: 0 | 90 | 180 | 270;
+  /** Unrotated art size in 1x art px. Required when the layout is rotated or trimmed. */
+  artSize?: { w: number; h: number };
+  /**
+   * World-px offset of the (possibly larger) art sprite relative to the layout
+   * top-left. Used when a few pixels of art tuck under a neighbour so the
+   * physics body still fits.
+   */
+  spriteOffset?: { x?: number; y?: number };
 }
 
 export interface Furniture {
@@ -163,7 +176,7 @@ export const houseLayout: HouseLayout = {
   windows: [
     { x: 190, y: 140, width: 140, height: 10 }, // bedroom, top wall
     { x: 540, y: 100, width: 160, height: 10 }, // living room, top wall
-    { x: 836, y: 550, width: 64, height: 10 }, // kitchen, bottom wall above the stove
+    { x: 836, y: 550, width: 64, height: 10 }, // kitchen, bottom wall (behind the south-wall fridge/sink run)
   ],
 
   openings: [
@@ -316,56 +329,86 @@ export const houseLayout: HouseLayout = {
       interactRange: 60,
     },
     
-    // Kitchen
+    // Kitchen. L-counter along the south and east walls, matching Hriday's sketch
+    // with page-up = north. The real doorway is already on the north-west /
+    // north-middle of the kitchen, so the sketch is used unrotated and unmirrored.
+    //
+    // South wall, west to east: fridge (SW corner, standing 46x66, flush with the
+    // west and south walls) then the sink (rotated 90° CW so its doors face the
+    // room). The inner south wall is 6 px too narrow for the fridge plus the
+    // sink's full 150 px width, so the sink's body is 144 px and 6 px of the west
+    // plinth tucks under the fridge (all four doors stay in the room). There is
+    // no leftover south-wall run for a separate empty counter; the SE corner is
+    // the sink's east end.
+    //
+    // East wall, south to north: a 4 px notch at the L (legal under the gap
+    // rule), then the stove (rotated 270°, lower-middle), then the 3-drawer unit
+    // (rotated 270°) flush with the north-east corner. Native stove+drawer height
+    // is 190 px in a 194 px east-leg, hence the 4 px notch rather than a sliver
+    // of counter.
+    //
+    // Microwave: its own unit on the west wall, upper-middle (rotated 270° so
+    // the doors face the room), 34 px south of the north wall so the foyer
+    // doorway stays clear. The hatched mark on the sketch's upper west wall is
+    // left as solid wall (uncertain door/window; existing doorways unchanged).
     {
       id: 'microwave_unit',
       name: 'Microwave Unit',
-      x: 900,
-      y: 320,
-      width: 110,
-      height: 34,
+      x: 820,
+      y: 354,
+      width: 34,
+      height: 110,
       type: 'cabinet',
       contents: [],
       interactRange: 60,
+      rotation: 270,
+      artSize: { w: 55, h: 17 },
     },
     {
       id: 'kitchen_sink_cabinet',
       name: 'Kitchen Sink Cabinet',
-      x: 974,
-      y: 360,
-      width: 36,
-      height: 150,
+      x: 866,
+      y: 514,
+      width: 144,
+      height: 36,
       type: 'cabinet',
       contents: [],
       interactRange: 60,
+      rotation: 90,
+      artSize: { w: 18, h: 75 },
+      spriteOffset: { x: -6 },
     },
     {
       id: 'stove',
       name: 'Stove',
-      x: 820,
-      y: 514,
-      width: 90,
-      height: 36,
+      x: 974,
+      y: 420,
+      width: 36,
+      height: 90,
       type: 'appliance',
       contents: [],
       interactRange: 60,
+      rotation: 270,
+      artSize: { w: 45, h: 18 },
     },
     {
       id: 'stove_drawers',
       name: 'Stove-side Drawers',
-      x: 910,
-      y: 514,
-      width: 100,
-      height: 36,
+      x: 974,
+      y: 320,
+      width: 36,
+      height: 100,
       type: 'drawer',
       contents: [],
       interactRange: 60,
+      rotation: 270,
+      artSize: { w: 50, h: 18 },
     },
     {
       id: 'fridge',
       name: 'Fridge',
       x: 820,
-      y: 440,
+      y: 484,
       width: 46,
       height: 66,
       type: 'appliance',

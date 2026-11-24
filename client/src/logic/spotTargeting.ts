@@ -5,6 +5,7 @@
 import { HidingSpot, HouseLayout } from '../data/houseLayout';
 import { DRAWER_UNITS } from '../data/drawerSlices';
 import { wallBodyRects } from '../data/colliders';
+import { sectionWorldRect } from '../data/spotArt';
 
 export interface Rect { x: number; y: number; width: number; height: number; }
 
@@ -41,8 +42,8 @@ export interface Interactable extends Rect {
 export const FRONT_GROUPS: Record<string, { members: string[]; side: 'top' | 'bottom' | 'left' | 'right' }> = {
   // Three one-piece drawers stacked in the study table, opening to the right.
   study_drawers: { members: ['study_drawer_1', 'study_drawer_2', 'study_drawer_3'], side: 'right' },
-  // The stove and the kitchen drawers beside it share the counter front (player above them).
-  stove_counter: { members: ['stove', 'stove_drawers'], side: 'top' },
+  // The stove and the kitchen drawers beside it share the east-wall counter front (player to their west).
+  stove_counter: { members: ['stove', 'stove_drawers'], side: 'left' },
   // The sofa's cushions and the ottoman below it: one row along x=490 (the 25 px gap between
   // them is narrower than the player, so nobody stands between them).
   sofa_row: { members: ['sofa', 'ottoman'], side: 'right' },
@@ -54,7 +55,7 @@ export const SECTION_RANGE = 44;
 /**
  * Facing cone (cos of the half-angle, 30 deg): a spot whose centre lies within this cone of the
  * way the player faces wins over nearer ones outside it. That is what lets a player pick a
- * corner drawer (microwave door 4, kitchen drawer 3) by pushing diagonally into the corner.
+ * corner drawer (kitchen sink door 1) by pushing diagonally into the corner.
  */
 export const FACING_CONE_COS = Math.cos(Math.PI / 6);
 /** Tie-break inside a group, in world px of distance (a spot straight ahead beats one 10px nearer behind). */
@@ -71,9 +72,9 @@ export const FACINGS_8: { x: number; y: number }[] = [
   { x: D, y: -D }, { x: D, y: D }, { x: -D, y: D }, { x: -D, y: -D },
 ];
 
-/** World rect of section `s` of a unit placed at (spot.x, spot.y) with its art at 2x. */
+/** World rect of section `s` of a unit (art at 2x, honoring spot.rotation / spriteOffset). */
 function sectionRect(spot: HidingSpot, s: { x: number; y: number; w: number; h: number }): Rect {
-  return { x: spot.x + s.x * 2, y: spot.y + s.y * 2, width: s.w * 2, height: s.h * 2 };
+  return sectionWorldRect(spot, s);
 }
 
 export function buildInteractables(spots: HidingSpot[]): Interactable[] {
@@ -162,8 +163,8 @@ export const FRONT_TOUCH = 22;
  */
 export const HYSTERESIS = 6;
 /**
- * Corner sections no player can stand straight in front of (the kitchen sink cabinet fills the
- * corner below / above them). They are the ONLY sections picked by facing (QA R8-1): while the
+ * Corner sections no player can stand straight in front of (a wall or a neighbour fills the
+ * corner beside them). They are the ONLY sections picked by facing (QA R8-1): while the
  * section in front is the corner's neighbour and the facing is within CORNER_WINDOW_DEG of the
  * corner's diagonal (its whole 45-degree keyboard / joystick octant), the corner section wins.
  * The game shows a faint hint outline on them while the player targets the neighbour.
@@ -174,8 +175,10 @@ export const CORNER_KEEP_DEG = 30;
 const CORNER_WINDOW_COS = Math.cos((CORNER_WINDOW_DEG * Math.PI) / 180);
 const CORNER_KEEP_COS = Math.cos((CORNER_KEEP_DEG * Math.PI) / 180);
 export const CORNER_SECTIONS: Record<string, { x: number; y: number; neighbour: string }> = {
-  microwave_unit_d4: { x: D, y: -D, neighbour: 'microwave_unit_d3' },
-  stove_drawers_d3: { x: D, y: D, neighbour: 'stove_drawers_d2' },
+  // SE: the eastmost sink door, blocked in front by the east-wall stove (player stands to the north).
+  // The northmost kitchen drawer is no longer a corner: the player can stand straight in
+  // front of it (flush with the north wall). The microwave sits mid-wall, so none of its doors are.
+  kitchen_sink_cabinet_d1: { x: D, y: D, neighbour: 'kitchen_sink_cabinet_d2' },
 };
 
 /** Key of the front-rule unit an interactable belongs to: its front group, its sectioned unit, or null. */
@@ -260,10 +263,10 @@ function frontSection(
     if (key < bestKey) { best = pick; bestKey = key; }
   }
   if (!best) return best;
-  // A one-piece spot outside the front rule (the fridge beside the stove) that the player touches
+  // A one-piece spot outside the front rule (the fridge beside the sink) that the player touches
   // from straight in front and doesn't face away from competes on the same key; if it ranks
   // better, the front rule steps aside and the facing cone decides (R9-1 audit: facing the
-  // fridge in the fridge / stove corner must not pick the stove).
+  // fridge in the fridge / sink corner must not pick the sink).
   for (const it of items) {
     if (frontKey(it) || it.drawer > 0) continue;
     const r = it.unitRect;

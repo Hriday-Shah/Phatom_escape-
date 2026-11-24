@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { HidingSpot, houseLayout } from '../data/houseLayout';
 import { DRAWER_UNITS, DrawerUnit, baseTextureKey, sectionOpenTextureKey } from '../data/drawerSlices';
 import { HIDING_SPOT_TEXTURES } from '../utils/artHelpers';
+import { spriteCenter, spotRotation } from '../data/spotArt';
 import { RealDeadline } from '../logic/realTimer';
 import {
   CORNER_SECTIONS, Interactable, Rect, buildInteractables, isEligible, selectTarget, sightBlockers,
@@ -71,8 +72,9 @@ export class HidingSpotManager {
 
     let sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Rectangle;
     if (closedKey) {
-      // Art is half resolution: 1 art px = 2 world units.
-      sprite = this.scene.add.image(spot.x, spot.y, closedKey).setOrigin(0, 0).setScale(2);
+      // Art is half resolution: 1 art px = 2 world units. Rotated units are
+      // centred on the (possibly offset) sprite and angled clockwise.
+      sprite = this.placeArt(spot, closedKey, 0);
     } else {
       sprite = this.scene.add.rectangle(spot.x + spot.width / 2, spot.y + spot.height / 2,
         spot.width, spot.height, this.getColorForType(spot.type), 1).setStrokeStyle(2, 0x000000);
@@ -87,8 +89,7 @@ export class HidingSpotManager {
         // `_d{N}_open` is the whole unit with only N open; show just the pixels that change
         // so any number of sections can be open at once on top of the closed base.
         const crop = this.changedRect(closedKey, key) ?? { x: s.x, y: s.y, width: s.w, height: s.h };
-        const img = this.scene.add.image(spot.x, spot.y, key).setOrigin(0, 0).setScale(2)
-          .setDepth(1).setVisible(false);
+        const img = this.placeArt(spot, key, 1).setVisible(false);
         img.setCrop(crop.x, crop.y, crop.width, crop.height);
         overlays.set(s.drawer, img);
       }
@@ -97,6 +98,17 @@ export class HidingSpotManager {
     const unit: UnitVisual = { spot, sprite, closedKey, openKey, overlays };
     sprite.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onUnitTap(unit, pointer));
     return unit;
+  }
+
+  /** Place a 2x art image at the unit, honoring rotation and spriteOffset. */
+  private placeArt(spot: HidingSpot, key: string, depth: number): Phaser.GameObjects.Image {
+    const rot = spotRotation(spot);
+    const off = spot.spriteOffset;
+    if (!rot && !off) {
+      return this.scene.add.image(spot.x, spot.y, key).setOrigin(0, 0).setScale(2).setDepth(depth);
+    }
+    const c = spriteCenter(spot);
+    return this.scene.add.image(c.x, c.y, key).setOrigin(0.5, 0.5).setScale(2).setAngle(rot).setDepth(depth);
   }
 
   /** Bounding box (art px) of the pixels that differ between two same-size textures. */
@@ -186,7 +198,7 @@ export class HidingSpotManager {
   }
 
   /**
-   * Corner sections (microwave door 4, kitchen drawer 3) can't be faced straight on: while the
+   * Corner sections (kitchen sink door 1) can't be faced straight on: while the
    * neighbouring section is targeted and the corner one is in reach, a faint dotted outline on
    * it hints that pushing diagonally into the corner picks it.
    */

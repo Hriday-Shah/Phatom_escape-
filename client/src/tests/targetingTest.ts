@@ -12,21 +12,21 @@ import {
 import { FacingFilter } from '../logic/facingFilter';
 
 /** Walk lines just in front of each multi-section unit (player centre touching the front). */
-// `handover`: past this coordinate the player also touches the kitchen sink cabinet; facing
-// it (walking right into the corner) targets the cabinet, which is the unit faced and touched.
+// `handover`: past this coordinate, facing into the SE corner (right / down-right) picks
+// kitchen sink door 1 (the corner section) instead of the section in front.
 const LINES: { unit: string; axis: 'x' | 'y'; fixed: number; from: number; to: number; into: keyof typeof FACING_VECTORS; handover?: number }[] = [
   { unit: 'closet_drawers', axis: 'x', fixed: 316, from: 98, to: 210, into: 'down' },
-  { unit: 'kitchen_sink_cabinet', axis: 'y', fixed: 958, from: 381, to: 483, into: 'right' },
+  { unit: 'kitchen_sink_cabinet', axis: 'x', fixed: 498, from: 892, to: 948, into: 'down', handover: 937 },
   { unit: 'sideboard', axis: 'y', fixed: 744, from: 357, to: 449, into: 'right' },
   { unit: 'tv_unit', axis: 'y', fixed: 744, from: 139, to: 189, into: 'right' },
-  { unit: 'microwave_unit', axis: 'x', fixed: 370, from: 916, to: 958, into: 'up', handover: 951 },
-  { unit: 'stove_drawers', axis: 'x', fixed: 498, from: 929, to: 958, into: 'down', handover: 951 },
+  { unit: 'microwave_unit', axis: 'y', fixed: 870, from: 376, to: 454, into: 'left' },
+  { unit: 'stove_drawers', axis: 'y', fixed: 958, from: 336, to: 410, into: 'right' },
   { unit: 'sofa', axis: 'y', fixed: 506, from: 144, to: 236, into: 'left' },
   { unit: 'sink_cabinet', axis: 'x', fixed: 174, from: 836, to: 864, into: 'down' },
   { unit: 'wall_shelf', axis: 'x', fixed: 142, from: 909, to: 941, into: 'up' },
   // R9-1 front groups (separate spots sharing one front; `unit` is the FRONT_GROUPS key).
   { unit: 'study_drawers', axis: 'y', fixed: 142, from: 166, to: 296, into: 'left' },
-  { unit: 'stove_counter', axis: 'x', fixed: 498, from: 891, to: 958, into: 'down', handover: 951 },
+  { unit: 'stove_counter', axis: 'y', fixed: 958, from: 336, to: 465, into: 'right' },
   { unit: 'sofa_row', axis: 'y', fixed: 506, from: 144, to: 320, into: 'left' },
 ];
 /** Is `t` part of line unit `u` (a sectioned unit id or a front group key)? */
@@ -104,7 +104,7 @@ export function runTargetingTest(): void {
     ['closet_drawers', 'x', 316, 100, 210, { x: Math.SQRT1_2, y: Math.SQRT1_2 }],
     ['sofa', 'y', 506, 144, 236, { x: -Math.SQRT1_2, y: Math.SQRT1_2 }],
     ['sideboard', 'y', 744, 357, 449, { x: Math.SQRT1_2, y: Math.SQRT1_2 }],
-    ['kitchen_sink_cabinet', 'y', 958, 381, 483, { x: Math.SQRT1_2, y: Math.SQRT1_2 }],
+    ['kitchen_sink_cabinet', 'x', 498, 892, 937, { x: Math.SQRT1_2, y: Math.SQRT1_2 }],
     ['study_drawers', 'y', 142, 166, 296, { x: -Math.SQRT1_2, y: Math.SQRT1_2 }],
     ['study_drawers', 'y', 142, 166, 296, { x: 0, y: 1 }],
   ] as const) {
@@ -156,15 +156,15 @@ export function runTargetingTest(): void {
     if (tap({ x: -Math.SQRT1_2, y: Math.SQRT1_2 }) !== 'study_drawer_1') errors.push(`R9-1 QA repro: tap Down+Left at (142,182) -> ${tap({ x: -Math.SQRT1_2, y: Math.SQRT1_2 })}`);
     if (!wrong) console.log(`✓ R9-1: study drawers as one front group; QA taps (Down, Down+Left at 142,182) stay on drawer 1; ${cases} tap cases, 0 wrong`);
   }
-  // R9-1 audit: in the fridge / stove corner, facing the fridge picks the fridge, facing the stove the stove.
-  for (const [f, want] of [[{ x: -1, y: 0 }, 'fridge'], [{ x: 0, y: -1 }, 'fridge'], [{ x: 0, y: 1 }, 'stove'], [{ x: 1, y: 0 }, 'stove']] as const) {
+  // R9-1 audit: in the fridge / sink corner, facing the fridge picks the fridge, facing the sink the sink.
+  for (const [f, want] of [[{ x: -1, y: 0 }, 'fridge'], [{ x: 0, y: -1 }, 'fridge'], [{ x: 0, y: 1 }, 'kitchen_sink_cabinet_d4'], [{ x: 1, y: 0 }, 'kitchen_sink_cabinet_d4']] as const) {
     const t = selectTarget(884, 498, f, items, blockers, null)?.id;
-    if (t !== want) errors.push(`fridge/stove corner (884,498) facing ${f.x},${f.y}: ${t} (want ${want})`);
+    if (t !== want) errors.push(`fridge/sink corner (884,498) facing ${f.x},${f.y}: ${t} (want ${want})`);
   }
   // QA R9-2: re-aiming in small steps past the keep window releases the corner (the facing
   // filter tracks small changes). Start on the corner at its diagonal, then turn 2.5 deg at a
   // time (each held 5 frames, a release between) towards and past the keep edge, both ways.
-  for (const [id, x, y, centre] of [['microwave_unit_d4', 958, 370, -45], ['stove_drawers_d3', 958, 498, 45]] as const) {
+  for (const [id, x, y, centre] of [['kitchen_sink_cabinet_d1', 958, 498, 45]] as const) {
     for (const dir of [1, -1]) {
       const f = new FacingFilter(); const r0 = (centre * Math.PI) / 180; f.set(Math.cos(r0), Math.sin(r0));
       let cur: string | null = selectTarget(x, y, f.facing, items, blockers, CORNER_SECTIONS[id].neighbour)?.id ?? null;
@@ -181,7 +181,7 @@ export function runTargetingTest(): void {
   }
   if (!errors.some((e) => e.startsWith('R9-2'))) console.log(`✓ R9-2: small re-aims release the corner at its ±30° keep edge (${r92.join(', ')})`);
   // Corner windows: the whole diagonal octant (+-22.5 deg) picks the corner, outside it the neighbour.
-  for (const [id, x, y, centre] of [['microwave_unit_d4', 958, 370, -45], ['stove_drawers_d3', 958, 498, 45]] as const) {
+  for (const [id, x, y, centre] of [['kitchen_sink_cabinet_d1', 958, 498, 45]] as const) {
     const c = CORNER_SECTIONS[id];
     for (let deg = centre - 40; deg <= centre + 40; deg += 2.5) {
       const r = (deg * Math.PI) / 180, f = { x: Math.cos(r), y: Math.sin(r) };
@@ -193,7 +193,7 @@ export function runTargetingTest(): void {
   }
   // Corner sections still selectable diagonally from the neighbour's standpoint.
   for (const [id, c] of Object.entries(CORNER_SECTIONS)) {
-    const pos = id.startsWith('microwave') ? [958, 370] : [958, 498];
+    const pos = [958, 498];
     const t = selectTarget(pos[0], pos[1], c, items, blockers, c.neighbour);
     if (t?.id !== id) errors.push(`corner ${id} not picked diagonally from ${pos}: ${t?.id}`);
   }
