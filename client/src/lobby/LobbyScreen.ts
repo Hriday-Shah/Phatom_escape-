@@ -6,7 +6,7 @@
 import './lobby.css';
 import {
   ColourId, DRAWER_NOISE, DrawerNoise, LobbyPlayer, LobbyService, LobbySettings, LobbyState, NUMERIC_SETTINGS,
-  NumericSettingDef, NumericSettingKey, PLAYER_COLOURS,
+  NumericSettingDef, NumericSettingKey, PLAYER_COLOURS, maxPhantoms, parseSettingInput,
 } from './lobby';
 import { onlineInviteLink } from '../net/serverConfig';
 
@@ -59,6 +59,8 @@ export class LobbyScreen {
   private unsub: () => void;
   private unsubEnd: () => void = () => {};
   private startedFired = false;
+  /** R11-4: a Kick in flight (row index among the Kick buttons), focus moves on when it lands. */
+  private pendingKick: { id: string; index: number } | null = null;
   private ac = new AbortController();
 
   /** `server`: the online game server (the invite link carries it), or null when offline. */
@@ -83,10 +85,16 @@ export class LobbyScreen {
     for (const d of NUMERIC_SETTINGS) {
       const sel = this.selects[d.key];
       fill(sel, range(d), (v: number) => numberText(d, v));
-      on(sel, 'change', () => this.svc.updateSettings({ [d.key]: Number(sel.value) }));
+      // '' / junk (or a refused value) reverts to the room's current value; never clamps to the min.
+      on(sel, 'change', () => {
+        const v = parseSettingInput(sel.value);
+        if (v === null || !this.svc.updateSettings({ [d.key]: v }).ok) this.render(this.svc.getState());
+      });
     }
     fill(this.selects.drawerNoise, [...DRAWER_NOISE.options], (v: DrawerNoise) => NOISE_LABEL[v]);
-    on(this.selects.drawerNoise, 'change', () => this.svc.updateSettings({ drawerNoise: this.selects.drawerNoise.value as DrawerNoise }));
+    on(this.selects.drawerNoise, 'change', () => {
+      if (!this.svc.updateSettings({ drawerNoise: this.selects.drawerNoise.value as DrawerNoise }).ok) this.render(this.svc.getState());
+    });
 
     on(this.readyBtn, 'click', () => { const me = this.self(); if (me) this.svc.setReady(!me.ready); });
     on($('pe-lobby-start'), 'click', () => {
@@ -108,7 +116,10 @@ export class LobbyScreen {
     on(share, 'click', () => navigator.share?.({ title: 'Phantom Escape', text: `Join my Phantom Escape room ${this.svc.getState().code}`, url: this.link() }).catch(() => {}));
     on(this.list, 'click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>('.pe-lobby-kick');
-      if (b?.dataset.playerId) this.svc.kick(b.dataset.playerId);
+      if (!b?.dataset.playerId) return;
+      const index = [...this.list.querySelectorAll('.pe-lobby-kick')].indexOf(b);
+      this.pendingKick = { id: b.dataset.playerId, index };
+      if (!this.svc.kick(b.dataset.playerId).ok) this.pendingKick = null;
     });
 
     this.unsub = this.svc.onChange((s) => this.render(s));
@@ -167,9 +178,13 @@ export class LobbyScreen {
     $('pe-lobby-role').textContent = isHost ? '(host)' : '(player)';
     $('pe-lobby-code').textContent = s.code;
 
-    // Player list (textContent only: nicknames are untrusted).
-    const ready = s.players.filter((p) => p.ready).length;
-    $('pe-lobby-ready-count').textContent = `${ready}/${s.players.length} ready`;
+    // Player list (textContent only: nicknames are untrusted). The host is always ready (R11-2):
+    // its row says only "Host", and the count is of the other players.
+    const others = s.players.filter((p) => p.id !== s.hostId);
+    const ready = others.filter((p) => p.ready).length;
+    $('pe-lobby-ready-count').textContent = others.length ? `${ready}/${others.length} ready` : 'waiting for players';
+    const focusedKick = (document.activeElement as HTMLElement | null)?.closest?.('.pe-lobby-kick') as HTMLElement | null;
+    const keepFocusOn = focusedKick && this.list.contains(focusedKick) ? focusedKick.dataset.playerId : undefined;
     this.list.replaceChildren(...s.players.map((p) => {
       const li = document.createElement('li');
       li.className = 'pe-lobby-player'; li.dataset.playerId = p.id;
@@ -181,8 +196,10 @@ export class LobbyScreen {
       name.textContent = p.nickname + (p.id === s.selfId ? ' (you)' : '');
       const tags = document.createElement('span'); tags.className = 'pe-lobby-tags';
       if (p.isHost) { const h = document.createElement('span'); h.className = 'pe-lobby-host-badge'; h.textContent = 'Host'; tags.append(h); }
-      const r = document.createElement('span'); r.className = 'pe-lobby-ready-state'; r.dataset.ready = String(p.ready);
-      r.textContent = p.ready ? 'Ready' : 'Not ready'; tags.append(r);
+      if (!p.isHost) {
+        const r = document.createElement('span'); r.className = 'pe-lobby-ready-state'; r.dataset.ready = String(p.ready);
+        r.textContent = p.ready ? 'Ready' : 'Not ready'; tags.append(r);
+      }
       li.append(sw, name, tags);
       if (isHost && p.id !== s.selfId) {
         const k = document.createElement('button'); k.type = 'button'; k.className = 'pe-lobby-kick'; k.dataset.playerId = p.id;
@@ -191,6 +208,7 @@ export class LobbyScreen {
       }
       return li;
     }));
+    this.restoreKickFocus(s, keepFocusOn);
 
     // Colours: mine pressed, taken ones disabled.
     for (const [id, b] of this.colourBtns) {
@@ -205,17 +223,37 @@ export class LobbyScreen {
     $('pe-lobby-settings-readonly').hidden = isHost;
     $('pe-lobby-settings-note').textContent = isHost ? '' : '(set by the host)';
     for (const k of Object.keys(this.selects) as (keyof LobbySettings)[]) this.selects[k].value = String(s.settings[k]);
+    // Phantoms: at most one fewer than the players (the room re-clamps as players come and go).
+    const cap = maxPhantoms(s.players.length);
+    for (const o of this.selects.phantoms.options) o.disabled = Number(o.value) > cap;
     const dl = $('pe-lobby-settings-readonly');
     dl.replaceChildren(...[
       ...NUMERIC_SETTINGS.map((d) => [d.label, numberText(d, s.settings[d.key as NumericSettingKey])] as const),
       ['Drawer noise', NOISE_LABEL[s.settings.drawerNoise]] as const,
     ].flatMap(([k, v]) => { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; return [dt, dd]; }));
 
-    // Actions.
+    // Actions. The host has no Ready toggle (always ready).
+    this.readyBtn.hidden = isHost;
     this.readyBtn.setAttribute('aria-pressed', String(!!me?.ready));
     this.readyBtn.textContent = me?.ready ? 'Ready ✓' : 'Ready';
     $('pe-lobby-start').hidden = !isHost;
     $('pe-lobby-wait').hidden = isHost;
+  }
+
+  /**
+   * R11-4: after a Kick lands, focus the next row's Kick, else the previous row's, else Start.
+   * Any other re-render keeps focus on the Kick button that had it.
+   */
+  private restoreKickFocus(s: LobbyState, keep: string | undefined): void {
+    const kicks = [...this.list.querySelectorAll<HTMLButtonElement>('.pe-lobby-kick')];
+    const pk = this.pendingKick;
+    if (pk && !s.players.some((p) => p.id === pk.id)) {
+      this.pendingKick = null;
+      const target = kicks[pk.index] ?? kicks[pk.index - 1] ?? $<HTMLButtonElement>('pe-lobby-start');
+      target.focus({ preventScroll: false });
+      return;
+    }
+    if (keep) kicks.find((k) => k.dataset.playerId === keep)?.focus({ preventScroll: true });
   }
 
   /** Copy the invite link: Clipboard API, then execCommand, then show it selected. */

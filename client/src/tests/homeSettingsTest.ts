@@ -1,6 +1,6 @@
 /** Homepage settings: nickname / room code cleaning, persistence, and the QA skip rule. */
 import {
-  NICKNAME_MAX, cleanNickname, cleanRoomCode, displayNickname, fallbackGraphemes, fixRoomCodeInput, graphemes,
+  NICKNAME_MAX, cleanNickname, cleanRoomCode, displayNickname, fallbackGraphemes, fixNicknameInput, fixRoomCodeInput, graphemes,
   inviteLink, isFullRoomCode, loadNickname, loadSoundOn, lobbyFromUrl, roomFromUrl, saveNickname, saveSoundOn, skipsHome,
 } from '../home/settings';
 
@@ -33,6 +33,20 @@ export function runHomeSettingsTest(): void {
   eq(cleanNickname('Ghost ', false), 'Ghost ', 'typing keeps a trailing space');
   eq(cleanRoomCode('ab-12 c9z'), 'AB12C9', 'room code upper-case, letters/digits, max 6');
   // R10-1: caret kept on mid-string edits; a full code refuses what's typed, keeps its tail.
+  // R11-3: a full nickname refuses new graphemes, keeps the caret, never drops the last one.
+  const fn = (v: string, c: number) => JSON.stringify(fixNicknameInput(v, c));
+  eq(fn('ABCZDEFGHIJKLMNOP', 4), JSON.stringify({ value: 'ABCDEFGHIJKLMNOP', caret: 3 }), 'full nickname: Z after C refused');
+  eq(fn('ABCDEFGHIJKLMNOPQ', 17), JSON.stringify({ value: 'ABCDEFGHIJKLMNOP', caret: 16 }), 'full nickname: typing at the end refused');
+  eq(fn('ABCDEFGHIJKLMNO', 15), JSON.stringify({ value: 'ABCDEFGHIJKLMNO', caret: 15 }), '15 chars untouched');
+  eq(fn('AB12345CDEFGHIJKLMNOP', 7), JSON.stringify({ value: 'ABCDEFGHIJKLMNOP', caret: 2 }), 'paste into a full name refused');
+  eq(fn('ABxyCD', 4), JSON.stringify({ value: 'ABxyCD', caret: 4 }), 'mid insert keeps caret');
+  eq(fn('AB\u200bCD', 3), JSON.stringify({ value: 'ABCD', caret: 2 }), 'zero-width stripped, caret mapped');
+  const e16 = '😀'.repeat(16);
+  eq(fn('😀'.repeat(3) + '🙂' + '😀'.repeat(13), 8), JSON.stringify({ value: e16, caret: 6 }), 'full emoji name: insert refused, caret after 3 emoji');
+  const fam = '👨‍👩‍👧‍👦';
+  eq(fixNicknameInput(fam.repeat(16) + 'x', fam.length * 16 + 1).value, fam.repeat(16), 'full ZWJ-family name refuses x, families intact');
+  eq(fn(' lead', 1), JSON.stringify({ value: 'lead', caret: 0 }), 'leading space dropped');
+  eq(fn('a  b', 2), JSON.stringify({ value: 'a b', caret: 2 }), 'double space at the caret collapsed');
   const fx = (v: string, c: number) => JSON.stringify(fixRoomCodeInput(v, c));
   eq(fx('AxyBCD', 3), JSON.stringify({ value: 'AXYBCD', caret: 3 }), 'typing "xy" after A: AXYBCD, caret 3');
   eq(fx('A-BCD', 2), JSON.stringify({ value: 'ABCD', caret: 1 }), 'typed "-" dropped, caret stays');

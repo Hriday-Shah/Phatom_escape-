@@ -156,6 +156,21 @@ export function validSettings(cur: LobbySettings, patch: Partial<LobbySettings>)
   return next;
 }
 
+/** R11: at most one Phantom fewer than the players (at least 1, at most the setting's max). */
+export function maxPhantoms(players: number): number {
+  return Math.min(SETTING_LIMITS.phantoms.max, Math.max(1, players - 1));
+}
+
+/**
+ * A select's raw value for a numeric setting: a finite number, or null for '' / junk (the
+ * screen then reverts to the previous value instead of clamping '' -> 0 -> the minimum).
+ */
+export function parseSettingInput(raw: unknown): number | null {
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  const v = Number(raw);
+  return Number.isFinite(v) ? v : null;
+}
+
 /**
  * The room itself (authoritative state; in stage 2 this logic lives on the server). Every
  * action names the acting player, so rules like "only the host" are enforced here.
@@ -244,11 +259,20 @@ export class LobbyRoom {
 
   /** Everyone except the host has pressed Ready (pressing Start is the host's "ready"). */
   allReady(): boolean { return this.s.players.every((p) => p.ready || p.id === this.s.hostId); }
+
+  /** R11: lower the Phantoms setting to maxPhantoms(players) (after joins, leaves, kicks, edits). */
+  capPhantoms(): void {
+    const cap = maxPhantoms(this.s.players.length);
+    if (this.s.settings.phantoms > cap) this.s.settings = { ...this.s.settings, phantoms: cap };
+  }
 }
 
 /** Placeholder players for the stage-1 preview (and the ?lobby= debug entries). */
 export const PLACEHOLDER_HOST_NAME = 'Demo host';
-export const PLACEHOLDER_NAMES = ['Demo player 2', 'Demo player 3', 'Demo player 4'];
+/** "Demo player 2", "Demo player 3", ... skipping any name already in the room (always unique). */
+export function placeholderName(taken: readonly string[]): string {
+  for (let n = 2; ; n++) { const name = `Demo player ${n}`; if (!taken.includes(name)) return name; }
+}
 
 /**
  * Stage 1: the room lives in this browser. As host, `create()`; as a player, `joinLocal()` puts
@@ -267,9 +291,10 @@ export class LocalLobbyService implements LobbyService {
     const room = new LobbyRoom(opts.code ?? makeRoomCode(), nickname, opts.colour);
     const svc = new LocalLobbyService(room, room.hostId);
     for (let i = 0; i < (opts.placeholders ?? 0); i++) {
-      const p = room.add(PLACEHOLDER_NAMES[i % PLACEHOLDER_NAMES.length], undefined, true);
+      const p = room.add(placeholderName(room.state.players.map((q) => q.nickname)), undefined, true);
       p.ready = i % 2 === 0; // some ready, some not
     }
+    room.capPhantoms();
     return svc;
   }
 
@@ -279,7 +304,7 @@ export class LocalLobbyService implements LobbyService {
     room.state.players[0].placeholder = true;
     room.state.players[0].nickname = PLACEHOLDER_HOST_NAME;
     for (let i = 0; i < (opts.placeholders ?? 0); i++) {
-      const p = room.add(PLACEHOLDER_NAMES[i % PLACEHOLDER_NAMES.length], undefined, true);
+      const p = room.add(placeholderName(room.state.players.map((q) => q.nickname)), undefined, true);
       p.ready = true;
     }
     const svc = new LocalLobbyService(room, '');
@@ -287,9 +312,10 @@ export class LocalLobbyService implements LobbyService {
     return svc;
   }
 
+  /** Copies; the host always reads as ready (R11-2, like the server's snapshot). */
   getState(): LobbyState {
     const s = this.room.state;
-    return { ...s, selfId: this.selfId, players: s.players.map((p) => ({ ...p })), settings: { ...s.settings } };
+    return { ...s, selfId: this.selfId, players: s.players.map((p) => ({ ...p, ready: p.isHost || p.ready })), settings: { ...s.settings } };
   }
 
   onChange(cb: (s: LobbyState) => void): () => void {
@@ -307,6 +333,7 @@ export class LocalLobbyService implements LobbyService {
     if (code !== this.room.state.code) return fail('no-such-player');
     if (this.selfId && this.room.state.players.some((p) => p.id === this.selfId)) return ok;
     try { this.selfId = this.room.add(nickname).id; } catch { return fail('room-full'); }
+    this.room.capPhantoms();
     this.left = false;
     return this.emit(ok);
   }
@@ -315,14 +342,22 @@ export class LocalLobbyService implements LobbyService {
     if (this.left) return;
     this.left = true;
     this.room.leave(this.selfId);
+    this.room.capPhantoms();
     this.emit(undefined);
   }
 
   private act(f: () => LobbyResult): LobbyResult { return this.left ? fail('left') : this.emit(f()); }
   setColour(colour: ColourId): LobbyResult { return this.act(() => this.room.setColour(this.selfId, colour)); }
-  setReady(ready: boolean): LobbyResult { return this.act(() => this.room.setReady(this.selfId, ready)); }
-  updateSettings(patch: Partial<LobbySettings>): LobbyResult { return this.act(() => this.room.updateSettings(this.selfId, patch)); }
-  kick(playerId: string): LobbyResult { return this.act(() => this.room.kick(this.selfId, playerId)); }
+  /** The host is always ready: its toggle is a no-op. */
+  setReady(ready: boolean): LobbyResult {
+    return this.act(() => (this.selfId === this.room.hostId ? ok : this.room.setReady(this.selfId, ready)));
+  }
+  updateSettings(patch: Partial<LobbySettings>): LobbyResult {
+    return this.act(() => { const r = this.room.updateSettings(this.selfId, patch); this.room.capPhantoms(); return r; });
+  }
+  kick(playerId: string): LobbyResult {
+    return this.act(() => { const r = this.room.kick(this.selfId, playerId); this.room.capPhantoms(); return r; });
+  }
   start(): LobbyResult { return this.act(() => this.room.start(this.selfId)); }
   /** Everyone except the host is ready (the screen confirms before starting otherwise). */
   allReady(): boolean { return this.room.allReady(); }

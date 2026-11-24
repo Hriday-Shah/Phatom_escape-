@@ -9,7 +9,7 @@
  */
 import './home.css';
 import {
-  cleanNickname, displayNickname, fixRoomCodeInput, isFullRoomCode, loadNickname, loadSoundOn, saveNickname,
+  cleanNickname, displayNickname, fixNicknameInput, fixRoomCodeInput, isFullRoomCode, loadNickname, loadSoundOn, saveNickname,
   saveSoundOn,
 } from './settings';
 import { LobbyScreen } from '../lobby/LobbyScreen';
@@ -191,6 +191,8 @@ export class HomeScreen {
     this.lobby = new LobbyScreen(svc, {
       onLeave: () => {
         this.lobby = null;
+        // R11-4: back on the homepage, focus Create room (not <body>).
+        this.lastOpener = this.el('pe-create-room');
         if (history.state?.[HISTORY_KEY] === 'lobby') history.back(); else this.show('main');
       },
       onStart: (self, settings) => this.cb.onStartGame({
@@ -220,14 +222,8 @@ export class HomeScreen {
 
   private fixNickname(): void {
     const el = this.nickname;
-    const caret = el.selectionStart ?? el.value.length;
-    const fixed = cleanNickname(el.value, false);
-    if (fixed !== el.value) {
-      const before = cleanNickname(el.value.slice(0, caret), false).length;
-      el.value = fixed;
-      const c = Math.min(before, fixed.length);
-      el.setSelectionRange(c, c);
-    }
+    const r = fixNicknameInput(el.value, el.selectionStart ?? el.value.length);
+    if (r.value !== el.value) { el.value = r.value; el.setSelectionRange(r.caret, r.caret); }
     saveNickname(cleanNickname(el.value));
   }
 

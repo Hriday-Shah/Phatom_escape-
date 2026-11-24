@@ -1,5 +1,5 @@
 /** Placeholder lobby logic: colours unique, kick, host-only settings / start, ready, leave. */
-import { DEFAULT_SETTINGS, LobbyRoom, LocalLobbyService, MAX_PLAYERS, NUMERIC_SETTINGS, PLACEHOLDER_HOST_NAME, PLAYER_COLOURS, SETTING_LIMITS, clampSetting, makeRoomCode, validSettings, hoodieTint, DEFAULT_HOODIE_TINT } from '../lobby/lobby';
+import { DEFAULT_SETTINGS, LobbyRoom, LocalLobbyService, MAX_PLAYERS, NUMERIC_SETTINGS, PLACEHOLDER_HOST_NAME, PLAYER_COLOURS, SETTING_LIMITS, clampSetting, makeRoomCode, validSettings, hoodieTint, DEFAULT_HOODIE_TINT, maxPhantoms, parseSettingInput, placeholderName } from '../lobby/lobby';
 
 export function runLobbyTest(): void {
   console.log('\n=== LOBBY TEST ===');
@@ -103,7 +103,42 @@ export function runLobbyTest(): void {
   t(hoodieTint(null) === DEFAULT_HOODIE_TINT && hoodieTint(undefined) === 0x5fd3e6 && hoodieTint('mauve') === 0x5fd3e6, 'no / unknown colour -> default cyan');
   t(/^[A-HJ-NP-Z2-9]{6}$/.test(makeRoomCode()), 'room code: 6 chars, no lookalikes');
 
+  // ---- R11 ----
+  // R11-2: the host is always ready; count / confirm consider only the other players.
+  const solo = LocalLobbyService.create('Solo');
+  t(solo.allReady() && solo.getState().players[0].ready, 'R11-2 host alone: ready, starts without asking');
+  t(solo.setReady(false).ok && solo.getState().players[0].ready, 'R11-2 host Ready toggle is a no-op');
+  const hr = LocalLobbyService.create('H', { placeholders: 2 });
+  t(!hr.allReady() && hr.getState().players[0].ready, 'R11-2 host ready, a placeholder not -> confirm');
+  // R11-5 Phantoms cap = max(1, players - 1), re-clamped on join / leave / kick / edit.
+  t(maxPhantoms(0) === 1 && maxPhantoms(1) === 1 && maxPhantoms(2) === 1 && maxPhantoms(3) === 2 && maxPhantoms(4) === 3 && maxPhantoms(8) === 3, 'maxPhantoms');
+  const cp = LocalLobbyService.create('H', { placeholders: 3 }); // 4 players -> cap 3
+  t(cp.updateSettings({ phantoms: 3 }).ok && cp.getState().settings.phantoms === 3, 'cap: 4 players allow 3 Phantoms');
+  const ids = cp.getState().players.map((p) => p.id);
+  cp.kick(ids[3]); t(cp.getState().settings.phantoms === 2, 'cap: kick to 3 players -> 2 Phantoms');
+  cp.kick(ids[2]); t(cp.getState().settings.phantoms === 1, 'cap: 2 players -> 1 Phantom');
+  t(cp.updateSettings({ phantoms: 3 }).ok && cp.getState().settings.phantoms === 1, 'cap: asking for 3 with 2 players gives 1');
+  const one = LocalLobbyService.create('H');
+  t(one.updateSettings({ phantoms: 2 }).ok && one.getState().settings.phantoms === 1, 'cap: host alone -> 1');
+  const jp = LocalLobbyService.joinLocal('Me', 'CAP123', { placeholders: 2 }); // 4 players
+  t(jp.getState().players.length === 4, 'joinLocal 4 players');
+  const room4 = new LobbyRoom('CAP999', 'H'); room4.add('a'); room4.add('b'); room4.add('c');
+  room4.updateSettings(room4.hostId, { phantoms: 3 }); room4.leave(room4.state.players[3].id); room4.capPhantoms();
+  t(room4.state.settings.phantoms === 2, 'LobbyRoom.capPhantoms after a leave');
+  // Empty / invalid setting input reverts (null), never clamps '' -> 0 -> min.
+  t(parseSettingInput('') === null && parseSettingInput('  ') === null && parseSettingInput('abc') === null && parseSettingInput('Infinity') === null && parseSettingInput(undefined) === null, 'parseSettingInput rejects empty / junk');
+  t(parseSettingInput('7') === 7 && parseSettingInput('2.5') === 2.5, 'parseSettingInput numbers');
+  const rv = LocalLobbyService.create('H'); rv.updateSettings({ chaseMinutes: 30 });
+  t(!rv.updateSettings({ chaseMinutes: Number.NaN }).ok && rv.getState().settings.chaseMinutes === 30, 'invalid value refused, previous kept');
+  // Unique placeholder names.
+  t(placeholderName([]) === 'Demo player 2' && placeholderName(['Demo player 2', 'Demo player 3']) === 'Demo player 4' && placeholderName(['Demo player 3']) === 'Demo player 2', 'placeholderName');
+  const many = LocalLobbyService.create('Demo player 2', { placeholders: 7 });
+  const nm = many.getState().players.map((p) => p.nickname);
+  t(nm.length === 8 && new Set(nm).size === 8, `7 placeholders: unique names ${JSON.stringify(nm)}`);
+  const mj = LocalLobbyService.joinLocal('Me', 'MANY12', { placeholders: 6 }).getState().players.map((p) => p.nickname);
+  t(new Set(mj).size === mj.length && mj.length === 8, 'joinLocal: unique names');
+
   if (errors.length) { errors.forEach((e) => console.log('✗ ' + e)); throw new Error(`Lobby test failed with ${errors.length} problem(s)`); }
-  console.log('✓ settings defaults, ranges and clamping; colours unique (8 max, taken refused, freed on kick), ready, settings and start host-only and validated, kick rules, host hand-over, service notifies');
+  console.log('✓ R11: host always ready, Phantoms cap + re-clamp, invalid input reverts, unique demo names; settings defaults, ranges and clamping; colours unique (8 max, taken refused, freed on kick), ready, settings and start host-only and validated, kick rules, host hand-over, service notifies');
   console.log('✅ LOBBY TEST PASSED');
 }
