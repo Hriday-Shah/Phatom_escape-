@@ -3,7 +3,8 @@ import { gameConfig } from './config/gameConfig';
 import { SafeAreaManager } from './utils/SafeAreaManager';
 import { currentRenderDpr } from './config/display';
 import { HomeScreen } from './home/HomeScreen';
-import { loadNickname, loadSoundOn, skipsHome } from './home/settings';
+import { displayNickname, loadNickname, loadSoundOn, lobbyFromUrl, roomFromUrl, skipsHome } from './home/settings';
+import type { StartInfo } from './home/HomeScreen';
 
 // Prevent iOS Safari bounce and zoom
 document.addEventListener('touchmove', (e) => {
@@ -39,26 +40,42 @@ window.addEventListener('load', () => {
   SafeAreaManager.init();
 
   if (skipsHome(window.location.search)) {
-    startGame(loadNickname());
+    startGame({ nickname: displayNickname(loadNickname()) }, false);
     return;
   }
   const home = new HomeScreen({
-    onCreateRoom: (nickname) => { home.close(); startGame(nickname); },
+    onStartGame: (info) => { home.close(); startGame(info, true); },
     onSoundChange: applySound,
   });
-  home.open();
+  home.open({ room: roomFromUrl(window.location.search), lobby: lobbyFromUrl(window.location.search) });
 });
 
-/** Stage 1: "Create room" starts the single-player house. */
-function startGame(nickname: string): void {
+const LEAVE_GAME = 'Leave the game and go back to the homepage?';
+
+/**
+ * Stage 1: the lobby's Start (or a QA URL) starts the single-player house. Back during the game
+ * asks before leaving (R10-3); leaving reloads the homepage.
+ */
+function startGame(info: StartInfo, fromLobby: boolean): void {
   if (game) return;
   game = new Phaser.Game(gameConfig);
-  // Scenes can read the nickname with this.registry.get('nickname').
-  game.registry.set('nickname', nickname);
+  // Scenes read these with this.registry.get(...).
+  game.registry.set('nickname', info.nickname);
+  game.registry.set('colour', info.colour ?? null);
+  game.registry.set('lobbySettings', info.settings ?? null);
+  // History: the game is the top entry (it replaces the lobby's); Back pops it -> confirm.
+  if (fromLobby) history.replaceState({ peView: 'game' }, '');
+  else history.pushState({ peView: 'game' }, '');
+  window.addEventListener('popstate', () => {
+    if (window.confirm(LEAVE_GAME)) window.location.href = window.location.pathname; // homepage, fresh
+    else history.pushState({ peView: 'game' }, '');
+  });
   game.events.once(Phaser.Core.Events.READY, () => applySound(loadSoundOn()));
 
   // Test hook for QA/Playwright (dev builds or any ?debug=... URL only).
-  if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('debug')) {
+  // (also the ?lobby= debug entries, so the lobby -> game hand-off can be checked).
+  const q = new URLSearchParams(window.location.search);
+  if (import.meta.env.DEV || q.has('debug') || q.has('lobby')) {
     (window as any).__PE_GAME__ = game;
   }
 

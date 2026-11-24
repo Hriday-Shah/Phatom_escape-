@@ -56,7 +56,7 @@
   <!--
     Placeholder homepage (restyle freely: theme in src/home/home.css, behaviour in
     src/home/HomeScreen.ts). Hidden until the script shows it; ?debug= / ?spawn= URLs skip it.
-    Views: #pe-view-main, #pe-view-howto, #pe-view-story (one visible at a time).
+    Views: #pe-view-main, #pe-view-howto, #pe-view-story, #pe-lobby (one visible at a time).
   -->
   <div id="pe-home" hidden>
     <!-- Main view -->
@@ -65,7 +65,7 @@
         <h1 id="pe-title">PHANTOM <span class="pe-title-accent">ESCAPE</span></h1>
         <div id="pe-nickname-box" class="pe-field">
           <label for="pe-nickname">Nickname</label>
-          <input id="pe-nickname" type="text" maxlength="16" placeholder="Your nickname"
+          <input id="pe-nickname" type="text" placeholder="Your nickname"
                  autocomplete="nickname" autocapitalize="words" autocorrect="off" spellcheck="false"
                  enterkeyhint="done" inputmode="text" />
         </div>
@@ -78,9 +78,9 @@
             <input id="pe-room-code" type="text" placeholder="ABC123"
                    autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"
                    enterkeyhint="go" inputmode="text" />
-            <button id="pe-join-room" type="button">Join room</button>
+            <button id="pe-join-room" type="button" disabled>Join room</button>
           </div>
-          <p id="pe-join-message" role="status" aria-live="polite"></p>
+          <p id="pe-join-message" role="status" aria-live="polite">Enter a 6-character code to join.</p>
         </div>
         <div id="pe-home-links" class="pe-row">
           <button id="pe-how-to-play" type="button">How to play</button>
@@ -120,6 +120,57 @@
       <h2 id="pe-story-title" class="pe-view-title">Story</h2>
       <p id="pe-story-text">Story coming soon.</p>
       <button id="pe-story-back" type="button" class="pe-back">Back</button>
+    </section>
+
+    <!--
+      Lobby (placeholder; restyle freely: theme in src/home/home.css + src/lobby/lobby.css,
+      behaviour in src/lobby/LobbyScreen.ts). data-role="host" | "player" on #pe-lobby.
+    -->
+    <section id="pe-lobby" class="pe-screen" aria-labelledby="pe-lobby-title" hidden>
+      <div id="pe-lobby-header">
+        <h2 id="pe-lobby-title" class="pe-view-title">Room <span id="pe-lobby-role" class="pe-tag"></span></h2>
+        <div id="pe-lobby-code-box">
+          <span id="pe-lobby-code-label">Room code</span>
+          <strong id="pe-lobby-code"></strong>
+          <button id="pe-lobby-copy" type="button">Copy invite link</button>
+          <button id="pe-lobby-share" type="button" hidden>Share</button>
+          <input id="pe-lobby-link" type="text" readonly aria-label="Invite link" hidden />
+          <p id="pe-lobby-copy-status" role="status" aria-live="polite"></p>
+        </div>
+        <p id="pe-lobby-notice" class="pe-tag">Stage 1 preview: the room is only on this device; other players are placeholders.</p>
+      </div>
+      <div id="pe-lobby-body">
+        <div id="pe-lobby-players" class="pe-section">
+          <h3>Players <span id="pe-lobby-ready-count" class="pe-tag"></span></h3>
+          <ul id="pe-lobby-player-list"></ul>
+        </div>
+        <div id="pe-lobby-side">
+          <fieldset id="pe-lobby-colours" class="pe-section">
+            <legend>Your colour</legend>
+            <div id="pe-lobby-colour-grid"></div>
+          </fieldset>
+          <div id="pe-lobby-settings" class="pe-section">
+            <h3>Room settings <span id="pe-lobby-settings-note" class="pe-tag"></span></h3>
+            <div id="pe-lobby-host-settings">
+              <label for="pe-set-round">Round length</label>
+              <select id="pe-set-round"></select>
+              <label for="pe-set-hide">Hide time</label>
+              <select id="pe-set-hide"></select>
+              <label for="pe-set-phantoms">Phantoms</label>
+              <select id="pe-set-phantoms"></select>
+              <label for="pe-set-noise">Drawer noise</label>
+              <select id="pe-set-noise"></select>
+            </div>
+            <dl id="pe-lobby-settings-readonly"></dl>
+          </div>
+        </div>
+      </div>
+      <div id="pe-lobby-actions">
+        <button id="pe-lobby-ready" type="button" aria-pressed="false">Ready</button>
+        <button id="pe-lobby-start" type="button" class="pe-primary">Start game</button>
+        <p id="pe-lobby-wait" class="pe-tag">Waiting for the host to start.</p>
+        <button id="pe-lobby-leave" type="button">Leave</button>
+      </div>
     </section>
   </div>
   <script type="module" src="/src/main.ts"></script>

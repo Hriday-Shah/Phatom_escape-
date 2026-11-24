@@ -10,6 +10,8 @@ import { runShellLayoutTest } from './shellLayoutTest';
 import { runTargetingTest } from './targetingTest';
 import { runRealTimerTest } from './realTimerTest';
 import { runHomeSettingsTest } from './homeSettingsTest';
+import { runLobbyTest } from './lobbyTest';
+import { runFacingFilterTest } from './facingFilterTest';
 
 console.log('Running tests...\n');
 
@@ -22,6 +24,8 @@ try {
   runTargetingTest();
   runRealTimerTest();
   runHomeSettingsTest();
+  runLobbyTest();
+  runFacingFilterTest();
   console.log('\n✅ All tests passed!');
   process.exit(0);
 } catch (error) {
