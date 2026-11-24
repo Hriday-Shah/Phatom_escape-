@@ -46,11 +46,14 @@ export class HouseRoom extends Room {
   private noReturn = new Set<string>();
 
   onCreate(): void {
+    console.log('[HouseRoom] onCreate() called');
     const code = newRoomCode();
+    console.log('[HouseRoom] Generated room code:', code);
     this.roomId = code;
     this.logic = new HouseLogic(code);
     ROOMS.set(code, this.logic);
     this.autoDispose = true;
+    console.log('[HouseRoom] Room created successfully:', code);
 
     const lobbyAction = (type: string, f: (c: Client, m: unknown) => { ok: boolean; error?: string }) => {
       this.onMessage(type, (client, msg) => {
@@ -166,6 +169,7 @@ export class HouseRoom extends Room {
   }
 
   onJoin(client: Client, options: unknown): void {
+    console.log('[HouseRoom] onJoin() called, sessionId:', client.sessionId, 'options:', options);
     const r = this.logic.join(client.sessionId, options);
     if (!r.ok) throw new ServerError(r.error === 'full' ? 4409 : 4410, r.error);
     const now = Date.now();
@@ -173,6 +177,7 @@ export class HouseRoom extends Room {
     this.limits.set(client.sessionId, { pos: new RateLimiter(20, 30, now), act: new RateLimiter(8, 16, now), dropped: 0 });
     client.send('welcome', { selfId: r.playerId });
     this.broadcastLobby();
+    console.log('[HouseRoom] Player joined successfully:', r.playerId);
   }
 
   async onLeave(client: Client, consented?: boolean): Promise<void> {
