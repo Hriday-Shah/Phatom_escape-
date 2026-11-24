@@ -12,6 +12,9 @@ import {
 } from '../../client/src/lobby/lobby';
 import { displayNickname } from '../../client/src/home/settings';
 import { PLAYER_SPEED } from '../../client/src/config/physicsConfig';
+import { ItemRound, RoundPublic } from '../../client/src/logic/itemRound';
+import { EscapeCode } from '../../client/src/logic/escapeCode';
+import { PublicItem } from '../../client/src/logic/items';
 
 export type JoinError = 'full' | 'started';
 /** A lobby player as everyone sees it; `away` = dropped, the seat is kept while they reconnect. */
@@ -98,6 +101,8 @@ export class HouseLogic {
   private away = new Set<string>();
   /** Movement corrections (speed sanity) since start, for logs / tests. */
   corrections = 0;
+  /** Items + chosen mini-game, created when the host starts. */
+  items: ItemRound | null = null;
 
   constructor(readonly code: string) {}
 
@@ -137,6 +142,8 @@ export class HouseLogic {
     if (!id) return;
     this.bySession.delete(session);
     this.away.delete(session);
+    const last = this.poses.get(id);
+    this.items?.dropIfHeld(id, last?.pose.x ?? 0, last?.pose.y ?? 0);
     this.poses.delete(id);
     if (this.lobby?.state.players.some((p) => p.id === id)) this.lobby.leave(id);
     this.capPhantoms();
@@ -199,8 +206,49 @@ export class HouseLogic {
   }
   start(session: string): LobbyResult {
     if (this.started) return { ok: false, error: 'bad-setting' };
-    return this.act(session, (l, id) => l.start(id));
+    const r = this.act(session, (l, id) => l.start(id));
+    if (r.ok) this.items = ItemRound.fromSeed(this.code, 1);
+    return r;
   }
+
+  roundPublic(): RoundPublic | null { return this.items?.publicView() ?? null; }
+  itemList(): PublicItem[] { return this.items?.items.map((i) => ({ ...i })) ?? []; }
+
+  private poseOf(playerId: string): { x: number; y: number } | null {
+    const t = this.poses.get(playerId);
+    return t ? { x: t.pose.x, y: t.pose.y } : null;
+  }
+
+  pickup(session: string, msg: unknown): { ok: boolean; error?: string } {
+    const id = this.bySession.get(session);
+    if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
+    const itemId = isObj(msg) && typeof msg.id === 'string' && msg.id.length <= 48 ? msg.id : null;
+    if (!itemId) return { ok: false, error: 'no-item' };
+    const pose = this.poseOf(id) ?? { x: 0, y: 0 };
+    return this.items.pickup(id, itemId, pose, this.openSpots());
+  }
+
+  dropItem(session: string, msg: unknown): { ok: boolean; error?: string } {
+    const id = this.bySession.get(session);
+    if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
+    if (!isObj(msg) || !finite(msg.x) || !finite(msg.y)) return { ok: false, error: 'bad-pos' };
+    const spot = typeof msg.spotId === 'string' && SPOT_ID.test(msg.spotId) ? msg.spotId : null;
+    return this.items.drop(id, msg.x, msg.y, spot);
+  }
+
+  startMinigame(session: string): { ok: boolean; error?: string } {
+    const id = this.bySession.get(session);
+    if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
+    const pose = this.poseOf(id) ?? { x: 0, y: 0 };
+    return this.items.startMinigame(id, pose);
+  }
+
+  winMinigame(session: string): { ok: boolean; error?: string; code?: EscapeCode } {
+    const id = this.bySession.get(session);
+    if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
+    return this.items.winMinigame(id);
+  }
+
 
   /**
    * In-game movement. The first pose is taken as the spawn; later ones may move at most

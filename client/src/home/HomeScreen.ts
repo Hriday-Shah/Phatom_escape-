@@ -22,6 +22,8 @@ export { OFFLINE_JOIN_TEXT, joinPrompt };
 
 export interface StartInfo {
   nickname: string; colour?: ColourId; settings?: LobbySettings;
+  /** Room code, used as the offline mini-game / item seed. */
+  seed?: string;
   /** Online room: the connection the game keeps using; absent offline. */
   net?: ColyseusLobbyService;
 }
@@ -259,7 +261,9 @@ export class HomeScreen {
         if (history.state?.[HISTORY_KEY] === 'lobby') history.back(); else this.show('main');
       },
       onStart: (self, settings) => this.cb.onStartGame({
-        nickname: self.nickname, colour: self.colour, settings, net: svc instanceof ColyseusLobbyService ? svc : undefined,
+        nickname: self.nickname, colour: self.colour, settings,
+        seed: svc.getState().code,
+        net: svc instanceof ColyseusLobbyService ? svc : undefined,
       }),
       onEnded: (reason) => {
         this.lobby = null;

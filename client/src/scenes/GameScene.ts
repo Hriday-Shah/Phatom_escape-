@@ -14,6 +14,7 @@ import { hasDebugFlag } from '../config/debugFlags';
 import { currentShellLayout, watchInsets } from '../ui/currentLayout';
 import { snappedCameraZoom } from '../logic/cameraZoom';
 import { onlineSpawnPoint } from '../logic/onlineSpawn';
+import { ItemDirector } from '../items/ItemDirector';
 
 export { snappedCameraZoom };
 
@@ -34,6 +35,8 @@ export class GameScene extends Phaser.Scene {
   private lightLayer: LightLayer | null = null;
   /** Online only (QA reads netSync.remotePositions()). */
   public netSync: NetSync | null = null;
+  /** Items, Game Controller mini-game and paper-code reveal. */
+  public items: ItemDirector | null = null;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -86,7 +89,12 @@ export class GameScene extends Phaser.Scene {
     this.hidingSpotManager.setWallGroup(this.wallGroup);
     // Targeting after Arcade has synced the sprite to this frame's body position (POST_UPDATE),
     // so the highlight never lags a frame behind the player (QA R7-1 at low frame rates).
-    const target = () => this.hidingSpotManager.update(this.player.getPosition(), this.player.getFacing());
+    const target = () => {
+      this.hidingSpotManager.update(this.player.getPosition(), this.player.getFacing());
+      const override = this.items?.promptOverride();
+      if (override) (this.uiScene as any)?.showHidingSpotPrompt?.(override);
+      this.items?.updateFx();
+    };
     this.events.on(Phaser.Scenes.Events.POST_UPDATE, target);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.POST_UPDATE, target));
 
@@ -108,9 +116,14 @@ export class GameScene extends Phaser.Scene {
     // Handle screen resize
     this.scale.on('resize', this.onResize, this);
 
-    // Handle interact event
+    // Handle interact (USE) and drop
     this.events.on('interact', this.onInteract, this);
-    
+    this.events.on('drop', this.onDrop, this);
+
+    // Items / mini-game (after UIScene exists so the slot and overlay can be placed).
+    this.items = new ItemDirector(this as any);
+    this.time.delayedCall(0, () => { this.items?.attach(net ?? null); this.items?.place(); });
+
     // Reposition on safe area changes
     watchInsets(this, () => this.onResize());
   }
@@ -437,6 +450,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onInteract(): void {
+    if (this.items?.onUse()) return;
     // Check for door interaction
     const nearbyDoor = this.checkNearbyDoor();
     if (nearbyDoor) {
@@ -446,6 +460,10 @@ export class GameScene extends Phaser.Scene {
 
     // Check for hiding spot interaction
     this.hidingSpotManager.interact();
+  }
+
+  private onDrop(): void {
+    this.items?.onDrop();
   }
 
   private checkNearbyDoor(): any {
@@ -472,6 +490,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    // While a mini-game is open the stick and USE go to it; the world keeps ticking.
+    if (this.items?.open) {
+      this.player.setMovement(0, 0);
+      this.player.update();
+      this.keepSpotClearOfPrompt(delta);
+      return;
+    }
+
     // Get keyboard input
     let moveX = 0;
     let moveY = 0;
@@ -566,6 +592,7 @@ export class GameScene extends Phaser.Scene {
     
     // Update hiding spot manager (prompt now in UIScene)
     this.hidingSpotManager.resize();
+    this.items?.place();
   }
 
   public getUIScene(): Phaser.Scene {

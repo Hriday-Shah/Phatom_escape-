@@ -10,3 +10,23 @@ export function debugFlags(search: string = typeof window !== 'undefined' ? wind
 export function hasDebugFlag(flag: string): boolean {
   return debugFlags().has(flag);
 }
+
+export type DebugMinigameName = 'slide' | 'maze' | 'lockpick' | 'memory' | 'chase';
+
+const DEBUG_MINIGAME_IDS: readonly DebugMinigameName[] = ['slide', 'maze', 'lockpick', 'memory', 'chase'];
+
+/** `?debug=minigame=slide` (also works in a comma list). `dotdash` is an alias of `chase`. */
+export function debugMinigame(search?: string): DebugMinigameName | null {
+  for (const f of debugFlags(search)) {
+    const m = /^minigame=(.+)$/.exec(f);
+    if (!m) continue;
+    if (m[1] === 'dotdash') return 'chase';
+    if ((DEBUG_MINIGAME_IDS as readonly string[]).includes(m[1])) return m[1] as DebugMinigameName;
+  }
+  return null;
+}
+
+/** `?debug=items` hides the controller even on a QA boot that skips the lobby. */
+export function debugItems(search?: string): boolean {
+  return debugFlags(search).has('items');
+}

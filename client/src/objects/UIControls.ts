@@ -15,6 +15,7 @@ export class UIControls {
   private scene: Phaser.Scene;
   private buttons = new Map<ButtonId, { face: Phaser.GameObjects.Image; icon: Phaser.GameObjects.Image; zone: Phaser.GameObjects.Zone; enabled: boolean }>();
   private itemSlot: Phaser.GameObjects.Container;
+  private heldIcon: Phaser.GameObjects.GameObject | null = null;
   private layout: ShellLayout | null = null;
   /** Stage 1: Shoot exists but is disabled (no stun gun yet). */
   private enabled: Record<ButtonId, boolean> = { interact: true, drop: true, sneak: true, shoot: false };
@@ -93,9 +94,35 @@ export class UIControls {
     return this.itemSlot.getBounds();
   }
 
+  /** Show a held-item icon in the slot (texture key), or clear it. */
+  public setHeldItem(key: string | null): void {
+    if (this.heldIcon) { this.heldIcon.destroy(); this.heldIcon = null; }
+    if (!key) return;
+    const size = this.itemSlotSize();
+    const inset = Math.round(size * (8 / 120)); // inner 104/120 of the approved slot art
+    const inner = size - inset * 2;
+    if (this.scene.textures.exists(key)) {
+      const img = this.scene.add.image(inset + inner / 2, inset + inner / 2, key).setDisplaySize(inner, inner);
+      this.itemSlot.add(img);
+      this.heldIcon = img;
+    } else {
+      const r = this.scene.add.rectangle(inset + inner / 2, inset + inner / 2, inner, inner, 0x5fd3e6);
+      this.itemSlot.add(r);
+      this.heldIcon = r;
+    }
+  }
+
+  private itemSlotSize(): number {
+    const L = this.layout;
+    if (!L) return 60;
+    const scr = L.screen;
+    return Math.min(60, Math.floor(scr.w * 0.2), Math.floor(scr.h * 0.2));
+  }
+
   public destroy(): void {
     this.buttons.forEach((b) => { b.face.destroy(); b.icon.destroy(); b.zone.destroy(); });
     this.buttons.clear();
+    this.heldIcon = null;
     this.itemSlot.destroy();
   }
 }

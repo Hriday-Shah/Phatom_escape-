@@ -5,9 +5,11 @@
  * Protocol (JSON messages, no Colyseus schema state):
  *   client -> server: colour {colour} | ready {ready} | settings {patch} | kick {id} | start {}
  *                     | pos {x, y, d, m} | spot {id, open}   (any hiding / search spot)
+ *                     | itemPickup {id} | itemDrop {x, y, spotId} | minigameStart {} | minigameWin {}
  *   server -> client: welcome {selfId} | lobby PublicLobby | rejected {action, error}
  *                     | kicked {} | poses {p: [id, x, y, d, m][]} | spot {id, open, by}
  *                     | spots {open: id[]} (full state: anything not listed is closed) | left {id}
+ *                     | round {minigame, gameSeed, items} | items {items} | codeReveal {code} (winner only)
  *
  * Drops: a client that disconnects without leaving keeps its seat for RECONNECT_SECONDS
  * (Colyseus allowReconnection; shown as `away`); a deliberate leave removes it at once.
@@ -69,7 +71,12 @@ export class HouseRoom extends Room {
     });
     lobbyAction('start', (c) => {
       const r = this.logic.start(c.sessionId);
-      if (r.ok) { void this.lock(); this.broadcast('spots', { open: this.logic.openSpots() }); }
+      if (r.ok) {
+        void this.lock();
+        this.broadcast('spots', { open: this.logic.openSpots() });
+        const round = this.logic.roundPublic();
+        if (round) this.broadcast('round', round);
+      }
       return r;
     });
 
@@ -85,6 +92,30 @@ export class HouseRoom extends Room {
     // Heartbeat: the client's dead-connection check (and, on hosts that sleep when no inbound
     // traffic arrives, e.g. Render free, what keeps the service awake while anyone is connected).
     this.onMessage('hb', (client) => { if (this.allow(client, 'act')) client.send('hb', {}); });
+    this.onMessage('itemPickup', (client, msg) => {
+      if (!this.allow(client, 'act')) return;
+      const r = this.logic.pickup(client.sessionId, msg);
+      if (r.ok) this.broadcast('items', { items: this.logic.itemList() });
+      else client.send('rejected', { action: 'itemPickup', error: r.error });
+    });
+    this.onMessage('itemDrop', (client, msg) => {
+      if (!this.allow(client, 'act')) return;
+      const r = this.logic.dropItem(client.sessionId, msg);
+      if (r.ok) this.broadcast('items', { items: this.logic.itemList() });
+      else client.send('rejected', { action: 'itemDrop', error: r.error });
+    });
+    this.onMessage('minigameStart', (client) => {
+      if (!this.allow(client, 'act')) return;
+      const r = this.logic.startMinigame(client.sessionId);
+      if (!r.ok) client.send('rejected', { action: 'minigameStart', error: r.error });
+    });
+    this.onMessage('minigameWin', (client) => {
+      if (!this.allow(client, 'act')) return;
+      const r = this.logic.winMinigame(client.sessionId);
+      // The paper code is sent only to the winner, never broadcast.
+      if (r.ok && r.code) client.send('codeReveal', { code: r.code });
+      else if (!r.ok) client.send('rejected', { action: 'minigameWin', error: r.error });
+    });
     // Anything else is ignored.
     this.onMessage('*', () => {});
 
@@ -143,6 +174,7 @@ export class HouseRoom extends Room {
     this.limits.delete(sid);
     this.noReturn.delete(sid);
     if (id) this.broadcast('left', { id });
+    if (this.logic.started) this.broadcast('items', { items: this.logic.itemList() });
     this.broadcastLobby();
   }
 
@@ -152,6 +184,9 @@ export class HouseRoom extends Room {
     client.send('lobby', this.logic.snapshot());
     if (this.logic.started) {
       client.send('spots', { open: this.logic.openSpots() });
+      const round = this.logic.roundPublic();
+      if (round) client.send('round', round);
+      client.send('items', { items: this.logic.itemList() });
       const p = this.logic.allPoses();
       if (p.length) client.send('poses', { p });
     }

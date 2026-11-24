@@ -14,8 +14,10 @@ import type {
   ColourId, LobbyPlayer, LobbyResult, LobbyService, LobbySettings, LobbyState,
 } from '../lobby/lobby';
 import {
-  CLOSE_CONSENTED, HEARTBEAT_MS, WAKE_MAX_MS, SILENCE_DROP_MS, CLOSE_FLOOD, CLOSE_KICKED, JoinFailure, PoseTuple, RECONNECT_RETRY_MS, RECONNECT_WINDOW_MS,
+  CLOSE_CONSENTED, HEARTBEAT_MS, WAKE_MAX_MS, SILENCE_DROP_MS, CLOSE_FLOOD, CLOSE_KICKED, JoinFailure, ItemPayload, PoseTuple, RECONNECT_RETRY_MS, RECONNECT_WINDOW_MS, RoundPayload,
 } from './protocol';
+import type { EscapeCode } from '../logic/escapeCode';
+import type { RoundPublic } from '../logic/itemRound';
 import { httpBase } from './serverConfig';
 
 /** kicked by the host; lost = could not reconnect in time; closed = the server closed the room. */
@@ -44,6 +46,15 @@ export interface GameLink {
   /** Open spots as last received (the scene applies them when it starts). */
   openSpots(): string[];
   leave(): void;
+  /** Round snapshot (mini-game + items) captured at start, if the server sent one. */
+  round(): RoundPublic | null;
+  sendItemPickup(id: string): void;
+  sendItemDrop(x: number, y: number, spotId?: string | null): void;
+  sendMinigameStart(): void;
+  sendMinigameWin(): void;
+  onRound(cb: (r: RoundPublic) => void): () => void;
+  onItems(cb: (items: ItemPayload[]) => void): () => void;
+  onCodeReveal(cb: (code: EscapeCode) => void): () => void;
 }
 
 type Listener<T extends unknown[]> = (...a: T) => void;
@@ -93,6 +104,10 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   status: NetStatus = 'connected';
   /** Set by main.ts once the house is running (the lobby screen is gone by then). */
   inGame = false;
+  private roundState: RoundPublic | null = null;
+  private roundEv = new Emitter<[RoundPublic]>();
+  private itemsEv = new Emitter<[ItemPayload[]]>();
+  private codeEv = new Emitter<[EscapeCode]>();
 
   private constructor(room: Room, readonly server: string, first: First) {
     this.state = { ...first.lobby, selfId: first.selfId };
@@ -114,6 +129,18 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
     });
     room.onMessage('spots', (m: { open: string[] }) => { this.open = Array.isArray(m?.open) ? m.open : []; this.spots.emit(this.open); });
     room.onMessage('left', (m: { id: string }) => this.leftEv.emit(m.id));
+    room.onMessage('round', (m: RoundPayload) => {
+      if (!m || !m.minigame || !Array.isArray(m.items)) return;
+      this.roundState = m as RoundPublic;
+      this.roundEv.emit(this.roundState);
+    });
+    room.onMessage('items', (m: { items: ItemPayload[] }) => {
+      if (Array.isArray(m?.items)) {
+        if (this.roundState) this.roundState = { ...this.roundState, items: m.items as RoundPublic['items'] };
+        this.itemsEv.emit(m.items);
+      }
+    });
+    room.onMessage('codeReveal', (m: { code: EscapeCode }) => { if (m?.code) this.codeEv.emit(m.code); });
     room.onMessage('hb', () => {});
     this.watch(room);
     room.onLeave((code) => {
@@ -328,4 +355,12 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   onSpots(cb: (open: string[]) => void): () => void { return this.spots.on(cb); }
   onPlayerLeft(cb: (id: string) => void): () => void { return this.leftEv.on(cb); }
   openSpots(): string[] { return [...this.open]; }
+  round(): RoundPublic | null { return this.roundState; }
+  sendItemPickup(id: string): void { if (!this.left) this.room.send('itemPickup', { id }); }
+  sendItemDrop(x: number, y: number, spotId?: string | null): void { if (!this.left) this.room.send('itemDrop', { x, y, spotId: spotId ?? null }); }
+  sendMinigameStart(): void { if (!this.left) this.room.send('minigameStart', {}); }
+  sendMinigameWin(): void { if (!this.left) this.room.send('minigameWin', {}); }
+  onRound(cb: (r: RoundPublic) => void): () => void { return this.roundEv.on(cb); }
+  onItems(cb: (items: ItemPayload[]) => void): () => void { return this.itemsEv.on(cb); }
+  onCodeReveal(cb: (code: EscapeCode) => void): () => void { return this.codeEv.on(cb); }
 }
