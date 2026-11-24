@@ -9,6 +9,7 @@ import { LightLayer } from '../objects/LightLayer';
 import { PLAYER_BODY_RADIUS } from '../objects/Player';
 import { gameDpr } from '../config/display';
 import { hasDebugFlag } from '../config/debugFlags';
+import { currentShellLayout } from '../ui/currentLayout';
 
 /** World units shown across the short side of the screen (before snapping). */
 const TARGET_VIEW_WORLD = 280;
@@ -93,7 +94,8 @@ export class GameScene extends Phaser.Scene {
     // Setup controls
     this.setupControls();
 
-    // Start UIScene in parallel
+    // Console body under the game (ShellScene renders first), HUD above it (UIScene).
+    this.scene.launch('ShellScene');
     this.scene.launch('UIScene');
     this.uiScene = this.scene.get('UIScene');
 
@@ -136,15 +138,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateCameraZoom(): void {
-    // Close-up camera: about 280 world units on the short side (roughly one room).
-    // scale.width/height are DEVICE px (the canvas renders at devicePixelRatio), so the
-    // snapped zoom gives every art pixel the same whole number of physical pixels.
-    const minDimension = Math.min(this.scale.width, this.scale.height);
-    this.cameras.main.setZoom(snappedCameraZoom(minDimension));
-    
+    // The game display is the console's screen rect (ui/shellLayout.ts): the camera viewport,
+    // in DEVICE px (CSS x render DPR), rounded to whole device px.
+    const dpr = gameDpr(this);
+    const scr = currentShellLayout(this).screen;
+    const cam = this.cameras.main;
+    cam.setViewport(Math.round(scr.x * dpr), Math.round(scr.y * dpr), Math.round(scr.w * dpr), Math.round(scr.h * dpr));
+    // Close-up camera: about 280 world units on the screen's short side (roughly one room),
+    // snapped so every art pixel covers the same whole number of device pixels.
+    cam.setZoom(snappedCameraZoom(Math.min(cam.width, cam.height)));
+
     // Recenter on player if it exists
     if (this.player) {
-      this.cameras.main.centerOn(this.player.x, this.player.y);
+      cam.centerOn(this.player.x, this.player.y);
     }
   }
 

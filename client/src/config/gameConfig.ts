@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GameScene } from '../scenes/GameScene';
 import { PreloadScene } from '../scenes/PreloadScene';
 import { UIScene } from '../scenes/UIScene';
+import { ShellScene } from '../scenes/ShellScene';
 import { currentRenderDpr } from './display';
 import { ARCADE_FPS, ARCADE_OVERLAP_BIAS } from './physicsConfig';
 
@@ -34,7 +35,8 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
       fps: ARCADE_FPS,
     },
   },
-  scene: [PreloadScene, GameScene, UIScene],
+  // Render order = list order: the console body, then the game in its screen, then the HUD.
+  scene: [PreloadScene, ShellScene, GameScene, UIScene],
   render: {
     pixelArt: true,
     antialias: false,

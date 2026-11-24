@@ -6,6 +6,7 @@ import { runPathfindingTest } from './pathfindingTest';
 import { runManifestTest } from './manifestTest';
 import { runGapRuleTest } from './gapRuleTest';
 import { runContainmentTest } from './containmentTest';
+import { runShellLayoutTest } from './shellLayoutTest';
 
 console.log('Running tests...\n');
 
@@ -14,6 +15,7 @@ try {
   runPathfindingTest();
   runGapRuleTest();
   runContainmentTest();
+  runShellLayoutTest();
   console.log('\n✅ All tests passed!');
   process.exit(0);
 } catch (error) {

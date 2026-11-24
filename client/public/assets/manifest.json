@@ -1826,6 +1826,204 @@
     "fps": 14
    },
    "note": "stun gun hit on the Phantom; play once"
+  },
+  {
+   "key": "shell_body",
+   "file": "ui/shell/shell_body.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); 9-slice, corner 8 px"
+  },
+  {
+   "key": "screen_bezel",
+   "file": "ui/shell/screen_bezel.png",
+   "width": 20,
+   "height": 20,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); 9-slice, border 6 px, transparent centre (game display)"
+  },
+  {
+   "key": "joystick_well",
+   "file": "ui/shell/joystick_well.png",
+   "width": 40,
+   "height": 40,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); knob travel ~11 px"
+  },
+  {
+   "key": "joystick_knob",
+   "file": "ui/shell/joystick_knob.png",
+   "width": 18,
+   "height": 18,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "btn_round",
+   "file": "ui/shell/btn_round.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); icon at (+6,+5)"
+  },
+  {
+   "key": "btn_round_pressed",
+   "file": "ui/shell/btn_round_pressed.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); icon at (+6,+6)"
+  },
+  {
+   "key": "btn_round_disabled",
+   "file": "ui/shell/btn_round_disabled.png",
+   "width": 24,
+   "height": 24,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "btn_socket",
+   "file": "ui/shell/btn_socket.png",
+   "width": 28,
+   "height": 28,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4); button at (+2,+2)"
+  },
+  {
+   "key": "icon_interact",
+   "file": "ui/shell/icon_interact.png",
+   "width": 12,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "icon_drop",
+   "file": "ui/shell/icon_drop.png",
+   "width": 12,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "icon_sneak",
+   "file": "ui/shell/icon_sneak.png",
+   "width": 12,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "icon_shoot",
+   "file": "ui/shell/icon_shoot.png",
+   "width": 12,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "icon_shoot_disabled",
+   "file": "ui/shell/icon_shoot_disabled.png",
+   "width": 12,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "label_use",
+   "file": "ui/shell/label_use.png",
+   "width": 13,
+   "height": 7,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "label_drop",
+   "file": "ui/shell/label_drop.png",
+   "width": 18,
+   "height": 7,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "label_sneak",
+   "file": "ui/shell/label_sneak.png",
+   "width": 23,
+   "height": 7,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "label_shoot",
+   "file": "ui/shell/label_shoot.png",
+   "width": 23,
+   "height": 7,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "label_shoot_disabled",
+   "file": "ui/shell/label_shoot_disabled.png",
+   "width": 23,
+   "height": 7,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "logo_plate",
+   "file": "ui/shell/logo_plate.png",
+   "width": 66,
+   "height": 10,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "speaker_grille",
+   "file": "ui/shell/speaker_grille.png",
+   "width": 20,
+   "height": 12,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "power_led",
+   "file": "ui/shell/power_led.png",
+   "width": 5,
+   "height": 5,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
+  },
+  {
+   "key": "power_led_on",
+   "file": "ui/shell/power_led_on.png",
+   "width": 5,
+   "height": 5,
+   "space": "screen",
+   "status": "approved",
+   "note": "console shell, 1x art at integer scale s (2/3/4)"
   }
  ]
 }
