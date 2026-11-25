@@ -1,6 +1,6 @@
 /**
  * Another player in an online room: same body + hoodie-tint sprites as the local Player (no
- * physics), drawn from interpolated server poses, with a nickname label. Nicknames are drawn
+ * physics), drawn at the newest server pose, with a nickname label. Nicknames are drawn
  * as Phaser text (never HTML).
  */
 import Phaser from 'phaser';

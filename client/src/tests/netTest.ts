@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import { SERVER_KEY, httpBase, normaliseServer, onlineInviteLink, serverFromUrl } from '../net/serverConfig';
 import { GAP_MS, PoseBuffer } from '../net/interpolation';
-import { dirOf } from '../net/dirOf';
+import { dirOf, poseIntent } from '../net/dirOf';
+import { reconcilePose } from '../net/reconcile';
 
 function memStore() {
   const m = new Map<string, string>();
@@ -50,20 +51,51 @@ export function runNetTest(): void {
   assert.equal(b.sample(0), null);
   b.push({ t: 1000, x: 0, y: 0, d: 2, m: 1 });
   b.push({ t: 1080, x: 16, y: 0, d: 2, m: 1 });
-  b.push({ t: 1080, x: 99, y: 0, d: 2, m: 1 }); // duplicate time dropped
   assert.deepEqual(b.sample(1100), { t: 1000, x: 0, y: 0, d: 2, m: 1 });
   assert.equal(b.sample(1140)!.x, 8);
-  assert.equal(b.sample(1500)!.x, 16, 'holds the newest');
-  // after a pause the move starts one step before the new pose (no slow crawl)
+  b.push({ t: 1080, x: 99, y: 0, d: 2, m: 1 }); // same clock reading: keep the newer arrival
+  assert.equal(b.sample(1500)!.x, 99, 'a same-time burst shows the newest pose, not the oldest');
+  // a hole holds the last real pose; it does not slide a chord toward the next one
   b.push({ t: 1080 + GAP_MS + 500, x: 40, y: 0, d: 2, m: 1 });
   const t = 1080 + GAP_MS + 500;
-  assert.equal(b.sample(t - 1000 / 12 + 100)!.x, 16);
+  assert.equal(b.sample(t - 1000 / 12 + 100)!.x, 99);
   assert.equal(b.sample(t + 100)!.x, 40);
+  const burst = new PoseBuffer(0);
+  burst.push({ t: 50, x: 744, y: 330, d: 2, m: 1 });
+  burst.push({ t: 50, x: 820, y: 270, d: 2, m: 1 });
+  burst.push({ t: 50, x: 900, y: 265, d: 2, m: 1 });
+  assert.equal(burst.sample(50)!.x, 900, 'foyer burst is not frozen on the first sample');
+  const hole = new PoseBuffer(0);
+  hole.push({ t: 0, x: 0, y: 0, d: 0, m: 0 });
+  hole.push({ t: 1000, x: 200, y: 0, d: 2, m: 1 });
+  assert.equal(hole.sample(500)!.x, 0, 'a hole does not draw the straight line across it');
+  assert.equal(hole.sample(1000)!.x, 200);
 
   assert.equal(dirOf(1, 0, { x: 0, y: 1 }), 2);
   assert.equal(dirOf(-1, 0.5, { x: 0, y: 1 }), 1);
   assert.equal(dirOf(0, -1, { x: 0, y: 1 }), 3);
   assert.equal(dirOf(0, 0, { x: 0, y: 1 }), 0);
   assert.equal(dirOf(0, 0, { x: -1, y: 0 }), 1);
+
+  // Held into a wall the stick still walks and faces the stick, not the stopped body.
+  assert.deepEqual(poseIntent(0, -1, 0), { d: 3, m: 1 });
+  assert.deepEqual(poseIntent(0.2, -1, 2), { d: 3, m: 1 }, 'slide along a table keeps the stick facing');
+  assert.deepEqual(poseIntent(1, -0.2, 0), { d: 2, m: 1 });
+  assert.deepEqual(poseIntent(0, 0, 2), { d: 2, m: 0 });
+
+  const ack = reconcilePose([{ x: 0, y: 0 }, { x: 10, y: 0 }], { x: 10, y: 0 }, { x: 10, y: 0 });
+  assert.equal(ack.dx, 0);
+  assert.deepEqual(ack.pending, []);
+  const nudge = reconcilePose([{ x: 10, y: 0 }, { x: 20, y: 0 }], { x: 8, y: 0 }, { x: 20, y: 0 });
+  assert.equal(nudge.dx, -2);
+  assert.deepEqual(nudge.pending, [{ x: 18, y: 0 }]);
+  const rewind = reconcilePose([{ x: 10, y: 0 }], { x: 400, y: 0 }, { x: 30, y: 0 });
+  assert.equal(rewind.dx, 0, 'a reconnect snapshot far from the last send is not a nudge');
+  assert.deepEqual(rewind.pending, [{ x: 10, y: 0 }]);
+  const spawn = reconcilePose([], { x: 12, y: 0 }, { x: 10, y: 0 });
+  assert.equal(spawn.dx, 2);
+  const farSpawn = reconcilePose([], { x: 100, y: 0 }, { x: 10, y: 0 });
+  assert.equal(farSpawn.dx, 0);
+
   console.log('  ✓ server URL, invite link, pose buffer, direction');
 }

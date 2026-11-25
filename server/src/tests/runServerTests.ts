@@ -6,7 +6,8 @@ import { PLAYER_SPEED } from '../../../client/src/config/physicsConfig';
 import { originAllowed, parseOrigins } from '../origins';
 import { randomBytes } from 'node:crypto';
 import { MIN_WIN_MS, createRound, createServerRoundFrom, hidingSpotList } from '../../../client/src/logic/itemRound';
-import { canUseSpot, clampDrop, losBlockers, movementBlockers, pointBlocked, spotById } from '../../../client/src/logic/worldCollision';
+import { canUseSpot, clampDrop, integrateSlide, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, pointBlocked, spotById } from '../../../client/src/logic/worldCollision';
+import { houseLayout } from '../../../client/src/data/houseLayout';
 import { solvingLog, replayWin, createPuzzle } from '../../../client/src/logic/minigames/replay';
 
 let n = 0;
@@ -204,6 +205,118 @@ test('R15-4: a wall-crossing move is clamped, not accepted', () => {
   assert.ok(hit.y <= before.y + 1);
   assert.equal(pointBlocked(hit.x, hit.y, movementBlockers()), false);
   assert.ok(h.corrections >= 1);
+});
+
+/** Phone steps at 60 Hz, reports at 12 Hz, rounded the way NetSync sends. */
+function reportSlide(from: { x: number; y: number }, dirX: number, dirY: number): { x: number; y: number } {
+  const step = integrateSlide(from, dirX, dirY, 1000 / 12);
+  return { x: Math.round(step.x * 10) / 10, y: Math.round(step.y * 10) / 10 };
+}
+
+test('car table: the server keeps the slide the phone walked, including facing and walk', () => {
+  const h = room(2);
+  h.start('s0', 0);
+  const spawn = h.poseForTest('s0')!;
+  const table = houseLayout.furniture.find((f) => f.id === 'car_table')!;
+  assert.ok(spawn.x >= table.x && spawn.x <= table.x + table.width, 'host slot sits under the car table');
+  assert.ok(spawn.y > table.y + table.height, 'host slot is on the near side of the table');
+
+  // Stick straight into the table: stop on the near edge, still walking, still facing up.
+  let pose = { x: spawn.x, y: spawn.y };
+  let now = 0;
+  for (let i = 0; i < 8; i++) {
+    const sent = reportSlide(pose, 0, -1);
+    now += 1000 / 12;
+    const got = h.move('s0', { x: sent.x, y: sent.y, d: 3, m: 1 }, now)!;
+    assert.ok(Math.hypot(got.x - sent.x, got.y - sent.y) < 0.05, `into table tick ${i}: server ${got.x},${got.y} vs phone ${sent.x},${sent.y}`);
+    assert.equal(got.d, 3);
+    assert.equal(got.m, 1);
+    assert.equal(pointBlocked(got.x, got.y, movementBlockers()), false);
+    pose = got;
+  }
+  const contact = table.y + table.height + PLAYER_BODY_RADIUS;
+  assert.ok(Math.abs(pose.y - contact) < 1, `rests under the table, y=${pose.y} contact=${contact}`);
+  assert.ok(Math.abs(pose.x - spawn.x) < 1, `straight up does not drift along the table, x=${pose.x}`);
+  assert.ok(pose.y > table.y + table.height, 'does not tunnel through the table');
+
+  // Stick up and to the right: slide along the table instead of sticking on the chord.
+  h.setPoseForTest('s0', { x: spawn.x, y: spawn.y, d: 0, m: 0 }, now);
+  pose = { x: spawn.x, y: spawn.y };
+  for (let i = 0; i < 8; i++) {
+    const sent = reportSlide(pose, 0.4, -1);
+    now += 1000 / 12;
+    const got = h.move('s0', { x: sent.x, y: sent.y, d: 3, m: 1 }, now)!;
+    assert.ok(Math.hypot(got.x - sent.x, got.y - sent.y) < 0.05, `along table tick ${i}: server ${got.x},${got.y} vs phone ${sent.x},${sent.y}`);
+    assert.equal(got.d, 3, 'facing stays the stick (up), not the slide axis');
+    assert.equal(got.m, 1, 'still walking while sliding');
+    assert.equal(pointBlocked(got.x, got.y, movementBlockers()), false);
+    pose = got;
+  }
+  assert.ok(pose.x > spawn.x + 40, `slid along the table, x=${pose.x} from ${spawn.x}`);
+});
+
+test('a wall slide keeps the free axis and a hiding spot stays solid', () => {
+  const h = room(1);
+  h.start('s0', 0);
+  stand(h, 's0', 200, 450, 1000);
+  let pose = { x: 200, y: 450 };
+  let now = 1000;
+  for (let i = 0; i < 6; i++) {
+    const sent = reportSlide(pose, -1, -0.25);
+    now += 1000 / 12;
+    const got = h.move('s0', { x: sent.x, y: sent.y, d: 1, m: 1 }, now)!;
+    assert.ok(Math.hypot(got.x - sent.x, got.y - sent.y) < 0.05, `wall tick ${i}: server ${got.x},${got.y} vs phone ${sent.x},${sent.y}`);
+    assert.equal(got.m, 1);
+    assert.equal(pointBlocked(got.x, got.y, movementBlockers()), false);
+    pose = got;
+  }
+  assert.ok(pose.x < 190, `moved left onto the entrance wall, x=${pose.x}`);
+  assert.ok(pose.y < 440, `slid up the wall, y=${pose.y}`);
+
+  const sofa = houseLayout.hidingSpots.find((s) => s.id === 'sofa')!;
+  const y = sofa.y + sofa.height / 2;
+  const fromX = sofa.x + sofa.width + PLAYER_BODY_RADIUS + 20;
+  stand(h, 's0', fromX, y, now);
+  assert.equal(pointBlocked(fromX, y, movementBlockers()), false, 'start beside the sofa, not inside it');
+  const through = h.move('s0', { x: sofa.x - 40, y, d: 1, m: 1 }, now + 1000)!;
+  assert.ok(through.x >= sofa.x + sofa.width + PLAYER_BODY_RADIUS - 1, `sofa did not stop the chord, x=${through.x}`);
+  assert.equal(pointBlocked(through.x, through.y, movementBlockers()), false);
+});
+
+test('a stall then one pose through the foyer is not stuck on the sideboard', () => {
+  const h = room(1);
+  h.start('s0', 0);
+  const start = { x: 700, y: 380 };
+  stand(h, 's0', start.x, start.y, 0);
+  assert.equal(pointBlocked(start.x, start.y, movementBlockers()), false, 'start is open floor');
+  const goal = { x: 900, y: 265 };
+  let phone = { ...start };
+  const samples: { x: number; y: number }[] = [];
+  for (let i = 0; i < 40 && Math.hypot(goal.x - phone.x, goal.y - phone.y) > 8; i++) {
+    const stepped = integrateSlide(phone, goal.x - phone.x, goal.y - phone.y, 1000 / 12);
+    phone = { x: Math.round(stepped.x * 10) / 10, y: Math.round(stepped.y * 10) / 10 };
+    samples.push({ ...phone });
+  }
+  assert.ok(phone.x > 840, `phone walks through the foyer, x=${phone.x} y=${phone.y}`);
+  assert.equal(pointBlocked(phone.x, phone.y, movementBlockers()), false);
+
+  // The backlog keeps only the newest pose. One second of budget must land on it,
+  // not on the sideboard face (x ≈ 744) the shortened chord used to creep along.
+  const got = h.move('s0', { x: phone.x, y: phone.y, d: 2, m: 1 }, 1000)!;
+  assert.ok(Math.hypot(got.x - phone.x, got.y - phone.y) < 1, `server ${got.x},${got.y} phone ${phone.x},${phone.y}`);
+  assert.equal(got.d, 2);
+  assert.equal(got.m, 1);
+  assert.equal(pointBlocked(got.x, got.y, movementBlockers()), false);
+  assert.ok(got.x > 840, `stuck beside the foyer at x=${got.x}`);
+
+  // The same walk delivered as one millisecond of samples still ends on the phone.
+  stand(h, 's0', start.x, start.y, 2000);
+  let burst = { x: start.x, y: start.y, d: 0, m: 0 };
+  for (const s of samples) burst = h.move('s0', { x: s.x, y: s.y, d: 3, m: 1 }, 3000)!;
+  assert.ok(Math.hypot(burst.x - phone.x, burst.y - phone.y) < 1, `burst server ${burst.x},${burst.y} phone ${phone.x},${phone.y}`);
+  assert.equal(burst.d, 3);
+  assert.equal(burst.m, 1);
+  assert.equal(pointBlocked(burst.x, burst.y, movementBlockers()), false);
 });
 
 
