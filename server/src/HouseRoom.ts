@@ -45,6 +45,11 @@ export class HouseRoom extends Room {
   private limits = new Map<string, Limits>();
   /** Sessions the server disconnected on purpose (flooding): no reconnection. */
   private noReturn = new Set<string>();
+  /**
+   * Newest `pos` that the rate limit refused. Applied on the next tick that has a
+   * token, so a backlog cannot freeze the broadcast on an older foyer pose.
+   */
+  private pendingPos = new Map<string, unknown>();
 
   onCreate(): void {
     const code = newRoomCode();
@@ -86,7 +91,11 @@ export class HouseRoom extends Room {
     });
 
     this.onMessage('pos', (client, msg) => {
-      if (!this.allow(client, 'pos')) return;
+      if (!this.allow(client, 'pos')) {
+        this.pendingPos.set(client.sessionId, msg);
+        return;
+      }
+      this.pendingPos.delete(client.sessionId);
       this.logic.move(client.sessionId, msg, Date.now());
     });
     this.onMessage('spot', (client, msg) => {
@@ -139,6 +148,7 @@ export class HouseRoom extends Room {
     this.onMessage('*', () => {});
 
     this.clock.setInterval(() => {
+      this.flushPendingPoses();
       // TODO(stage 3): per-player interest management for positions.
       const p = this.logic.takeDirtyPoses();
       if (p.length) {
@@ -153,6 +163,18 @@ export class HouseRoom extends Room {
   private rejectSpot(client: Client, msg: unknown): void {
     const c = this.logic.spotCorrection(msg);
     if (c) client.send('rejected', { action: 'spot', id: c.id, open: c.open });
+  }
+
+  /** Apply one saved pose per session once a movement token exists. */
+  private flushPendingPoses(): void {
+    if (this.pendingPos.size === 0) return;
+    const now = Date.now();
+    for (const [sid, msg] of [...this.pendingPos]) {
+      const limits = this.limits.get(sid);
+      if (!limits || !limits.pos.take(now)) continue;
+      this.pendingPos.delete(sid);
+      this.logic.move(sid, msg, now);
+    }
   }
 
   /** Per-client rate limits; a client that keeps flooding is disconnected. */
@@ -202,6 +224,7 @@ export class HouseRoom extends Room {
     const id = this.logic.playerId(sid);
     this.logic.leave(sid); // host migrates to the next player
     this.limits.delete(sid);
+    this.pendingPos.delete(sid);
     this.noReturn.delete(sid);
     if (id) this.broadcast('left', { id });
     if (this.logic.started) this.sendItemsToAll();

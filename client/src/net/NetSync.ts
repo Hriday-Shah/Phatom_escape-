@@ -1,23 +1,28 @@
 /**
  * In-game online sync (stage 2): sends this player's pose at SEND_HZ (only when it changed,
- * plus a 1 s keep-alive), draws everyone else as RemotePlayers (greyed while reconnecting),
- * mirrors every hiding / search spot (drawers, sofa, bed, fridge...) both ways, applies the
- * full spot state after a reconnection, rolls a refused drawer back, and posts short
- * notices (left, reconnecting, new host). Other players stay drawn; the light circle
- * is what hides someone standing in the dark. No Phantom, no timers yet. Created by
- * GameScene only for an online room (registry 'net'); offline play never touches this.
+ * plus a 1 s keep-alive), draws everyone else at the newest server pose (greyed while
+ * reconnecting), and nudges this body when the server slid that pose. Facing and the
+ * walk/idle flag are the stick, so both phones show the same row. Mirrors every hiding /
+ * search spot both ways, rolls a refused drawer back, applies the full spot state after a
+ * reconnection, and posts short notices (left, reconnecting, new host). Other players stay
+ * drawn; the light circle is what hides someone standing in the dark. No Phantom, no timers
+ * yet. Created by GameScene only for an online room (registry 'net'); offline play never
+ * touches this.
  */
 import Phaser from 'phaser';
 import type { GameLink, NetPlayer } from './ColyseusLobbyService';
 import { RemotePlayer } from '../objects/RemotePlayer';
 import { SEND_HZ } from './protocol';
-import { dirOf } from './dirOf';
+import { poseIntent } from './dirOf';
+import { reconcilePose, type SentPose } from './reconcile';
 import { netToast } from './NetOverlay';
 
 export interface NetPlayerSource {
-  x: number; y: number;
-  getBody(): Phaser.Physics.Arcade.Body;
-  getFacing(): { x: number; y: number };
+  x: number;
+  y: number;
+  getMoveInput(): { x: number; y: number };
+  useSharedSlide(on: boolean): void;
+  shift(dx: number, dy: number): void;
   /** Put the body on a pose the server already stored (reload / rejoin). */
   place(x: number, y: number): void;
 }
@@ -37,10 +42,13 @@ export class NetSync {
   private resend = false;
   /** True after the first pose leaves this phone. A later own pose is not a teleport. */
   private sentOnce = false;
+  /** Poses sent and not yet matched to a broadcast. Newest last. */
+  private sent: SentPose[] = [];
   private known = new Map<string, NetPlayer>();
   private hostId: string;
 
   constructor(private scene: Phaser.Scene, private link: GameLink, private me: NetPlayerSource, spots: NetSpots) {
+    this.me.useSharedSlide(true);
     spots.syncOpen(link.openSpots());
     spots.onLocalToggle((id, open) => link.sendSpot(id, open));
     const st = link.getState();
@@ -64,14 +72,15 @@ export class NetSync {
   }
 
   /**
-   * Apply a server pose list. This phone is moved only before it has sent anything
-   * (a reload onto the stored point). After that the body stays where it walked and
-   * the server places the return pose.
+   * Apply a server pose list. Before this phone has sent, a reload stands on the stored
+   * point. After that, our own broadcast is the slide correction the other phone draws,
+   * and a far snapshot is left alone. The server places the return pose.
    */
   private applyPoses(poses: readonly [string, number, number, number, number][], now: number): void {
     for (const [id, x, y, d, m] of poses) {
       if (id === this.link.selfId) {
         if (!this.sentOnce) this.me.place(x, y);
+        else this.adopt(x, y);
         continue;
       }
       this.remote(id, x, y)?.buffer.push({ t: now, x, y, d, m });
@@ -120,17 +129,27 @@ export class NetSync {
     staggerLabels(list);
     if (now < this.nextSend) return;
     this.nextSend = now + 1000 / SEND_HZ;
-    const v = this.me.getBody().velocity;
     const x = Math.round(this.me.x * 10) / 10, y = Math.round(this.me.y * 10) / 10;
-    const m = v.x || v.y ? 1 : 0;
-    // Standing still keeps the direction it last walked (like Player's idle frame).
-    const d = m ? (this.lastMoveDir = dirOf(v.x, v.y, this.me.getFacing())) : this.lastMoveDir;
+    // The stick, not the velocity: held into a table this is still a walk, facing the stick.
+    const input = this.me.getMoveInput();
+    const intent = poseIntent(input.x, input.y, this.lastMoveDir);
+    this.lastMoveDir = intent.d;
+    const { d, m } = intent;
     const s = this.lastSent;
     if (!this.resend && x === s.x && y === s.y && d === s.d && m === s.m && now - s.at < 1000) return;
     this.resend = false;
     this.sentOnce = true;
     this.lastSent = { x, y, d, m, at: now };
+    this.sent.push({ x, y });
+    if (this.sent.length > 24) this.sent.shift();
     this.link.sendPose(x, y, d, m);
+  }
+
+  /** Our own broadcast pose: the point the other phone is drawing. */
+  private adopt(x: number, y: number): void {
+    const r = reconcilePose(this.sent, { x, y }, { x: this.me.x, y: this.me.y });
+    this.sent = r.pending;
+    if (r.dx || r.dy) this.me.shift(r.dx, r.dy);
   }
 
   /** QA: remote players' drawn positions and state. */

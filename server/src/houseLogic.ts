@@ -19,7 +19,7 @@ import { PublicItem } from '../../client/src/logic/items';
 import { houseLayout } from '../../client/src/data/houseLayout';
 import { onlineSpawnSlots } from '../../client/src/logic/onlineSpawn';
 import {
-  canUseSpot, clampMove, hasLineOfSight, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, pointBlocked, spotById,
+  canUseSpot, hasLineOfSight, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, pointBlocked, resolveMove, spotById,
 } from '../../client/src/logic/worldCollision';
 import type { PlayView } from '../../client/src/logic/minigames/replay';
 
@@ -95,7 +95,7 @@ export const parse = {
   },
 };
 
-interface Track { pose: Pose; at: number; dirty: boolean }
+interface Track { pose: Pose; at: number; dirty: boolean; creditMs: number }
 
 export class HouseLogic {
   private lobby: LobbyRoom | null = null;
@@ -236,7 +236,7 @@ export class HouseLogic {
       const slots = onlineSpawnSlots({ x: 300, y: 430 }, Math.max(players.length, 1));
       players.forEach((p, i) => {
         const s = slots[i % slots.length]!;
-        this.poses.set(p.id, { pose: { x: s.x, y: s.y, d: 0, m: 0 }, at: now, dirty: true });
+        this.poses.set(p.id, { pose: { x: s.x, y: s.y, d: 0, m: 0 }, at: now, dirty: true, creditMs: 0 });
       });
     }
     return r;
@@ -338,7 +338,7 @@ export class HouseLogic {
   setPoseForTest(session: string, pose: Pose, now = Date.now()): void {
     const id = this.bySession.get(session);
     if (!id) return;
-    this.poses.set(id, { pose: { ...pose }, at: now, dirty: true });
+    this.poses.set(id, { pose: { ...pose }, at: now, dirty: true, creditMs: 0 });
   }
 
   poseForTest(session: string): Pose | null {
@@ -350,8 +350,17 @@ export class HouseLogic {
 
   /**
    * In-game movement. Official spawns are set at start(). Later poses are speed-clamped
-   * and then collided against the same wall / furniture geometry the client uses (R15-4).
-   * A wall-crossing request is clamped to the last free point on the segment.
+   * and then slid against the same walls, furniture, hiding spots and locked doors the
+   * phone uses. A straight stop would stick the broadcast pose on the car table while
+   * the sprite walks along it. A chord that only clips a doorway is taken as the short
+   * walk through that doorway, so a catch-up does not wedge on the foyer sideboard.
+   * Facing (`d`) and walking (`m`) are the stick the phone is showing, echoed unchanged
+   * so the other screen plays the same row.
+   *
+   * Several `pos` messages in one millisecond used to each see dt ≈ 0 and shrink to the
+   * 24px jitter, so a burst crept along the wall. The unused part of the last real
+   * interval is kept for that burst and spent by the distance actually moved. The next
+   * real interval replaces it, so leftover credit cannot pile into a later jump.
    */
   move(session: string, msg: unknown, now: number): Pose | null {
     const id = this.bySession.get(session);
@@ -360,17 +369,19 @@ export class HouseLogic {
     const prev = this.poses.get(id);
     if (!prev) return null; // no free first-pose teleport; start() assigns a spawn
     // One pose after a reconnect: the phone kept walking (or reloaded onto the stored
-    // point). Accept that free point once. Every later pose is speed-capped as usual.
+    // point). Accept that free point once. Every later pose is speed-capped and slid.
     if (this.placeOnReturn.delete(id)) {
       const inside = p.x >= PLAYER_BODY_RADIUS && p.y >= PLAYER_BODY_RADIUS
         && p.x <= houseLayout.width - PLAYER_BODY_RADIUS && p.y <= houseLayout.height - PLAYER_BODY_RADIUS;
       if (inside && !pointBlocked(p.x, p.y, movementBlockers(false), PLAYER_BODY_RADIUS)) {
-        this.poses.set(id, { pose: p, at: now, dirty: true });
+        this.poses.set(id, { pose: p, at: now, dirty: true, creditMs: 0 });
         return p;
       }
     }
-    const dt = Math.min(MAX_ELAPSED_MS, Math.max(0, now - prev.at));
-    const max = (PLAYER_SPEED * dt / 1000) * SPEED_SLACK + SPEED_JITTER_PX;
+    const elapsed = Math.max(0, now - prev.at);
+    const wall = Math.min(MAX_ELAPSED_MS, elapsed);
+    const budgetMs = wall > 0 ? wall : Math.min(MAX_ELAPSED_MS, prev.creditMs);
+    const max = (PLAYER_SPEED * budgetMs / 1000) * SPEED_SLACK + SPEED_JITTER_PX;
     const dx = p.x - prev.pose.x, dy = p.y - prev.pose.y;
     const dist = Math.hypot(dx, dy);
     if (dist > max) {
@@ -380,11 +391,15 @@ export class HouseLogic {
       this.corrections++;
     }
     const blockers = movementBlockers(false);
-    const clamped = clampMove(prev.pose, p, blockers, PLAYER_BODY_RADIUS);
-    if (clamped.blocked) this.corrections++;
-    p.x = clamped.x;
-    p.y = clamped.y;
-    this.poses.set(id, { pose: p, at: now, dirty: true });
+    const slid = resolveMove(prev.pose, p, blockers, max, PLAYER_BODY_RADIUS);
+    if (slid.x !== p.x || slid.y !== p.y) this.corrections++;
+    p.x = slid.x;
+    p.y = slid.y;
+    const moved = Math.hypot(p.x - prev.pose.x, p.y - prev.pose.y);
+    const pxPerMs = (PLAYER_SPEED * SPEED_SLACK) / 1000;
+    const spentMs = pxPerMs > 0 ? moved / pxPerMs : budgetMs;
+    const creditMs = Math.max(0, budgetMs - spentMs);
+    this.poses.set(id, { pose: p, at: now, dirty: true, creditMs });
     return p;
   }
 

@@ -1,10 +1,12 @@
 /**
- * Remote pose buffer: poses arrive ~12 times a second; the player is drawn INTERP_DELAY_MS in
- * the past, interpolated between the two poses around that time. Pure, unit-tested.
+ * Remote pose buffer: poses arrive ~12 times a second. The player is drawn at
+ * `now - delay`. The game passes delay 0 so both phones show the newest server pose.
+ * A positive delay still interpolates between two close samples. A hole longer than
+ * GAP_MS holds the last real pose until the next one arrives: it does not invent a
+ * straight slide across the missing path. Pure, unit-tested.
  */
-/** Longer than this between poses = a pause. */
+/** Longer than this between poses = a hole, not a step to lerp across. */
 export const GAP_MS = 300;
-const STEP_MS = 1000 / 12;
 
 export interface Sample { t: number; x: number; y: number; d: number; m: number }
 
@@ -13,12 +15,12 @@ export class PoseBuffer {
   constructor(private delayMs: number, private max = 30) {}
 
   push(sample: Sample): void {
-    // Out-of-order / duplicate times are dropped.
     const last = this.s[this.s.length - 1];
-    if (last && sample.t <= last.t) return;
-    // After a pause (nothing sent while standing still) start the move from where it stood
-    // one step ago, not from the old pose's time (that would crawl across the whole gap).
-    if (last && sample.t - last.t > GAP_MS) this.s.push({ ...last, t: sample.t - STEP_MS, m: 0 });
+    if (last && sample.t < last.t) return;
+    // A burst handled in one turn shares one clock reading. The socket is ordered,
+    // so this arrival is the newer pose. Keeping the oldest froze the body on the
+    // first sample of the burst (still standing by the foyer).
+    if (last && sample.t === last.t) this.s.pop();
     this.s.push(sample);
     if (this.s.length > this.max) this.s.shift();
   }
@@ -34,6 +36,8 @@ export class PoseBuffer {
     const a = this.s[0], b = this.s[1];
     if (!b || t <= a.t) return { ...a, t };
     if (t >= b.t) return { ...b, t };
+    // The missing samples are gone. Holding beats crawling a chord through the house.
+    if (b.t - a.t > GAP_MS) return { ...a, t };
     const k = (t - a.t) / (b.t - a.t);
     return { t, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, d: k < 0.5 ? a.d : b.d, m: a.m || b.m };
   }

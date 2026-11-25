@@ -509,7 +509,7 @@ export class GameScene extends Phaser.Scene {
     // While a mini-game is open the stick and USE go to it; the world keeps ticking.
     if (this.items?.open) {
       this.player.setMovement(0, 0);
-      this.player.update();
+      this.player.update(delta);
       this.keepSpotClearOfPrompt(delta);
       return;
     }
@@ -539,7 +539,7 @@ export class GameScene extends Phaser.Scene {
 
     // Update player movement
     this.player.setMovement(moveX, moveY);
-    this.player.update();
+    this.player.update(delta);
 
     // Hiding spot highlights are updated at POST_UPDATE (see create), from this frame's position.
     this.keepSpotClearOfPrompt(delta);
