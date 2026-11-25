@@ -195,6 +195,48 @@ test('movement: only after start, validated, speed-sane, official spawn', () => 
 });
 
 
+test('reconnect places a free pose once, then speed-caps again', () => {
+  const h = room(1);
+  h.start('s0', 0);
+  stand(h, 's0', 316, 430, 1000);
+  const blockers = movementBlockers();
+  let far = { x: 0, y: 0 };
+  let found = false;
+  for (let y = 160; y < 700 && !found; y += 20) {
+    for (let x = 200; x < 1000; x += 20) {
+      if (pointBlocked(x, y, blockers)) continue;
+      if (Math.hypot(x - 316, y - 430) <= 400) continue;
+      far = { x, y }; found = true; break;
+    }
+  }
+  assert.ok(found, 'a walkable point more than a speed-cap away');
+  // A drop before the match starts must not turn the first walk into a teleport.
+  const early = room(1);
+  early.drop('s0');
+  early.reconnect('s0');
+  early.start('s0', 0);
+  const spawned = early.poseForTest('s0')!;
+  const first = early.move('s0', { x: far.x, y: far.y, d: 2, m: 1 }, 100)!;
+  const cap = PLAYER_SPEED * 0.1 * SPEED_SLACK + SPEED_JITTER_PX;
+  assert.ok(Math.hypot(first.x - spawned.x, first.y - spawned.y) <= cap + 0.2, `lobby reconnect teleported to ${first.x},${first.y}`);
+
+  h.drop('s0');
+  assert.equal(h.reconnect('s0'), true);
+  const placed = h.move('s0', { x: far.x, y: far.y, d: 2, m: 0 }, 8000)!;
+  assert.equal(placed.x, far.x, 'return pose is where the phone is');
+  assert.equal(placed.y, far.y);
+  assert.equal(placed.d, 2);
+  const back = h.move('s0', { x: 316, y: 430, d: 0, m: 1 }, 8100)!;
+  assert.ok(Math.hypot(back.x - far.x, back.y - far.y) <= cap + 0.2, `second far pose crawled ${back.x},${back.y}`);
+  h.drop('s0');
+  h.reconnect('s0');
+  const table = { x: 195, y: 394 };
+  assert.equal(pointBlocked(table.x, table.y, blockers), true, 'car table centre is solid');
+  const refused = h.move('s0', { x: table.x, y: table.y, d: 0, m: 0 }, 9000)!;
+  assert.equal(pointBlocked(refused.x, refused.y, blockers), false, 'a blocked return pose is not accepted');
+  assert.ok(Math.hypot(refused.x - table.x, refused.y - table.y) > 16, 'did not stand inside the table');
+});
+
 test('R15-4: a wall-crossing move is clamped, not accepted', () => {
   const h = room(1);
   h.start('s0', 0);
@@ -339,6 +381,15 @@ test('spots: unknown ids refused; open/close needs reach and line of sight', () 
   assert.deepEqual(h.openSpots(), []);
   for (let i = 0; i < 300; i++) h.setSpot('s0', { id: `d${i}`, open: true });
   assert.equal(h.openSpots().length, 0, 'fake ids never accumulate');
+  standAtSpot(h, 's0', 'sofa_d1', 2500);
+  assert.ok(h.setSpot('s0', { id: 'sofa_d1', open: true }));
+  stand(h, 's0', 316, 430, 3000);
+  assert.equal(h.setSpot('s0', { id: 'sofa_d1', open: false }), null, 'too far to close');
+  assert.equal(h.isSpotOpen('sofa_d1'), true);
+  assert.deepEqual(h.spotCorrection({ id: 'sofa_d1', open: false }), { id: 'sofa_d1', open: true });
+  assert.equal(h.spotCorrection({ id: 'sofa_d1', open: true }), null, 'already the server flag');
+  assert.equal(h.spotCorrection({ id: 'not_a_spot', open: true }), null);
+  assert.equal(h.spotCorrection({ id: 'sofa_d1' }), null);
 });
 
 test('rate limiter: burst then sustained rate', () => {

@@ -3,9 +3,11 @@
  * plus a 1 s keep-alive), draws everyone else at the newest server pose (greyed while
  * reconnecting), and nudges this body when the server slid that pose. Facing and the
  * walk/idle flag are the stick, so both phones show the same row. Mirrors every hiding /
- * search spot both ways, applies the full spot state after a reconnection, and posts short
- * notices (left, reconnecting, new host). No Phantom, no timers yet. Created by GameScene
- * only for an online room (registry 'net'); offline play never touches this.
+ * search spot both ways, rolls a refused drawer back, applies the full spot state after a
+ * reconnection, and posts short notices (left, reconnecting, new host). Other players stay
+ * drawn; the light circle is what hides someone standing in the dark. No Phantom, no timers
+ * yet. Created by GameScene only for an online room (registry 'net'); offline play never
+ * touches this.
  */
 import Phaser from 'phaser';
 import type { GameLink, NetPlayer } from './ColyseusLobbyService';
@@ -14,10 +16,6 @@ import { SEND_HZ } from './protocol';
 import { poseIntent } from './dirOf';
 import { reconcilePose, type SentPose } from './reconcile';
 import { netToast } from './NetOverlay';
-import { houseLayout } from '../data/houseLayout';
-import { hasDebugFlag } from '../config/debugFlags';
-import { isDoorLocked } from '../data/colliders';
-import { hasLineOfSight, sightBlockers } from '../logic/spotTargeting';
 
 export interface NetPlayerSource {
   x: number;
@@ -25,6 +23,8 @@ export interface NetPlayerSource {
   getMoveInput(): { x: number; y: number };
   useSharedSlide(on: boolean): void;
   shift(dx: number, dy: number): void;
+  /** Put the body on a pose the server already stored (reload / rejoin). */
+  place(x: number, y: number): void;
 }
 export interface NetSpots {
   setOpen(id: string, open: boolean): void;
@@ -38,6 +38,10 @@ export class NetSync {
   private lastSent = { x: NaN, y: NaN, d: -1, m: -1, at: 0 };
   private nextSend = 0;
   private lastMoveDir = 0;
+  /** Send the current pose on the next tick (the link just came back; the server never saw the last ones). */
+  private resend = false;
+  /** True after the first pose leaves this phone. A later own pose is not a teleport. */
+  private sentOnce = false;
   /** Poses sent and not yet matched to a broadcast. Newest last. */
   private sent: SentPose[] = [];
   private known = new Map<string, NetPlayer>();
@@ -51,21 +55,36 @@ export class NetSync {
     this.hostId = st.hostId;
     for (const p of st.players) this.known.set(p.id, p);
     this.unsubs.push(
-      link.onPoses((poses) => {
-        const now = performance.now();
-        for (const [id, x, y, d, m] of poses) {
-          if (id === link.selfId) { this.adopt(x, y); continue; }
-          this.remote(id, x, y)?.buffer.push({ t: now, x, y, d, m });
-        }
-      }),
+      link.onPoses((poses) => this.applyPoses(poses, performance.now())),
       link.onSpot((id, open, by) => { if (by !== link.selfId) spots.setOpen(id, open); }),
+      link.onSpotRejected((id, open) => spots.setOpen(id, open)),
       link.onSpots((open) => spots.syncOpen(open)),
+      link.onStatus((s) => { if (s === 'connected') this.resend = true; }),
       link.onPlayerLeft((id) => { this.remotes.get(id)?.destroy(); this.remotes.delete(id); }),
       link.onChange((s) => this.onLobby(s.players, s.hostId)),
     );
+    // The rejoin burst was stored before this scene existed. Draw it now; later
+    // broadcasts arrive through onPoses.
+    this.applyPoses(link.knownPoses(), performance.now());
     scene.events.on(Phaser.Scenes.Events.POST_UPDATE, this.tick, this);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroy());
     scene.events.once(Phaser.Scenes.Events.DESTROY, () => this.destroy()); // game torn down (Quit)
+  }
+
+  /**
+   * Apply a server pose list. Before this phone has sent, a reload stands on the stored
+   * point. After that, our own broadcast is the slide correction the other phone draws,
+   * and a far snapshot is left alone. The server places the return pose.
+   */
+  private applyPoses(poses: readonly [string, number, number, number, number][], now: number): void {
+    for (const [id, x, y, d, m] of poses) {
+      if (id === this.link.selfId) {
+        if (!this.sentOnce) this.me.place(x, y);
+        else this.adopt(x, y);
+        continue;
+      }
+      this.remote(id, x, y)?.buffer.push({ t: now, x, y, d, m });
+    }
   }
 
   /** Roster changes during the game: grey out dropped players, notices. */
@@ -103,11 +122,10 @@ export class NetSync {
   private tick(): void {
     const now = performance.now();
     const list = [...this.remotes.values()];
-    const blockers = playerSightBlockers();
-    for (const r of list) {
-      r.update(now);
-      r.setSight(hasLineOfSight(this.me.x, this.me.y, r.x, r.y, blockers));
-    }
+    // The light circle hides anyone outside it. A wall ray between the two centres
+    // was also zeroing the sprite, so a player still standing in the light vanished
+    // at a doorway jamb.
+    for (const r of list) r.update(now);
     staggerLabels(list);
     if (now < this.nextSend) return;
     this.nextSend = now + 1000 / SEND_HZ;
@@ -118,7 +136,9 @@ export class NetSync {
     this.lastMoveDir = intent.d;
     const { d, m } = intent;
     const s = this.lastSent;
-    if (x === s.x && y === s.y && d === s.d && m === s.m && now - s.at < 1000) return;
+    if (!this.resend && x === s.x && y === s.y && d === s.d && m === s.m && now - s.at < 1000) return;
+    this.resend = false;
+    this.sentOnce = true;
     this.lastSent = { x, y, d, m, at: now };
     this.sent.push({ x, y });
     if (this.sent.length > 24) this.sent.shift();
@@ -157,13 +177,4 @@ function staggerLabels(rs: RemotePlayer[]): void {
     const a = sorted[i - 1], b = sorted[i];
     if (Math.abs(a.x - b.x) < 80 && Math.abs(a.y - b.y) < 28) b.setLabelLift(12);
   }
-}
-
-/** Walls and locked doors block sight; furniture does not (same rule as targeting). */
-function playerSightBlockers(): { x: number; y: number; width: number; height: number }[] {
-  const debugUnlock = hasDebugFlag('unlock');
-  const doors = houseLayout.doors
-    .filter((d) => isDoorLocked(d.id, d.locked, debugUnlock))
-    .map((d) => ({ x: d.x, y: d.y, width: d.width, height: d.height }));
-  return [...sightBlockers(houseLayout), ...doors];
 }

@@ -13,7 +13,7 @@ import { gameDpr } from '../config/display';
 import { hasDebugFlag } from '../config/debugFlags';
 import { currentShellLayout, watchInsets } from '../ui/currentLayout';
 import { snappedCameraZoom } from '../logic/cameraZoom';
-import { onlineSpawnPoint } from '../logic/onlineSpawn';
+import { onlineStartPoint } from '../logic/onlineSpawn';
 import { ItemDirector } from '../items/ItemDirector';
 
 export { snappedCameraZoom };
@@ -423,9 +423,10 @@ export class GameScene extends Phaser.Scene {
    */
   private onlineSpawn(p: { x: number; y: number }): { x: number; y: number } {
     const net = this.registry.get('net') as GameLink | null | undefined;
-    if (!net || new URLSearchParams(window.location.search).has('spawn')) return p;
+    if (!net) return p;
     const i = Math.max(0, net.players().findIndex((q) => q.id === net.selfId));
-    return onlineSpawnPoint(p, i);
+    const devSpawn = new URLSearchParams(window.location.search).has('spawn');
+    return onlineStartPoint(p, i, net.selfPose(), devSpawn);
   }
 
   private getSpawnPoint(): { x: number; y: number } {
