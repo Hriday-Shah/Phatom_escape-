@@ -1,5 +1,6 @@
 # Render Blueprint for the Phantom Escape game server (free web service, Docker).
-# Hriday: Render Dashboard > New > Blueprint > pick this repo. See docs/DEPLOY-SERVER.md.
+# This name (phantom-escape-server) is a different host from the live service
+# phatom-escape (https://phatom-escape.onrender.com). See docs/DEPLOY-SERVER.md.
 services:
   - type: web
     name: phantom-escape-server
@@ -11,12 +12,16 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     # Redeploying drops every live room, so only redeploy when server code changes.
+    # The Docker image also copies client/src/data and client/src/logic (house rules the server imports).
     buildFilter:
       paths:
         - server/**
         - client/src/lobby/lobby.ts
         - client/src/home/settings.ts
         - client/src/config/physicsConfig.ts
+        - client/src/config/playerConfig.ts
+        - client/src/data/**
+        - client/src/logic/**
         - package.json
         - package-lock.json
         - Dockerfile

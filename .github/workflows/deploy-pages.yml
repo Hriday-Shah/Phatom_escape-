@@ -37,6 +37,9 @@ jobs:
         run: npm run build
         env:
           VITE_BASE_PATH: /Phatom_escape-/
+          # Repository variable. Empty until it is set, which leaves the site offline.
+          # Value: wss:// host of the game server, no path and no trailing slash.
+          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
