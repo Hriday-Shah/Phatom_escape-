@@ -30,10 +30,17 @@ Runner-up, Fly.io: always on and no sleep at all, but its free allowance needs a
 ## What's in the repo
 
 - `Dockerfile` (build context = repo root): Node 22 Alpine, installs only the server workspace's
-  production dependencies, copies `server/src` plus the three pure client modules it shares
-  (`client/src/lobby/lobby.ts`, `client/src/home/settings.ts`, `client/src/config/physicsConfig.ts`).
-  No client assets or media go into the image (`.dockerignore`). Runs as the `node` user.
+  production dependencies, copies `server/src` plus the pure client modules the server imports
+  (`client/src/lobby/lobby.ts`, `client/src/home/settings.ts`, `client/src/config/physicsConfig.ts`,
+  `client/src/config/playerConfig.ts`, `client/src/data/`, `client/src/logic/`).
+  No client assets, Phaser scenes, or media go into the image (`.dockerignore`). Runs as the `node` user.
+  There is no start-command override: the image runs `node --import tsx src/index.ts` in `/app/server`.
+  Render injects `PORT` (10000 on a web service); the process listens on that.
 - `render.yaml`: Render Blueprint, free plan, Singapore, Docker, health check `/health`.
+  Its service name is `phantom-escape-server`, which is a different host from the live service
+  `phatom-escape` (`https://phatom-escape.onrender.com`). A static site cannot be switched to Docker.
+  Keep that URL by creating a web service whose name is exactly `phatom-escape`. Do not apply this
+  Blueprint if that hostname must stay.
 - `fly.toml`: the Fly.io equivalent (Singapore, health check `/health`, never auto-stopped).
 - Server env (all optional):
   - `PORT`: set by the host (Render: 10000); 2567 locally.
@@ -47,9 +54,8 @@ Runner-up, Fly.io: always on and no sleep at all, but its free allowance needs a
 ## Client: `VITE_SERVER_URL`
 
 The client reads its default server from the build-time env var `VITE_SERVER_URL`. The Pages
-build should pass the **repository variable** of the same name; nothing is hard-coded in the repo.
-That needs this addition to the Build step's `env:` in `.github/workflows/deploy-pages.yml`
-(not included in the PR: the bot's token may not edit workflow files; Hriday adds it once):
+build passes the **repository variable** of the same name; the URL is not hard-coded in the repo.
+`.github/workflows/deploy-pages.yml` sets it on the Build step:
 
 ```yaml
       - name: Build
@@ -67,24 +73,30 @@ An unset variable expands to an empty string, so the line is safe to add before 
 - `?server=wss://…` in the page URL still overrides it for the tab; `?server=off` forces offline.
   Invite links carry the server and the room code.
 
+Deploying `main` does not include the two-player movement fix. That is
+[pull request 34](https://github.com/Hriday-Shah/Phatom_escape-/pull/34) on
+`cursor/fix-two-player-movement-f410`, and it is not merged. Leave it unmerged until it is reviewed.
+A server deploy of `main` will not have that fix.
+
 ## Steps for Hriday (sign-up and settings; nothing here was done for you)
 
 1. **Sign up at Render**: <https://dashboard.render.com/register> → "GitHub" (sign in with your
    GitHub account) → verify the email if asked. No card is needed for the free plan.
-2. **Create the service from the Blueprint**: Dashboard → **New** → **Blueprint** → connect
-   GitHub when asked and allow access to `Hriday-Shah/Phatom_escape-` only → pick the repo, branch
-   `main` → Render reads `render.yaml` and shows **phantom-escape-server** (Free, Singapore) →
-   **Apply** / **Deploy Blueprint**. (Manual alternative: New → Web Service → the repo → Language
-   *Docker* → Region *Singapore* → Instance type *Free* → Health Check Path `/health` → env vars
-   `ALLOWED_ORIGINS=https://hriday-shah.github.io`, `RECONNECT_SECONDS=30`.)
-3. Wait for the first deploy to say **Live**, then copy the service URL from the top of the page,
-   e.g. `https://phantom-escape-server-xxxx.onrender.com`. Check `https://…onrender.com/health`
-   shows `{"ok":true,…}`.
-4. **Add the workflow line** above (GitHub → the repo → `.github/workflows/deploy-pages.yml` →
-   pencil icon → add the `VITE_SERVER_URL:` line under `VITE_BASE_PATH:` → Commit to `main`).
+2. **Use the existing host** `https://phatom-escape.onrender.com`. That name is already taken by
+   the static site, and a static site cannot be changed into a Docker web service. Rename or delete
+   the static site so the name `phatom-escape` is free, then **New** → **Web Service** → repo
+   `Hriday-Shah/Phatom_escape-`, branch `main` (after the image fix is on `main`) → Language
+   **Docker** → Name `phatom-escape` → Region **Singapore** → Instance type **Free** → leave
+   **Docker Command** empty → Health Check Path `/health` → env
+   `ALLOWED_ORIGINS=https://hriday-shah.github.io`, `RECONNECT_SECONDS=30`. Do not apply the
+   Blueprint: `render.yaml` would create `phantom-escape-server`, a different URL.
+3. Wait for the first deploy to say **Live**. Check `https://phatom-escape.onrender.com/health`
+   shows `{"ok":true,…}`. The site root should be JSON `{"name":"phantom-escape-server"}`, not the game page.
+4. **Merge the image fix to `main`** so the Pages workflow contains the `VITE_SERVER_URL` line above.
+   Until that is on `main`, setting the variable does nothing: the current Pages build never reads it.
 5. **Set the repo variable**: GitHub → the repo → **Settings** → **Secrets and variables** →
    **Actions** → **Variables** tab → **New repository variable** → Name `VITE_SERVER_URL`,
-   Value `wss://phantom-escape-server-xxxx.onrender.com` (same host, `wss://`, no trailing slash).
+   Value `wss://phatom-escape.onrender.com` (same host, `wss://`, no path, no trailing slash).
 6. **Redeploy the site**: Actions → "Deploy to GitHub Pages" → **Run workflow** (or push to main).
    The homepage then says "Online: Create and Join use real rooms on the game server."
 7. Send the URL (step 3) back so the live end-to-end test can run against it.

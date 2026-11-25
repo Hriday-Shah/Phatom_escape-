@@ -1,6 +1,6 @@
 # Phantom Escape game server (Colyseus). Build context: the repo root.
-# Only the server and the few pure client modules it shares (lobby rules, nickname cleaning,
-# walking speed) are copied; no client assets or media.
+# The server imports pure client modules (lobby, nicknames, movement, house data,
+# items, and minigames). Those files are copied; Phaser scenes and client assets are not.
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
@@ -14,6 +14,9 @@ COPY server/src server/src
 COPY client/src/lobby/lobby.ts client/src/lobby/lobby.ts
 COPY client/src/home/settings.ts client/src/home/settings.ts
 COPY client/src/config/physicsConfig.ts client/src/config/physicsConfig.ts
+COPY client/src/config/playerConfig.ts client/src/config/playerConfig.ts
+COPY client/src/data client/src/data
+COPY client/src/logic client/src/logic
 USER node
 WORKDIR /app/server
 # PORT comes from the host (Render sets it); 2567 locally.
