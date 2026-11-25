@@ -7,6 +7,7 @@
  */
 import { getStaticColliders, type Rect } from '../data/colliders';
 import { PLAYER_BODY_RADIUS } from '../config/playerConfig';
+import { PLAYER_SPEED } from '../config/physicsConfig';
 import { hasLineOfSight, distanceToRect, centerOf, buildInteractables } from './spotTargeting';
 import { houseLayout } from '../data/houseLayout';
 
@@ -20,10 +21,13 @@ export function hidingSpots(): { id: string; x: number; y: number; width: number
 
 export type Point = { x: number; y: number };
 
-/** Bodies the player cannot walk through (matches GameScene.wallGroup + locked doors). */
+/**
+ * Bodies the player cannot walk through. Matches the Arcade groups in GameScene:
+ * wall bodies, blocking furniture, every hiding spot (those are solid too), and locked doors.
+ */
 export function movementBlockers(debugUnlock = false): Rect[] {
   const c = getStaticColliders(debugUnlock);
-  return [...c.walls, ...c.furniture, ...c.doors];
+  return [...c.walls, ...c.furniture, ...c.spots, ...c.doors];
 }
 
 /** Bodies that block sight (walls + locked doors; furniture never does). */
@@ -47,20 +51,24 @@ export function pointBlocked(x: number, y: number, blockers: Rect[], radius = PL
   return blockers.some((b) => circleHitsRect(x, y, radius, b));
 }
 
-/** Does a circle swept from A to B hit a blocker? */
+/**
+ * Does a circle swept from A to B hit a blocker?
+ * `skin` shrinks the swept box so a circle already touching a wall can travel along it.
+ * The destination itself is still tested at the full radius.
+ */
 export function moveHitsWall(
   x0: number, y0: number, x1: number, y1: number,
-  blockers: Rect[], radius = PLAYER_BODY_RADIUS,
+  blockers: Rect[], radius = PLAYER_BODY_RADIUS, skin = 0,
 ): boolean {
   if (pointBlocked(x1, y1, blockers, radius)) return true;
   for (const b of blockers) {
-    if (segmentHitsInflated(x0, y0, x1, y1, b, radius)) return true;
+    if (segmentHitsInflated(x0, y0, x1, y1, b, radius, skin)) return true;
   }
   return false;
 }
 
-function segmentHitsInflated(x0: number, y0: number, x1: number, y1: number, r: Rect, radius: number): boolean {
-  const box = inflateRect(r, radius);
+function segmentHitsInflated(x0: number, y0: number, x1: number, y1: number, r: Rect, radius: number, skin = 0): boolean {
+  const box = inflateRect(r, Math.max(0, radius - skin));
   // Liang-Barsky; touching the inflated edge counts.
   let t0 = 0, t1 = 1;
   const dx = x1 - x0, dy = y1 - y0;
@@ -80,9 +88,9 @@ function segmentHitsInflated(x0: number, y0: number, x1: number, y1: number, r: 
  * from `from`. If the destination is clear, it is returned unchanged.
  */
 export function clampMove(
-  from: Point, to: Point, blockers: Rect[], radius = PLAYER_BODY_RADIUS,
+  from: Point, to: Point, blockers: Rect[], radius = PLAYER_BODY_RADIUS, skin = 0,
 ): Point & { blocked: boolean } {
-  if (!moveHitsWall(from.x, from.y, to.x, to.y, blockers, radius)) {
+  if (!moveHitsWall(from.x, from.y, to.x, to.y, blockers, radius, skin)) {
     return { x: to.x, y: to.y, blocked: false };
   }
   let lo = 0, hi = 1;
@@ -91,7 +99,7 @@ export function clampMove(
     const mid = (lo + hi) / 2;
     const x = from.x + (to.x - from.x) * mid;
     const y = from.y + (to.y - from.y) * mid;
-    if (moveHitsWall(from.x, from.y, x, y, blockers, radius) || pointBlocked(x, y, blockers, radius)) {
+    if (moveHitsWall(from.x, from.y, x, y, blockers, radius, skin) || pointBlocked(x, y, blockers, radius)) {
       hi = mid;
     } else {
       best = { x, y };
@@ -99,6 +107,80 @@ export function clampMove(
     }
   }
   return { x: Math.round(best.x * 10) / 10, y: Math.round(best.y * 10) / 10, blocked: true };
+}
+
+/**
+ * How far a swept circle may graze a wall it is already touching.
+ * Without this, the contact line along the car table counts as a hit and the slide stops.
+ */
+const SLIDE_SKIN = 0.05;
+/** A slide that lands this close to the request, on a free point, accepts the request. */
+const SLIDE_REACH_EPS = 0.35;
+
+function roundTenth(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+/**
+ * Move toward `to`, sliding along a wall or table the way the body does on the phone.
+ * A straight stop would leave the server pose stuck on the corner while the sprite
+ * walks along the edge. A request the slide actually reaches is returned unchanged.
+ */
+export function slideMove(
+  from: Point, to: Point, blockers: Rect[], radius = PLAYER_BODY_RADIUS,
+): Point & { blocked: boolean } {
+  if (Math.hypot(to.x - from.x, to.y - from.y) <= SLIDE_REACH_EPS && !pointBlocked(to.x, to.y, blockers, radius)) {
+    return { x: to.x, y: to.y, blocked: false };
+  }
+  const direct = clampMove(from, to, blockers, radius, SLIDE_SKIN);
+  let best: Point = direct;
+  if (direct.blocked) {
+    const alongX = clampMove(from, { x: to.x, y: from.y }, blockers, radius, SLIDE_SKIN);
+    const xy = clampMove(alongX, { x: alongX.x, y: to.y }, blockers, radius, SLIDE_SKIN);
+    const alongY = clampMove(from, { x: from.x, y: to.y }, blockers, radius, SLIDE_SKIN);
+    const yx = clampMove(alongY, { x: to.x, y: alongY.y }, blockers, radius, SLIDE_SKIN);
+    const leftX = Math.hypot(to.x - xy.x, to.y - xy.y);
+    const leftY = Math.hypot(to.x - yx.x, to.y - yx.y);
+    best = leftX <= leftY ? xy : yx;
+  }
+  if (Math.hypot(best.x - to.x, best.y - to.y) <= SLIDE_REACH_EPS && !pointBlocked(to.x, to.y, blockers, radius)) {
+    return { x: to.x, y: to.y, blocked: false };
+  }
+  const x = roundTenth(best.x);
+  const y = roundTenth(best.y);
+  return { x, y, blocked: x !== to.x || y !== to.y };
+}
+
+/**
+ * Advance one phone step: fixed 60 Hz slides, the same steps between two pose sends.
+ * `dtMs` is capped at 100 so a hitch cannot tunnel through a table in one segment.
+ */
+export function integrateSlide(
+  from: Point,
+  dirX: number,
+  dirY: number,
+  dtMs: number,
+  blockers: Rect[] = movementBlockers(),
+  speed = PLAYER_SPEED,
+  radius = PLAYER_BODY_RADIUS,
+): Point {
+  const len = Math.hypot(dirX, dirY);
+  if (len === 0 || !(dtMs > 0)) return { x: from.x, y: from.y };
+  const ux = dirX / len;
+  const uy = dirY / len;
+  let left = Math.min(dtMs, 100);
+  let x = from.x;
+  let y = from.y;
+  const frame = 1000 / 60;
+  for (let i = 0; i < 8 && left > 1e-4; i++) {
+    const dt = Math.min(frame, left);
+    left -= dt;
+    const dist = speed * dt / 1000;
+    const next = slideMove({ x, y }, { x: x + ux * dist, y: y + uy * dist }, blockers, radius);
+    x = next.x;
+    y = next.y;
+  }
+  return { x, y };
 }
 
 /**

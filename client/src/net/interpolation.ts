@@ -1,6 +1,7 @@
 /**
- * Remote pose buffer: poses arrive ~12 times a second; the player is drawn INTERP_DELAY_MS in
- * the past, interpolated between the two poses around that time. Pure, unit-tested.
+ * Remote pose buffer: poses arrive ~12 times a second. The player is drawn at
+ * `now - delay`. The game passes delay 0 so both phones show the newest server pose.
+ * A positive delay still interpolates between the two samples around that time. Pure, unit-tested.
  */
 /** Longer than this between poses = a pause. */
 export const GAP_MS = 300;

@@ -9,8 +9,12 @@ export const dirIndex = (d: string): number => Math.max(0, DIRS.indexOf(d as Dir
 
 /** How often this client sends its position (the server broadcasts at 12 Hz too). */
 export const SEND_HZ = 12;
-/** Remote players are drawn this far in the past, interpolating between received poses. */
-export const INTERP_DELAY_MS = 150;
+/**
+ * Remote players are drawn at the newest server pose. A delay here used to show them
+ * a body-width behind, on a straight lerp that cut corners the walker had slid around.
+ * PoseBuffer still interpolates when a caller passes a delay (the unit tests do).
+ */
+export const INTERP_DELAY_MS = 0;
 
 /** Close / error codes from the server (4000 = closed by the server, e.g. shutdown). */
 export const CLOSE_CONSENTED = 4000;

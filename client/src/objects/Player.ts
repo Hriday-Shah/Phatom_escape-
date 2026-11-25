@@ -9,6 +9,7 @@ import {
 import { devLog } from '../config/display';
 import { PLAYER_SPEED } from '../config/physicsConfig';
 import { FacingFilter } from '../logic/facingFilter';
+import { integrateSlide, movementBlockers } from '../logic/worldCollision';
 import { DEFAULT_HOODIE_TINT } from '../lobby/lobby';
 
 // Re-exported so callers (and tests, via config/playerConfig) share one source of truth.
@@ -22,6 +23,12 @@ export class Player {
   private bodySprite: Phaser.GameObjects.Sprite;
   private physics: Phaser.Physics.Arcade.Body;
   private lastDirection: string = 'down';
+  /** Online: move with the shared slide instead of a private Arcade body. */
+  private sharedSlide = false;
+  /** Leftover milliseconds so every phone steps the slide at 60 Hz, whatever the refresh. */
+  private slideDebt = 0;
+  /** Wall, furniture, hiding-spot and door rects. The layout does not change mid-round. */
+  private slideBlockers: { x: number; y: number; width: number; height: number }[] | null = null;
 
   /** `hoodieTint`: colour for the hoodie layer (player_tint.png is a greyscale hoodie-only mask). */
   constructor(scene: Phaser.Scene, x: number, y: number, hoodieTint: number = DEFAULT_HOODIE_TINT) {
@@ -124,13 +131,57 @@ export class Player {
     this.moveVector.set(x, y);
   }
 
-  public update(): void {
+  /** Stick this frame (the walk row and the pose both read this, not the body's velocity). */
+  public getMoveInput(): { x: number; y: number } {
+    return { x: this.moveVector.x, y: this.moveVector.y };
+  }
+
+  /**
+   * Online rooms move with `integrateSlide`, the same function the server uses, and
+   * ignore Arcade separation so a wall slide cannot diverge from the broadcast pose.
+   */
+  public useSharedSlide(on: boolean): void {
+    this.sharedSlide = on;
+    this.physics.setVelocity(0, 0);
+    this.physics.moves = !on;
+    this.physics.checkCollision.none = on;
+  }
+
+  /** Fixed 60 Hz slides. A 120 Hz phone must not take a different path around the table. */
+  private stepSlide(dirX: number, dirY: number, delta: number): void {
+    const step = 1000 / 60;
+    this.slideDebt = Math.min(100, this.slideDebt + Math.max(0, delta));
+    const blockers = this.slideBlockers ??= movementBlockers(false);
+    let x = this.x;
+    let y = this.y;
+    let guard = 0;
+    while (this.slideDebt >= step && guard++ < 8) {
+      this.slideDebt -= step;
+      const next = integrateSlide({ x, y }, dirX, dirY, step, blockers);
+      x = next.x;
+      y = next.y;
+    }
+    if (x !== this.x || y !== this.y) this.physics.reset(x, y);
+  }
+
+  /** Nudge the body by a server correction without waiting for the next step. */
+  public shift(dx: number, dy: number): void {
+    if (!dx && !dy) return;
+    this.physics.reset(this.x + dx, this.y + dy);
+  }
+
+  public update(delta = 1000 / 60): void {
     const hasArt = this.scene.textures.exists('player') && this.tintSprite !== this.bodySprite;
     
     if (this.moveVector.length() > 0) {
       const normalized = this.moveVector.clone().normalize();
       this.updateFacing(normalized);
-      this.physics.setVelocity(normalized.x * this.speed, normalized.y * this.speed);
+      if (this.sharedSlide) {
+        this.physics.setVelocity(0, 0);
+        this.stepSlide(normalized.x, normalized.y, delta);
+      } else {
+        this.physics.setVelocity(normalized.x * this.speed, normalized.y * this.speed);
+      }
       
       // Determine direction (prioritize horizontal)
       let direction = 'down';
@@ -152,6 +203,7 @@ export class Player {
         }
       }
     } else {
+      this.slideDebt = 0;
       this.physics.setVelocity(0, 0);
       
       // Stop on idle frame (col 0 of each row)

@@ -18,7 +18,7 @@ import { EscapeCode } from '../../client/src/logic/escapeCode';
 import { PublicItem } from '../../client/src/logic/items';
 import { onlineSpawnSlots } from '../../client/src/logic/onlineSpawn';
 import {
-  canUseSpot, clampMove, hasLineOfSight, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, spotById,
+  canUseSpot, hasLineOfSight, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, slideMove, spotById,
 } from '../../client/src/logic/worldCollision';
 import type { PlayView } from '../../client/src/logic/minigames/replay';
 
@@ -339,8 +339,10 @@ export class HouseLogic {
 
   /**
    * In-game movement. Official spawns are set at start(). Later poses are speed-clamped
-   * and then collided against the same wall / furniture geometry the client uses (R15-4).
-   * A wall-crossing request is clamped to the last free point on the segment.
+   * and then slid against the same walls, furniture, hiding spots and locked doors the
+   * phone uses. A straight stop would stick the broadcast pose on the car table while
+   * the sprite walks along it. Facing (`d`) and walking (`m`) are the stick the phone
+   * is showing, echoed unchanged so the other screen plays the same row.
    */
   move(session: string, msg: unknown, now: number): Pose | null {
     const id = this.bySession.get(session);
@@ -359,10 +361,10 @@ export class HouseLogic {
       this.corrections++;
     }
     const blockers = movementBlockers(false);
-    const clamped = clampMove(prev.pose, p, blockers, PLAYER_BODY_RADIUS);
-    if (clamped.blocked) this.corrections++;
-    p.x = clamped.x;
-    p.y = clamped.y;
+    const slid = slideMove(prev.pose, p, blockers, PLAYER_BODY_RADIUS);
+    if (slid.x !== p.x || slid.y !== p.y) this.corrections++;
+    p.x = slid.x;
+    p.y = slid.y;
     this.poses.set(id, { pose: p, at: now, dirty: true });
     return p;
   }

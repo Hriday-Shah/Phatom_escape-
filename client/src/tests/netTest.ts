@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import { SERVER_KEY, httpBase, normaliseServer, onlineInviteLink, serverFromUrl } from '../net/serverConfig';
 import { GAP_MS, PoseBuffer } from '../net/interpolation';
-import { dirOf } from '../net/dirOf';
+import { dirOf, poseIntent } from '../net/dirOf';
+import { reconcilePose } from '../net/reconcile';
 
 function memStore() {
   const m = new Map<string, string>();
@@ -65,5 +66,26 @@ export function runNetTest(): void {
   assert.equal(dirOf(0, -1, { x: 0, y: 1 }), 3);
   assert.equal(dirOf(0, 0, { x: 0, y: 1 }), 0);
   assert.equal(dirOf(0, 0, { x: -1, y: 0 }), 1);
+
+  // Held into a wall the stick still walks and faces the stick, not the stopped body.
+  assert.deepEqual(poseIntent(0, -1, 0), { d: 3, m: 1 });
+  assert.deepEqual(poseIntent(0.2, -1, 2), { d: 3, m: 1 }, 'slide along a table keeps the stick facing');
+  assert.deepEqual(poseIntent(1, -0.2, 0), { d: 2, m: 1 });
+  assert.deepEqual(poseIntent(0, 0, 2), { d: 2, m: 0 });
+
+  const ack = reconcilePose([{ x: 0, y: 0 }, { x: 10, y: 0 }], { x: 10, y: 0 }, { x: 10, y: 0 });
+  assert.equal(ack.dx, 0);
+  assert.deepEqual(ack.pending, []);
+  const nudge = reconcilePose([{ x: 10, y: 0 }, { x: 20, y: 0 }], { x: 8, y: 0 }, { x: 20, y: 0 });
+  assert.equal(nudge.dx, -2);
+  assert.deepEqual(nudge.pending, [{ x: 18, y: 0 }]);
+  const rewind = reconcilePose([{ x: 10, y: 0 }], { x: 400, y: 0 }, { x: 30, y: 0 });
+  assert.equal(rewind.dx, 0, 'a reconnect snapshot far from the last send is not a nudge');
+  assert.deepEqual(rewind.pending, [{ x: 10, y: 0 }]);
+  const spawn = reconcilePose([], { x: 12, y: 0 }, { x: 10, y: 0 });
+  assert.equal(spawn.dx, 2);
+  const farSpawn = reconcilePose([], { x: 100, y: 0 }, { x: 10, y: 0 });
+  assert.equal(farSpawn.dx, 0);
+
   console.log('  ✓ server URL, invite link, pose buffer, direction');
 }
