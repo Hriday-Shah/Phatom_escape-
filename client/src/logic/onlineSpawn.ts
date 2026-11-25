@@ -67,3 +67,13 @@ export function onlineSpawnPoint(origin: Pt, index: number): Pt {
   const slots = onlineSpawnSlots(origin);
   return slots[Math.max(0, index) % slots.length];
 }
+
+/**
+ * Where this phone appears. A pose the server stored (reload / rejoin) is that place.
+ * A dev `?spawn=` keeps the requested room. Otherwise the entrance slot for `index`.
+ */
+export function onlineStartPoint(origin: Pt, index: number, saved: Pt | null, devOverride = false): Pt {
+  if (devOverride) return origin;
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return { x: saved.x, y: saved.y };
+  return onlineSpawnPoint(origin, index);
+}

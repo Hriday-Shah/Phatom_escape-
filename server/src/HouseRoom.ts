@@ -8,6 +8,7 @@
  *                     | itemPickup {id} | itemDrop {x, y, spotId}
  *                     | minigameStart {} | minigameWin {log} | minigameClose {} | minigameInput {index}
  *   server -> client: welcome {selfId} | lobby PublicLobby | rejected {action, error}
+ *                     | rejected {action:'spot', id, open} (toggle refused: draw this open flag)
  *                     | kicked {} | poses {p: [id, x, y, d, m][]} | spot {id, open, by}
  *                     | spots {open: id[]} (full state: anything not listed is closed) | left {id}
  *                     | round {minigame, gameSeed, items} | items {items} (per-client, never every spot's contents)
@@ -89,12 +90,12 @@ export class HouseRoom extends Room {
       this.logic.move(client.sessionId, msg, Date.now());
     });
     this.onMessage('spot', (client, msg) => {
-      if (!this.allow(client, 'act')) return;
+      if (!this.allow(client, 'act')) { this.rejectSpot(client, msg); return; }
       const d = this.logic.setSpot(client.sessionId, msg);
       if (d) {
         this.broadcast('spot', { id: d.id, open: d.open, by: d.by }); // no contents
         this.sendItemsToAll();
-      }
+      } else this.rejectSpot(client, msg);
     });
     // Heartbeat: the client's dead-connection check (and, on hosts that sleep when no inbound
     // traffic arrives, e.g. Render free, what keeps the service awake while anyone is connected).
@@ -146,6 +147,12 @@ export class HouseRoom extends Room {
         this.sendItemsToAll();
       }
     }, 1000 / TICK_HZ);
+  }
+
+  /** The phone already flipped the art. Tell it the flag the room actually has. */
+  private rejectSpot(client: Client, msg: unknown): void {
+    const c = this.logic.spotCorrection(msg);
+    if (c) client.send('rejected', { action: 'spot', id: c.id, open: c.open });
   }
 
   /** Per-client rate limits; a client that keeps flooding is disconnected. */

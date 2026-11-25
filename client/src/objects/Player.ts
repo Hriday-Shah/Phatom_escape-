@@ -185,6 +185,12 @@ export class Player {
     this.facingFilter.update(dir);
   }
 
+  /** Stand on a pose the server already has (a reload or the first snapshot). */
+  public place(x: number, y: number): void {
+    this.physics.reset(x, y);
+    this.syncLayers();
+  }
+
   public getPosition(): Phaser.Math.Vector2 {
     return new Phaser.Math.Vector2(this.bodySprite.x, this.bodySprite.y);
   }

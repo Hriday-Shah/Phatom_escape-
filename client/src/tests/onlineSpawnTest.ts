@@ -1,5 +1,5 @@
 /** Online spawn grid: walkable, in-bounds, label-width spacing (R13-2). */
-import { onlineSpawnSlots, spawnWalkable, SPAWN_SPACING, SPAWN_SLOTS } from '../logic/onlineSpawn';
+import { onlineSpawnPoint, onlineSpawnSlots, onlineStartPoint, spawnWalkable, SPAWN_SPACING, SPAWN_SLOTS } from '../logic/onlineSpawn';
 
 export function runOnlineSpawnTest(): void {
   console.log('\n=== ONLINE SPAWN TEST ===');
@@ -22,6 +22,13 @@ export function runOnlineSpawnTest(): void {
   }
   // Default spawn itself must stay reachable (slot 1 is at/near the origin row).
   if (!spawnWalkable(origin.x, origin.y)) errors.push('entrance spawn is not walkable');
+  const saved = onlineStartPoint(origin, 0, { x: 890, y: 165 }, false);
+  if (saved.x !== 890 || saved.y !== 165) errors.push(`saved pose should win, got ${saved.x},${saved.y}`);
+  const slot = onlineStartPoint(origin, 0, null, false);
+  const expected = onlineSpawnPoint(origin, 0);
+  if (slot.x !== expected.x || slot.y !== expected.y) errors.push('without a saved pose, start on the entrance slot');
+  const dev = onlineStartPoint(origin, 0, { x: 890, y: 165 }, true);
+  if (dev.x !== origin.x || dev.y !== origin.y) errors.push('a dev ?spawn= keeps the requested point');
   if (errors.length) { errors.forEach((e) => console.log('✗ ' + e)); throw new Error('Online spawn test failed'); }
   console.log(`✓ ${SPAWN_SLOTS} walkable start points, all ≥ ${SPAWN_SPACING} px apart around (300,430)`);
   console.log('✅ ONLINE SPAWN TEST PASSED');

@@ -20,7 +20,6 @@ export class RemotePlayer {
   private anim = '';
   private nickname: string;
   private away = false;
-  private inSight = true;
   private labelLift = 0;
 
   constructor(private scene: Phaser.Scene, readonly id: string, nickname: string, colour: string, x: number, y: number) {
@@ -48,19 +47,7 @@ export class RemotePlayer {
     this.applyAlpha();
   }
 
-  /** Fully hide sprite and name when the remote is not in line of sight (R14-11). */
-  setSight(visible: boolean): void {
-    this.inSight = visible;
-    this.applyAlpha();
-  }
-
   private applyAlpha(): void {
-    if (!this.inSight) {
-      this.body.setAlpha(0);
-      this.tint?.setAlpha(0);
-      this.label.setAlpha(0);
-      return;
-    }
     const a = this.away ? 0.4 : 1;
     this.body.setAlpha(a);
     this.tint?.setAlpha(a);

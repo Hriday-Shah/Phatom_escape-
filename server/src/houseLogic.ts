@@ -16,9 +16,10 @@ import { PLAYER_SPEED } from '../../client/src/config/physicsConfig';
 import { ItemRound, RoundPublic, createServerRoundFrom } from '../../client/src/logic/itemRound';
 import { EscapeCode } from '../../client/src/logic/escapeCode';
 import { PublicItem } from '../../client/src/logic/items';
+import { houseLayout } from '../../client/src/data/houseLayout';
 import { onlineSpawnSlots } from '../../client/src/logic/onlineSpawn';
 import {
-  canUseSpot, clampMove, hasLineOfSight, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, spotById,
+  canUseSpot, clampMove, hasLineOfSight, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, pointBlocked, spotById,
 } from '../../client/src/logic/worldCollision';
 import type { PlayView } from '../../client/src/logic/minigames/replay';
 
@@ -107,6 +108,12 @@ export class HouseLogic {
   private spotOpener = new Map<string, string>();
   /** Dropped players (by session) whose seats are held for reconnection. */
   private away = new Set<string>();
+  /**
+   * Player ids whose next pose may be placed where the phone already is.
+   * A reconnect otherwise speed-caps that step from the last accepted point,
+   * so everyone else watches a crawl across the house.
+   */
+  private placeOnReturn = new Set<string>();
   /** Movement corrections (speed sanity) since start, for logs / tests. */
   corrections = 0;
   /** Items + chosen mini-game, created when the host starts. */
@@ -153,6 +160,7 @@ export class HouseLogic {
     const last = this.poses.get(id);
     this.items?.dropIfHeld(id, last?.pose.x ?? 0, last?.pose.y ?? 0);
     this.poses.delete(id);
+    this.placeOnReturn.delete(id);
     if (this.lobby?.state.players.some((p) => p.id === id)) this.lobby.leave(id);
     this.capPhantoms();
   }
@@ -174,7 +182,10 @@ export class HouseLogic {
   /** Back in time: still a player? (false when kicked meanwhile). */
   reconnect(session: string): boolean {
     this.away.delete(session);
-    return this.bySession.has(session);
+    const id = this.bySession.get(session);
+    // Mid-game only. A lobby reconnect has no pose, and a fresh start assigns the entrance slot.
+    if (id && this.started && this.poses.has(id)) this.placeOnReturn.add(id);
+    return !!id;
   }
   isAway(session: string): boolean { return this.away.has(session); }
 
@@ -209,7 +220,7 @@ export class HouseLogic {
     const r = this.act(session, (l, id) => l.kick(id, target));
     if (!r.ok) return r;
     const s = this.sessionOf(target);
-    if (s) { this.bySession.delete(s); this.away.delete(s); this.poses.delete(target); }
+    if (s) { this.bySession.delete(s); this.away.delete(s); this.poses.delete(target); this.placeOnReturn.delete(target); }
     return { ok: true, session: s };
   }
   start(session: string, now = Date.now()): LobbyResult {
@@ -348,6 +359,16 @@ export class HouseLogic {
     const p = parse.pos(msg); if (!p) return null;
     const prev = this.poses.get(id);
     if (!prev) return null; // no free first-pose teleport; start() assigns a spawn
+    // One pose after a reconnect: the phone kept walking (or reloaded onto the stored
+    // point). Accept that free point once. Every later pose is speed-capped as usual.
+    if (this.placeOnReturn.delete(id)) {
+      const inside = p.x >= PLAYER_BODY_RADIUS && p.y >= PLAYER_BODY_RADIUS
+        && p.x <= houseLayout.width - PLAYER_BODY_RADIUS && p.y <= houseLayout.height - PLAYER_BODY_RADIUS;
+      if (inside && !pointBlocked(p.x, p.y, movementBlockers(false), PLAYER_BODY_RADIUS)) {
+        this.poses.set(id, { pose: p, at: now, dirty: true });
+        return p;
+      }
+    }
     const dt = Math.min(MAX_ELAPSED_MS, Math.max(0, now - prev.at));
     const max = (PLAYER_SPEED * dt / 1000) * SPEED_SLACK + SPEED_JITTER_PX;
     const dx = p.x - prev.pose.x, dy = p.y - prev.pose.y;
@@ -397,6 +418,20 @@ export class HouseLogic {
   }
   /** Every open spot (the full state a (re)joining client applies; anything else is closed). */
   openSpots(): string[] { return [...this.spots].filter(([, o]) => o).map(([id]) => id); }
+  isSpotOpen(id: string): boolean { return this.spots.get(id) === true; }
+
+  /**
+   * When a toggle was not applied, the open flag the phone should draw.
+   * Null when the message is nonsense or the server already matches it
+   * (an accepted toggle needs no correction; a repeat of the same state neither).
+   */
+  spotCorrection(msg: unknown): { id: string; open: boolean } | null {
+    const d = parse.spot(msg);
+    if (!d || !spotById(d.id)) return null;
+    const open = this.isSpotOpen(d.id);
+    if (open === d.open) return null;
+    return { id: d.id, open };
+  }
 
   /** What every client sees (no session ids, no addresses: only nickname / colour / ready). */
   snapshot(): PublicLobby {
