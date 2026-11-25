@@ -152,6 +152,107 @@ export function slideMove(
 }
 
 /**
+ * A doorway step may walk this much farther than the straight chord.
+ * Going around the sofa is longer, so that chord still stops on the sofa.
+ */
+const DOORWAY_DETOUR = 1.45;
+const DOORWAY_PAD = 48;
+const WALK_STEP = 8;
+const WALK_EXPAND = 1800;
+
+function nearestFree(p: Point, blockers: Rect[], radius: number): Point {
+  if (!pointBlocked(p.x, p.y, blockers, radius)) return { x: roundTenth(p.x), y: roundTenth(p.y) };
+  for (let ring = 4; ring <= 64; ring += 4) {
+    for (let a = 0; a < 16; a++) {
+      const t = (a / 16) * Math.PI * 2;
+      const x = p.x + Math.cos(t) * ring;
+      const y = p.y + Math.sin(t) * ring;
+      if (!pointBlocked(x, y, blockers, radius)) return { x: roundTenth(x), y: roundTenth(y) };
+    }
+  }
+  return { x: roundTenth(p.x), y: roundTenth(p.y) };
+}
+
+/**
+ * Shortest walk on an 8px grid from `from` to `to`, or null when no walk
+ * fits in `maxLen`. Segment checks stop the grid from cutting a corner.
+ */
+function shortWalk(
+  from: Point, to: Point, blockers: Rect[], radius: number, maxLen: number,
+): number | null {
+  const sx = Math.round(from.x);
+  const sy = Math.round(from.y);
+  const nodes: { x: number; y: number; g: number; prev: number }[] = [{ x: sx, y: sy, g: 0, prev: -1 }];
+  const best = new Map<string, number>([[`${sx},${sy}`, 0]]);
+  const open: number[] = [0];
+  const dirs = [
+    [WALK_STEP, 0], [-WALK_STEP, 0], [0, WALK_STEP], [0, -WALK_STEP],
+    [WALK_STEP, WALK_STEP], [WALK_STEP, -WALK_STEP], [-WALK_STEP, WALK_STEP], [-WALK_STEP, -WALK_STEP],
+  ];
+  let expanded = 0;
+  while (open.length && expanded < WALK_EXPAND) {
+    let pick = 0;
+    let pickF = Infinity;
+    for (let i = 0; i < open.length; i++) {
+      const n = nodes[open[i]]!;
+      const f = n.g + Math.hypot(n.x - to.x, n.y - to.y);
+      if (f < pickF) { pickF = f; pick = i; }
+    }
+    const idx = open.splice(pick, 1)[0]!;
+    const n = nodes[idx]!;
+    if ((best.get(`${n.x},${n.y}`) ?? 0) < n.g - 1e-6) continue;
+    expanded++;
+    const left = Math.hypot(n.x - to.x, n.y - to.y);
+    if (left <= WALK_STEP && !moveHitsWall(n.x, n.y, to.x, to.y, blockers, radius, 0)) {
+      return n.g + left;
+    }
+    for (const [dx, dy] of dirs) {
+      const nx = n.x + dx;
+      const ny = n.y + dy;
+      const ng = n.g + Math.hypot(dx, dy);
+      if (ng > maxLen) continue;
+      if (pointBlocked(nx, ny, blockers, radius)) continue;
+      if (moveHitsWall(n.x, n.y, nx, ny, blockers, radius, 0)) continue;
+      const key = `${nx},${ny}`;
+      const prev = best.get(key);
+      if (prev != null && prev <= ng) continue;
+      best.set(key, ng);
+      nodes.push({ x: nx, y: ny, g: ng, prev: idx });
+      open.push(nodes.length - 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Slide toward `to`, but take a short walk through a doorway when the straight
+ * chord stops on the jamb. `maxDist` is the speed budget. A long loop around
+ * furniture is not that walk: the chord still stops where the slide stops.
+ * Never returns a point inside a blocker.
+ */
+export function resolveMove(
+  from: Point,
+  to: Point,
+  blockers: Rect[],
+  maxDist: number,
+  radius = PLAYER_BODY_RADIUS,
+): Point & { blocked: boolean } {
+  const origin = pointBlocked(from.x, from.y, blockers, radius) ? nearestFree(from, blockers, radius) : from;
+  const slid = slideMove(origin, to, blockers, radius);
+  if (!slid.blocked && !pointBlocked(slid.x, slid.y, blockers, radius)) return slid;
+  const straight = Math.hypot(to.x - origin.x, to.y - origin.y);
+  const goalFree = !pointBlocked(to.x, to.y, blockers, radius);
+  if (goalFree && straight > SLIDE_REACH_EPS) {
+    const limit = Math.min(Math.max(maxDist, 0), straight * DOORWAY_DETOUR + DOORWAY_PAD);
+    const walked = shortWalk(origin, to, blockers, radius, limit);
+    if (walked != null && walked <= maxDist + 1) return { x: to.x, y: to.y, blocked: false };
+  }
+  if (!pointBlocked(slid.x, slid.y, blockers, radius)) return slid;
+  const free = nearestFree(slid, blockers, radius);
+  return { x: free.x, y: free.y, blocked: true };
+}
+
+/**
  * Advance one phone step: fixed 60 Hz slides, the same steps between two pose sends.
  * `dtMs` is capped at 100 so a hitch cannot tunnel through a table in one segment.
  */

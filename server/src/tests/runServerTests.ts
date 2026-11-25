@@ -283,6 +283,42 @@ test('a wall slide keeps the free axis and a hiding spot stays solid', () => {
   assert.equal(pointBlocked(through.x, through.y, movementBlockers()), false);
 });
 
+test('a stall then one pose through the foyer is not stuck on the sideboard', () => {
+  const h = room(1);
+  h.start('s0', 0);
+  const start = { x: 700, y: 380 };
+  stand(h, 's0', start.x, start.y, 0);
+  assert.equal(pointBlocked(start.x, start.y, movementBlockers()), false, 'start is open floor');
+  const goal = { x: 900, y: 265 };
+  let phone = { ...start };
+  const samples: { x: number; y: number }[] = [];
+  for (let i = 0; i < 40 && Math.hypot(goal.x - phone.x, goal.y - phone.y) > 8; i++) {
+    const stepped = integrateSlide(phone, goal.x - phone.x, goal.y - phone.y, 1000 / 12);
+    phone = { x: Math.round(stepped.x * 10) / 10, y: Math.round(stepped.y * 10) / 10 };
+    samples.push({ ...phone });
+  }
+  assert.ok(phone.x > 840, `phone walks through the foyer, x=${phone.x} y=${phone.y}`);
+  assert.equal(pointBlocked(phone.x, phone.y, movementBlockers()), false);
+
+  // The backlog keeps only the newest pose. One second of budget must land on it,
+  // not on the sideboard face (x ≈ 744) the shortened chord used to creep along.
+  const got = h.move('s0', { x: phone.x, y: phone.y, d: 2, m: 1 }, 1000)!;
+  assert.ok(Math.hypot(got.x - phone.x, got.y - phone.y) < 1, `server ${got.x},${got.y} phone ${phone.x},${phone.y}`);
+  assert.equal(got.d, 2);
+  assert.equal(got.m, 1);
+  assert.equal(pointBlocked(got.x, got.y, movementBlockers()), false);
+  assert.ok(got.x > 840, `stuck beside the foyer at x=${got.x}`);
+
+  // The same walk delivered as one millisecond of samples still ends on the phone.
+  stand(h, 's0', start.x, start.y, 2000);
+  let burst = { x: start.x, y: start.y, d: 0, m: 0 };
+  for (const s of samples) burst = h.move('s0', { x: s.x, y: s.y, d: 3, m: 1 }, 3000)!;
+  assert.ok(Math.hypot(burst.x - phone.x, burst.y - phone.y) < 1, `burst server ${burst.x},${burst.y} phone ${phone.x},${phone.y}`);
+  assert.equal(burst.d, 3);
+  assert.equal(burst.m, 1);
+  assert.equal(pointBlocked(burst.x, burst.y, movementBlockers()), false);
+});
+
 
 test('spots: unknown ids refused; open/close needs reach and line of sight', () => {
   const h = room(2);
