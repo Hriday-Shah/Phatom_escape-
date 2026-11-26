@@ -295,6 +295,7 @@ test('car table: the server keeps the slide the phone walked, including facing a
     pose = got;
   }
   assert.ok(pose.x > spawn.x + 40, `slid along the table, x=${pose.x} from ${spawn.x}`);
+  assert.ok(pose.x > spawn.x + 120, `clears the car-table north pocket, x=${pose.x}`);
 });
 
 test('a wall slide keeps the free axis and a hiding spot stays solid', () => {

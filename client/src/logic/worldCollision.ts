@@ -125,6 +125,35 @@ function slideMoved(from: Point, p: Point): boolean {
   return Math.hypot(p.x - from.x, p.y - from.y) > SLIDE_REACH_EPS;
 }
 
+function carTableRect(): Rect | null {
+  return houseLayout.furniture.find((f) => f.id === 'car_table') ?? null;
+}
+
+/**
+ * Diagonal into the car table should slide along its south face toward the living
+ * opening, not climb the north-east corner into the entrance pinch.
+ */
+function carTableSouthSlide(
+  from: Point, to: Point, blockers: Rect[], radius = PLAYER_BODY_RADIUS,
+): Point | null {
+  const table = carTableRect();
+  if (!table) return null;
+  const contactY = table.y + table.height + radius;
+  const eastOfTable = from.x >= table.x - radius;
+  const inCorridor = eastOfTable && from.x < 432
+    && from.y >= contactY - 36 && from.y <= contactY + 10;
+  if (!inCorridor) return null;
+  const adx = to.x - from.x;
+  const ady = to.y - from.y;
+  if (adx <= SLIDE_REACH_EPS) return null;
+  const climbingNorth = ady < -SLIDE_REACH_EPS || from.y < contactY - SLIDE_REACH_EPS;
+  if (!climbingNorth && ady > SLIDE_REACH_EPS) return null;
+  const along = clampMove(from, { x: to.x, y: contactY }, blockers, radius, SLIDE_SKIN);
+  if (!slideMoved(from, along) || pointBlocked(along.x, along.y, blockers, radius)) return null;
+  if (movementDeadEnd(along, blockers, radius)) return null;
+  return { x: along.x, y: along.y };
+}
+
 /** True when no short slide leaves the circle off the blockers (pocket / nook). */
 function movementDeadEnd(p: Point, blockers: Rect[], radius = PLAYER_BODY_RADIUS): boolean {
   const probes = [8, 16] as const;
@@ -157,6 +186,15 @@ export function slideMove(
   }
   const direct = clampMove(from, to, blockers, radius, SLIDE_SKIN);
   if (!direct.blocked && !pointBlocked(direct.x, direct.y, blockers, radius)) {
+    const table = carTableRect();
+    if (table) {
+      const contactY = table.y + table.height + radius;
+      const carAlong = carTableSouthSlide(from, to, blockers, radius);
+      if (carAlong && direct.y < contactY - SLIDE_REACH_EPS) {
+        const blocked = Math.hypot(carAlong.x - to.x, carAlong.y - to.y) > SLIDE_REACH_EPS;
+        return { x: carAlong.x, y: carAlong.y, blocked };
+      }
+    }
     return { x: direct.x, y: direct.y, blocked: false };
   }
   let best: Point = direct;
@@ -168,7 +206,13 @@ export function slideMove(
     const leftX = Math.hypot(to.x - xy.x, to.y - xy.y);
     const leftY = Math.hypot(to.x - yx.x, to.y - yx.y);
     best = leftX <= leftY ? xy : yx;
-  const belowMouth = from.x <= 808 && from.y >= 290 && from.y <= 318 && to.x > from.x && to.y > from.y;
+    const carAlong = carTableSouthSlide(from, to, blockers, radius);
+    if (carAlong) {
+      const table = carTableRect()!;
+      const contactY = table.y + table.height + radius;
+      if (best.y < contactY - SLIDE_REACH_EPS || !slideMoved(from, best)) best = carAlong;
+    }
+    const belowMouth = from.x <= 808 && from.y >= 290 && from.y <= 318 && to.x > from.x && to.y > from.y;
     if (belowMouth && best.y > from.y + SLIDE_REACH_EPS) {
       const north = clampMove(from, { x: from.x, y: to.y < from.y ? to.y : from.y - Math.hypot(to.x - from.x, to.y - from.y) }, blockers, radius, SLIDE_SKIN);
       if (slideMoved(from, north)) best = north;
