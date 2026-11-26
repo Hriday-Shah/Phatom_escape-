@@ -121,6 +121,29 @@ function roundTenth(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+function slideMoved(from: Point, p: Point): boolean {
+  return Math.hypot(p.x - from.x, p.y - from.y) > SLIDE_REACH_EPS;
+}
+
+/** True when no short slide leaves the circle off the blockers (pocket / nook). */
+function movementDeadEnd(p: Point, blockers: Rect[], radius = PLAYER_BODY_RADIUS): boolean {
+  const probes = [8, 16] as const;
+  const dirs = [
+    [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1],
+  ] as const;
+  for (const dist of probes) {
+    let any = false;
+    for (const [dx, dy] of dirs) {
+      const next = clampMove(
+        p, { x: p.x + dx * dist, y: p.y + dy * dist }, blockers, radius, SLIDE_SKIN,
+      );
+      if (!next.blocked) { any = true; break; }
+    }
+    if (!any) return true;
+  }
+  return false;
+}
+
 /**
  * Move toward `to`, sliding along a wall or table the way the body does on the phone.
  * A straight stop would leave the server pose stuck on the corner while the sprite
@@ -133,6 +156,9 @@ export function slideMove(
     return { x: to.x, y: to.y, blocked: false };
   }
   const direct = clampMove(from, to, blockers, radius, SLIDE_SKIN);
+  if (!direct.blocked && !pointBlocked(direct.x, direct.y, blockers, radius)) {
+    return { x: direct.x, y: direct.y, blocked: false };
+  }
   let best: Point = direct;
   if (direct.blocked) {
     const alongX = clampMove(from, { x: to.x, y: from.y }, blockers, radius, SLIDE_SKIN);
@@ -142,12 +168,60 @@ export function slideMove(
     const leftX = Math.hypot(to.x - xy.x, to.y - xy.y);
     const leftY = Math.hypot(to.x - yx.x, to.y - yx.y);
     best = leftX <= leftY ? xy : yx;
+  const belowMouth = from.x <= 808 && from.y >= 290 && from.y <= 318 && to.x > from.x && to.y > from.y;
+    if (belowMouth && best.y > from.y + SLIDE_REACH_EPS) {
+      const north = clampMove(from, { x: from.x, y: to.y < from.y ? to.y : from.y - Math.hypot(to.x - from.x, to.y - from.y) }, blockers, radius, SLIDE_SKIN);
+      if (slideMoved(from, north)) best = north;
+    }
+    // Pushing into a doorway jamb below the mouth: the chord stops but the body
+    // can still slide along the wall the way Arcade does on a single-player body.
+    if (!slideMoved(from, best)) {
+      const adx = to.x - from.x;
+      const ady = to.y - from.y;
+      let corner = best;
+      let cornerLeft = Math.hypot(to.x - best.x, to.y - best.y);
+      const tryCorner = (fx: number, fy: number) => {
+        const c = clampMove(from, { x: fx, y: fy }, blockers, radius, SLIDE_SKIN);
+        if (!slideMoved(from, c)) return;
+        const left = Math.hypot(to.x - c.x, to.y - c.y);
+        if (left < cornerLeft) {
+          cornerLeft = left;
+          corner = c;
+        }
+      };
+      if (Math.abs(adx) > SLIDE_REACH_EPS) {
+        const towardX = clampMove(from, { x: to.x, y: from.y }, blockers, radius, SLIDE_SKIN);
+        if (!slideMoved(from, towardX)) {
+          tryCorner(from.x - Math.sign(adx) * Math.abs(adx), from.y);
+        }
+      }
+      if (Math.abs(ady) > SLIDE_REACH_EPS) {
+        const towardY = clampMove(from, { x: from.x, y: to.y }, blockers, radius, SLIDE_SKIN);
+        if (!slideMoved(from, towardY)) {
+          tryCorner(from.x, from.y - Math.sign(ady) * Math.abs(ady));
+        }
+      }
+      best = corner;
+    }
+  }
+  if (slideMoved(from, best) && movementDeadEnd(best, blockers, radius)) {
+    best = from;
   }
   if (Math.hypot(best.x - to.x, best.y - to.y) <= SLIDE_REACH_EPS && !pointBlocked(to.x, to.y, blockers, radius)) {
     return { x: to.x, y: to.y, blocked: false };
   }
-  const x = roundTenth(best.x);
-  const y = roundTenth(best.y);
+  let x = roundTenth(best.x);
+  let y = roundTenth(best.y);
+  if (pointBlocked(x, y, blockers, radius)) {
+    if (pointBlocked(from.x, from.y, blockers, radius)) {
+      const free = nearestFree(from, blockers, radius);
+      x = free.x;
+      y = free.y;
+    } else {
+      x = roundTenth(from.x);
+      y = roundTenth(from.y);
+    }
+  }
   return { x, y, blocked: x !== to.x || y !== to.y };
 }
 
@@ -159,6 +233,15 @@ const DOORWAY_DETOUR = 1.45;
 const DOORWAY_PAD = 48;
 const WALK_STEP = 8;
 const WALK_EXPAND = 1800;
+
+/** When the stick aims through the living-room/foyer mouth, path around the jamb via the gap. */
+function doorwayAim(from: Point, to: Point, blockers: Rect[], radius: number): Point {
+  if (from.x > 808 || from.y < 286 || from.y > 318) return to;
+  if (to.x <= from.x + 4) return to;
+  const mouth = { x: 850, y: 268 };
+  if (!pointBlocked(mouth.x, mouth.y, blockers, radius)) return mouth;
+  return { x: Math.min(to.x, 834), y: Math.min(from.y, 292) };
+}
 
 function nearestFree(p: Point, blockers: Rect[], radius: number): Point {
   if (!pointBlocked(p.x, p.y, blockers, radius)) return { x: roundTenth(p.x), y: roundTenth(p.y) };
@@ -203,7 +286,7 @@ function shortWalk(
     if ((best.get(`${n.x},${n.y}`) ?? 0) < n.g - 1e-6) continue;
     expanded++;
     const left = Math.hypot(n.x - to.x, n.y - to.y);
-    if (left <= WALK_STEP && !moveHitsWall(n.x, n.y, to.x, to.y, blockers, radius, 0)) {
+    if (left <= WALK_STEP && !moveHitsWall(n.x, n.y, to.x, to.y, blockers, radius, SLIDE_SKIN)) {
       return n.g + left;
     }
     for (const [dx, dy] of dirs) {
@@ -212,7 +295,7 @@ function shortWalk(
       const ng = n.g + Math.hypot(dx, dy);
       if (ng > maxLen) continue;
       if (pointBlocked(nx, ny, blockers, radius)) continue;
-      if (moveHitsWall(n.x, n.y, nx, ny, blockers, radius, 0)) continue;
+      if (moveHitsWall(n.x, n.y, nx, ny, blockers, radius, SLIDE_SKIN)) continue;
       const key = `${nx},${ny}`;
       const prev = best.get(key);
       if (prev != null && prev <= ng) continue;
@@ -221,6 +304,111 @@ function shortWalk(
       open.push(nodes.length - 1);
     }
   }
+  return null;
+}
+
+const WALK_DIRS = [
+  [WALK_STEP, 0], [-WALK_STEP, 0], [0, WALK_STEP], [0, -WALK_STEP],
+  [WALK_STEP, WALK_STEP], [WALK_STEP, -WALK_STEP], [-WALK_STEP, WALK_STEP], [-WALK_STEP, -WALK_STEP],
+] as const;
+
+type WalkNode = { x: number; y: number; g: number; prev: number };
+
+/** Grid search toward `to` within `searchLen`; returns nodes, goal index, and best partial index. */
+function pathfindToward(
+  from: Point, to: Point, blockers: Rect[], radius: number, searchLen: number,
+): { nodes: WalkNode[]; goalIdx: number; partialIdx: number } | null {
+  if (searchLen <= 0) return null;
+  const sx = Math.round(from.x);
+  const sy = Math.round(from.y);
+  const nodes: WalkNode[] = [{ x: sx, y: sy, g: 0, prev: -1 }];
+  const best = new Map<string, number>([[`${sx},${sy}`, 0]]);
+  const open: number[] = [0];
+  let goalIdx = -1;
+  let partialIdx = -1;
+  let partialH = Infinity;
+  let expanded = 0;
+  while (open.length && expanded < WALK_EXPAND) {
+    let pick = 0;
+    let pickF = Infinity;
+    for (let i = 0; i < open.length; i++) {
+      const n = nodes[open[i]]!;
+      const f = n.g + Math.hypot(n.x - to.x, n.y - to.y);
+      if (f < pickF) { pickF = f; pick = i; }
+    }
+    const idx = open.splice(pick, 1)[0]!;
+    const n = nodes[idx]!;
+    if ((best.get(`${n.x},${n.y}`) ?? 0) < n.g - 1e-6) continue;
+    expanded++;
+    const h = Math.hypot(n.x - to.x, n.y - to.y);
+    if (n.g > 0 && n.g <= searchLen && h < partialH) {
+      partialH = h;
+      partialIdx = idx;
+    }
+    const left = Math.hypot(n.x - to.x, n.y - to.y);
+    if (goalIdx < 0 && left <= WALK_STEP && !moveHitsWall(n.x, n.y, to.x, to.y, blockers, radius, SLIDE_SKIN)) {
+      goalIdx = idx;
+      break;
+    }
+    for (const [dx, dy] of WALK_DIRS) {
+      const nx = n.x + dx;
+      const ny = n.y + dy;
+      const ng = n.g + Math.hypot(dx, dy);
+      if (ng > searchLen) continue;
+      if (pointBlocked(nx, ny, blockers, radius)) continue;
+      if (moveHitsWall(n.x, n.y, nx, ny, blockers, radius, SLIDE_SKIN)) continue;
+      const key = `${nx},${ny}`;
+      const prev = best.get(key);
+      if (prev != null && prev <= ng) continue;
+      best.set(key, ng);
+      nodes.push({ x: nx, y: ny, g: ng, prev: idx });
+      open.push(nodes.length - 1);
+    }
+  }
+  if (goalIdx < 0 && partialIdx < 0) return null;
+  return { nodes, goalIdx, partialIdx };
+}
+
+/** Walk up to `stepLen` along the shortest grid path toward `to` found within `searchLen`. */
+function walkAlongPath(
+  from: Point, to: Point, blockers: Rect[], radius: number, searchLen: number, stepLen: number,
+): Point | null {
+  const path = pathfindToward(from, to, blockers, radius, searchLen);
+  if (!path || stepLen <= SLIDE_REACH_EPS) return null;
+  const target = path.goalIdx >= 0 ? path.goalIdx : path.partialIdx;
+  if (target < 0) return null;
+  const chain: number[] = [];
+  let idx = target;
+  while (idx >= 0) { chain.push(idx); idx = path.nodes[idx]!.prev; }
+  chain.reverse();
+  let walked = 0;
+  let out = { x: from.x, y: from.y };
+  for (let i = 1; i < chain.length; i++) {
+    const a = path.nodes[chain[i - 1]!]!;
+    const b = path.nodes[chain[i]!]!;
+    const seg = Math.hypot(b.x - a.x, b.y - a.y);
+    if (walked + seg >= stepLen - 1e-6) {
+      const t = Math.min(1, (stepLen - walked) / seg);
+      return {
+        x: roundTenth(a.x + (b.x - a.x) * t),
+        y: roundTenth(a.y + (b.y - a.y) * t),
+      };
+    }
+    walked += seg;
+    out = { x: b.x, y: b.y };
+  }
+  if (path.goalIdx >= 0) {
+    const goalSeg = Math.hypot(to.x - out.x, to.y - out.y);
+    if (walked + goalSeg >= stepLen - 1e-6) {
+      const t = Math.min(1, (stepLen - walked) / goalSeg);
+      return {
+        x: roundTenth(out.x + (to.x - out.x) * t),
+        y: roundTenth(out.y + (to.y - out.y) * t),
+      };
+    }
+    return { x: roundTenth(to.x), y: roundTenth(to.y) };
+  }
+  if (slideMoved(from, out)) return { x: roundTenth(out.x), y: roundTenth(out.y) };
   return null;
 }
 
@@ -238,14 +426,29 @@ export function resolveMove(
   radius = PLAYER_BODY_RADIUS,
 ): Point & { blocked: boolean } {
   const origin = pointBlocked(from.x, from.y, blockers, radius) ? nearestFree(from, blockers, radius) : from;
+  const aim = doorwayAim(origin, to, blockers, radius);
+  const doorwayCase = aim.x !== to.x || aim.y !== to.y;
   const slid = slideMove(origin, to, blockers, radius);
   if (!slid.blocked && !pointBlocked(slid.x, slid.y, blockers, radius)) return slid;
-  const straight = Math.hypot(to.x - origin.x, to.y - origin.y);
-  const goalFree = !pointBlocked(to.x, to.y, blockers, radius);
-  if (goalFree && straight > SLIDE_REACH_EPS) {
-    const limit = Math.min(Math.max(maxDist, 0), straight * DOORWAY_DETOUR + DOORWAY_PAD);
-    const walked = shortWalk(origin, to, blockers, radius, limit);
-    if (walked != null && walked <= maxDist + 1) return { x: to.x, y: to.y, blocked: false };
+  if (doorwayCase) {
+    const north = clampMove(origin, { x: origin.x, y: origin.y - maxDist }, blockers, radius, SLIDE_SKIN);
+    if (slideMoved(origin, north) && !pointBlocked(north.x, north.y, blockers, radius)) {
+      return { x: north.x, y: north.y, blocked: true };
+    }
+    const straight = Math.hypot(aim.x - origin.x, aim.y - origin.y);
+    const goalFree = !pointBlocked(aim.x, aim.y, blockers, radius);
+    if (straight > SLIDE_REACH_EPS) {
+      const searchLen = Math.max(straight * DOORWAY_DETOUR + DOORWAY_PAD, maxDist);
+      const walked = shortWalk(origin, aim, blockers, radius, searchLen);
+      if (goalFree && walked != null && walked <= maxDist + 1) {
+        return { x: aim.x, y: aim.y, blocked: false };
+      }
+      const step = walkAlongPath(origin, aim, blockers, radius, searchLen, maxDist);
+      if (step && slideMoved(origin, step) && !pointBlocked(step.x, step.y, blockers, radius)) {
+        const atGoal = goalFree && Math.hypot(step.x - aim.x, step.y - aim.y) <= SLIDE_REACH_EPS;
+        return { x: step.x, y: step.y, blocked: !atGoal };
+      }
+    }
   }
   if (!pointBlocked(slid.x, slid.y, blockers, radius)) return slid;
   const free = nearestFree(slid, blockers, radius);
@@ -272,14 +475,74 @@ export function integrateSlide(
   let left = Math.min(dtMs, 100);
   let x = from.x;
   let y = from.y;
+  if (pointBlocked(x, y, blockers, radius)) {
+    const free = nearestFree({ x, y }, blockers, radius);
+    x = free.x;
+    y = free.y;
+  }
+  const totalBudget = speed * Math.min(dtMs, 100) / 1000;
+  let lastSafe = { x, y };
   const frame = 1000 / 60;
   for (let i = 0; i < 8 && left > 1e-4; i++) {
     const dt = Math.min(frame, left);
     left -= dt;
     const dist = speed * dt / 1000;
-    const next = slideMove({ x, y }, { x: x + ux * dist, y: y + uy * dist }, blockers, radius);
+    const before = { x, y };
+    const next = slideMove(
+      before, { x: before.x + ux * dist, y: before.y + uy * dist }, blockers, radius,
+    );
+    const mx = next.x - before.x;
+    const my = next.y - before.y;
+    const moved = Math.hypot(mx, my);
+    if (moved > SLIDE_REACH_EPS && moved < dist - SLIDE_REACH_EPS) {
+      const leftDist = dist - moved;
+      const tx = mx / moved;
+      const ty = my / moved;
+      const more = slideMove(
+        next,
+        { x: next.x + tx * leftDist, y: next.y + ty * leftDist },
+        blockers,
+        radius,
+      );
+      if (Math.hypot(more.x - next.x, more.y - next.y) > SLIDE_REACH_EPS) {
+        x = more.x;
+        y = more.y;
+        continue;
+      }
+    }
     x = next.x;
     y = next.y;
+    if (!movementDeadEnd({ x, y }, blockers, radius) && !pointBlocked(x, y, blockers, radius)) {
+      lastSafe = { x, y };
+    }
+  }
+  const alongStick = (x - from.x) * ux + (y - from.y) * uy;
+  const remain = totalBudget - alongStick;
+  const tailTo = { x: x + ux * remain, y: y + uy * remain };
+  if (remain > SLIDE_REACH_EPS && (doorwayAim({ x, y }, tailTo, blockers, radius).x !== tailTo.x
+      || doorwayAim({ x, y }, tailTo, blockers, radius).y !== tailTo.y)) {
+    const doorway = resolveMove({ x, y }, tailTo, blockers, remain, radius);
+    if (slideMoved({ x, y }, doorway)) {
+      x = doorway.x;
+      y = doorway.y;
+    }
+  }
+  if (movementDeadEnd({ x, y }, blockers, radius) || pointBlocked(x, y, blockers, radius)) {
+    x = lastSafe.x;
+    y = lastSafe.y;
+  }
+  if (Math.hypot(x - from.x, y - from.y) < SLIDE_REACH_EPS) {
+    const priX = { x: from.x + Math.sign(ux) * totalBudget, y: from.y };
+    const priY = { x: from.x, y: from.y + Math.sign(uy) * totalBudget };
+    const tries = Math.abs(ux) >= Math.abs(uy) ? [priX, priY] : [priY, priX];
+    for (const pri of tries) {
+      const fallback = slideMove(from, pri, blockers, radius);
+      if (!slideMoved(from, fallback) || movementDeadEnd(fallback, blockers, radius)
+          || pointBlocked(fallback.x, fallback.y, blockers, radius)) continue;
+      x = fallback.x;
+      y = fallback.y;
+      break;
+    }
   }
   return { x, y };
 }

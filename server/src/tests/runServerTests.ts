@@ -361,6 +361,55 @@ test('a stall then one pose through the foyer is not stuck on the sideboard', ()
   assert.equal(pointBlocked(burst.x, burst.y, movementBlockers()), false);
 });
 
+test('living-room/foyer mouth and kitchen entry keep shared slide at walk speed', () => {
+  const h = room(1);
+  h.start('s0', 0);
+  const routes = [
+    { start: { x: 760, y: 295 }, goal: { x: 1000, y: 450 }, label: 'foyer mouth' },
+    { start: { x: 820, y: 270 }, goal: { x: 950, y: 400 }, label: 'foyer to kitchen' },
+    { start: { x: 860, y: 330 }, goal: { x: 1000, y: 500 }, label: 'kitchen' },
+  ];
+  const tick = 1000 / 12;
+  let now = 0;
+  for (const route of routes) {
+    stand(h, 's0', route.start.x, route.start.y, now);
+    let pose = { ...route.start };
+    let still = 0;
+    for (let i = 0; i < 100 && Math.hypot(route.goal.x - pose.x, route.goal.y - pose.y) > 12; i++) {
+      const dx = route.goal.x - pose.x;
+      const dy = route.goal.y - pose.y;
+      const sent = reportSlide(pose, dx, dy);
+      now += tick;
+      const got = h.move('s0', { x: sent.x, y: sent.y, d: 2, m: 1 }, now)!;
+      assert.ok(Math.hypot(got.x - sent.x, got.y - sent.y) < 0.15, `${route.label} tick ${i}: server agreed`);
+      assert.equal(pointBlocked(got.x, got.y, movementBlockers()), false, `${route.label} lands in free space`);
+      still = got.x === pose.x && got.y === pose.y ? still + 1 : 0;
+      assert.ok(still < 8, `${route.label} frozen at ${got.x},${got.y}`);
+      pose = { x: got.x, y: got.y };
+    }
+    assert.ok(
+      Math.hypot(route.goal.x - pose.x, route.goal.y - pose.y) < 12,
+      `${route.label} reached the goal, at ${pose.x},${pose.y}`,
+    );
+  }
+  const table = houseLayout.furniture.find((f) => f.id === 'car_table')!;
+  const along = { x: 228, y: table.y + table.height + 20 };
+  stand(h, 's0', along.x, along.y, now);
+  let slidePose = { ...along };
+  const tickDist: number[] = [];
+  for (let i = 0; i < 10; i++) {
+    const before = { ...slidePose };
+    const sent = reportSlide(slidePose, 0.4, -1);
+    now += tick;
+    slidePose = h.move('s0', { x: sent.x, y: sent.y, d: 3, m: 1 }, now)!;
+    tickDist.push(Math.hypot(slidePose.x - before.x, slidePose.y - before.y));
+  }
+  assert.ok(
+    tickDist[0] >= 12 && tickDist[1] >= 12 && tickDist[2] >= 12,
+    `car-table slide keeps walk speed: ${tickDist.slice(0, 4).join(', ')}`,
+  );
+});
+
 
 test('spots: unknown ids refused; open/close needs reach and line of sight', () => {
   const h = room(2);
