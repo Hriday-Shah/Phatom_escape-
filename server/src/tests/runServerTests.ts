@@ -326,6 +326,24 @@ test('a wall slide keeps the free axis and a hiding spot stays solid', () => {
   assert.equal(pointBlocked(through.x, through.y, movementBlockers()), false);
 });
 
+test('living north wall: NE and E slide south toward the foyer opening', () => {
+  const h = room(1);
+  h.start('s0', 0);
+  const pinch = { x: 744, y: 126 };
+  stand(h, 's0', pinch.x, pinch.y, 0);
+  assert.equal(pointBlocked(pinch.x, pinch.y, movementBlockers()), false);
+  let pose = { ...pinch };
+  let now = 0;
+  for (let i = 0; i < 18; i++) {
+    const sent = reportSlide(pose, 1, 0);
+    now += 1000 / 12;
+    pose = h.move('s0', { x: sent.x, y: sent.y, d: 2, m: 1 }, now)!;
+    assert.equal(pointBlocked(pose.x, pose.y, movementBlockers()), false, `tick ${i}`);
+  }
+  assert.ok(pose.x > pinch.x + 80, `east along the north shelf, x=${pose.x} y=${pose.y}`);
+  assert.ok(pose.y > pinch.y + 10, `cleared south, y=${pose.y}`);
+});
+
 test('a stall then one pose through the foyer is not stuck on the sideboard', () => {
   const h = room(1);
   h.start('s0', 0);

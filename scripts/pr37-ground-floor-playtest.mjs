@@ -219,18 +219,25 @@ try {
   await compareRemotes(host, guest, 'after foyer/kitchen');
 
   s0 = await state(host);
+  if (s0 && s0.y < 230) await hold(host, ['ArrowLeft', 'ArrowDown'], 1500);
   await hold(host, ['ArrowDown', 'ArrowRight'], 4500);
   const kit = await moved(host, s0, 28);
   if (!kit.ok) fail('kitchen interior', `stuck @ ${kit.after.x},${kit.after.y}`);
   else pass('kitchen interior', `${kit.after.x},${kit.after.y}`);
 
-  // Guest mirrors foyer path
+  // Guest: south/east below the living north wall, then foyer mouth
   s0 = await state(guest);
-  await hold(guest, ['ArrowRight', 'ArrowUp'], 3500);
-  await hold(guest, ['ArrowRight'], 2500);
-  await hold(guest, ['ArrowUp', 'ArrowRight'], 2500);
   await guest.click('canvas', { position: { x: 400, y: 400 } });
-  const gf = await moved(guest, s0, 20);
+  const guestNorth = (s0?.y ?? 400) < 270;
+  if (guestNorth) {
+    await hold(guest, ['ArrowDown', 'ArrowRight'], 4000);
+    await hold(guest, ['ArrowRight'], 2500);
+    await hold(guest, ['ArrowDown', 'ArrowRight'], 2500);
+  } else {
+    await hold(guest, ['ArrowRight'], 2000);
+    await hold(guest, ['ArrowDown', 'ArrowRight'], 3500);
+  }
+  const gf = await moved(guest, s0, 35);
   if (!gf.ok) fail('guest foyer path', `stuck @ ${gf.after.x},${gf.after.y}`);
   else pass('guest foyer path');
 

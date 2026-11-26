@@ -133,6 +133,48 @@ function carTableRect(): Rect | null {
  * Diagonal into the car table should slide along its south face toward the living
  * opening, not climb the north-east corner into the entrance pinch.
  */
+/** Living-room north wall: NE / E into the top edge slides south along the wall. */
+function livingNorthWallSlide(
+  from: Point, to: Point, blockers: Rect[], radius = PLAYER_BODY_RADIUS,
+): Point | null {
+  const contactY = 100 + 10 + radius;
+  if (from.y < contactY - 6 || from.y > contactY + 18) return null;
+  if (from.x < 432 || from.x > 798) return null;
+  const adx = to.x - from.x;
+  const ady = to.y - from.y;
+  const dist = Math.hypot(adx, ady);
+  if (dist < SLIDE_REACH_EPS) return null;
+  if (ady >= -SLIDE_REACH_EPS && adx <= SLIDE_REACH_EPS) return null;
+  if (ady < -SLIDE_REACH_EPS || (Math.abs(ady) <= SLIDE_REACH_EPS && adx > SLIDE_REACH_EPS)) {
+    const south = clampMove(from, { x: from.x, y: from.y + dist }, blockers, radius, SLIDE_SKIN);
+    if (slideMoved(from, south) && !pointBlocked(south.x, south.y, blockers, radius)
+        && !movementDeadEnd(south, blockers, radius)) {
+      return { x: south.x, y: south.y };
+    }
+  }
+  return null;
+}
+
+/** Below the living north wall, E into the foyer jamb slides south until the opening clears. */
+function livingEastJambSlide(
+  from: Point, to: Point, blockers: Rect[], radius = PLAYER_BODY_RADIUS,
+): Point | null {
+  if (from.x < 680 || from.x > 798) return null;
+  if (from.y < 118 || from.y > 268) return null;
+  const adx = to.x - from.x;
+  const ady = to.y - from.y;
+  const dist = Math.hypot(adx, ady);
+  if (dist < SLIDE_REACH_EPS || adx <= SLIDE_REACH_EPS) return null;
+  const east = clampMove(from, { x: to.x, y: from.y }, blockers, radius, SLIDE_SKIN);
+  if (!east.blocked && slideMoved(from, east)) return null;
+  const south = clampMove(from, { x: from.x, y: from.y + Math.max(dist, adx > ady ? dist : dist * 0.75) }, blockers, radius, SLIDE_SKIN);
+  if (slideMoved(from, south) && !pointBlocked(south.x, south.y, blockers, radius)
+      && !movementDeadEnd(south, blockers, radius)) {
+    return { x: south.x, y: south.y };
+  }
+  return null;
+}
+
 function carTableSouthSlide(
   from: Point, to: Point, blockers: Rect[], radius = PLAYER_BODY_RADIUS,
 ): Point | null {
@@ -212,6 +254,10 @@ export function slideMove(
       const contactY = table.y + table.height + radius;
       if (best.y < contactY - SLIDE_REACH_EPS || !slideMoved(from, best)) best = carAlong;
     }
+    const northAlong = livingNorthWallSlide(from, to, blockers, radius);
+    if (northAlong && (!slideMoved(from, best) || best.y <= from.y + SLIDE_REACH_EPS)) best = northAlong;
+    const eastJamb = livingEastJambSlide(from, to, blockers, radius);
+    if (eastJamb && (!slideMoved(from, best) || best.x <= from.x + SLIDE_REACH_EPS)) best = eastJamb;
     const belowMouth = from.x <= 808 && from.y >= 290 && from.y <= 318 && to.x > from.x && to.y > from.y;
     if (belowMouth && best.y > from.y + SLIDE_REACH_EPS) {
       const north = clampMove(from, { x: from.x, y: to.y < from.y ? to.y : from.y - Math.hypot(to.x - from.x, to.y - from.y) }, blockers, radius, SLIDE_SKIN);
