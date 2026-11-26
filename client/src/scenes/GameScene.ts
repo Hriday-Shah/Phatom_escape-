@@ -15,6 +15,9 @@ import { currentShellLayout, watchInsets } from '../ui/currentLayout';
 import { snappedCameraZoom } from '../logic/cameraZoom';
 import { onlineStartPoint } from '../logic/onlineSpawn';
 import { ItemDirector } from '../items/ItemDirector';
+import { FloorView } from '../objects/FloorView';
+import { FLOOR_GROUND, worldPixelBounds } from '../data/houseFloors';
+import type { FloorId } from '../data/houseFloors';
 
 export { snappedCameraZoom };
 
@@ -39,14 +42,16 @@ export class GameScene extends Phaser.Scene {
   public netSync: NetSync | null = null;
   /** Items, Game Controller mini-game and paper-code reveal. */
   public items: ItemDirector | null = null;
+  private floorView!: FloorView;
 
   constructor() {
     super({ key: 'GameScene' });
   }
 
   create(): void {
-    // Set world bounds
-    this.physics.world.setBounds(0, 0, houseLayout.width, houseLayout.height);
+    const wb = worldPixelBounds();
+    this.physics.world.setBounds(wb.x, wb.y, wb.width, wb.height);
+    this.floorView = new FloorView(this);
 
     // Add background (dark floor covering entire world)
     // Extend beyond house bounds to prevent black strips in portrait
@@ -69,6 +74,7 @@ export class GameScene extends Phaser.Scene {
     const spawnPoint = this.onlineSpawn(this.getSpawnPoint());
     // Hoodie colour from the lobby (registry 'colour'); no lobby -> the default cyan.
     this.player = new Player(this, spawnPoint.x, spawnPoint.y, hoodieTint(this.registry.get('colour')));
+    this.player.onFloorChanged((f) => this.applyHouseFloor(f));
 
     // Runtime guard for QA N1: the body must be a 32px circle centred on the sprite.
     const expected = PLAYER_BODY_RADIUS * 2;
@@ -89,6 +95,7 @@ export class GameScene extends Phaser.Scene {
     // Create hiding spot manager
     this.hidingSpotManager = new HidingSpotManager(this, houseLayout.hidingSpots);
     this.hidingSpotManager.setWallGroup(this.wallGroup);
+    this.applyHouseFloor(this.player.getFloor());
     // Targeting after Arcade has synced the sprite to this frame's body position (POST_UPDATE),
     // so the highlight never lags a frame behind the player (QA R7-1 at low frame rates).
     const target = () => {
@@ -126,6 +133,7 @@ export class GameScene extends Phaser.Scene {
     this.scene.launch('UIScene');
     this.uiScene = this.scene.get('UIScene');
 
+    this.mountGroundFloorArt();
     // Handle screen resize
     this.scale.on('resize', this.onResize, this);
 
@@ -173,6 +181,27 @@ export class GameScene extends Phaser.Scene {
       this.lightLayer = null;
     });
     this.lightLayer.update(this.player.x, this.player.y, true);
+  }
+
+  /** Ground-floor art lives in the floor container; upper placeholder in its own container. */
+  private mountGroundFloorArt(): void {
+    const host = this.floorView.host();
+    for (const child of [...this.children.list]) {
+      if (!(child instanceof Phaser.GameObjects.GameObject)) continue;
+      if (child === host || child === this.floorView.upper) continue;
+      if ((child as { depth?: number }).depth != null && (child as { depth: number }).depth >= 9) continue;
+      if ((child as { depth?: number }).depth != null && (child as { depth: number }).depth <= -10) continue;
+      host.add(child);
+    }
+  }
+
+  private applyHouseFloor(floor: FloorId): void {
+    this.floorView.showFloor(floor);
+    const b = this.floorView.cameraBounds(floor);
+    this.physics.world.setBounds(b.x, b.y, b.width, b.height);
+    this.cameras.main.setBounds(b.x, b.y, b.width, b.height);
+    this.hidingSpotManager.setActiveFloor(floor);
+    if (this.lightLayer) this.lightLayer.setVisible(floor === FLOOR_GROUND);
   }
 
   private updateCameraZoom(): void {

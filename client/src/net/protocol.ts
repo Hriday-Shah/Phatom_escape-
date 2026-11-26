@@ -1,8 +1,8 @@
 /**
  * Messages between the client and the game server (server/src/HouseRoom.ts). JSON payloads.
- * Pose tuple: [playerId, x, y, dir 0..3 (down, left, right, up), moving 0/1].
+ * Pose tuple: [playerId, x, y, dir 0..3 (down, left, right, up), moving 0/1, floor 0/1].
  */
-export type PoseTuple = [string, number, number, number, number];
+export type PoseTuple = [string, number, number, number, number, number?];
 export const DIRS = ['down', 'left', 'right', 'up'] as const;
 export type Dir = (typeof DIRS)[number];
 export const dirIndex = (d: string): number => Math.max(0, DIRS.indexOf(d as Dir));
@@ -46,6 +46,6 @@ export const WAKING_TEXT = 'Waking up the game server… free hosting can take u
 /** Server-chosen mini-game and public item list for this round (no paper code). */
 export type ItemPayload = {
   id: string; kind: string; variant?: string;
-  spotId: string | null; x: number; y: number; heldBy: string | null;
+  spotId: string | null; x: number; y: number; f?: number; heldBy: string | null;
 };
 export type RoundPayload = { minigame: string; gameSeed: number; items: ItemPayload[] };

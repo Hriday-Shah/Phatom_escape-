@@ -95,6 +95,8 @@ export interface WorldItem {
   spotId: string | null;
   x: number;
   y: number;
+  /** Building floor (0 = ground). */
+  f: number;
   /** Player id holding it, or null. */
   heldBy: string | null;
 }
@@ -103,13 +105,14 @@ export type PublicItem = WorldItem;
 
 export const CONTROLLER_ID = 'item-controller-1';
 
-export function makeController(spotId: string, x: number, y: number): WorldItem {
+export function makeController(spotId: string, x: number, y: number, f = 0): WorldItem {
   return {
     id: CONTROLLER_ID,
     kind: 'game_controller',
     spotId,
     x,
     y,
+    f,
     heldBy: null,
   };
 }

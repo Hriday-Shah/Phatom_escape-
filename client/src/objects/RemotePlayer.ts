@@ -8,6 +8,7 @@ import { PLAYER_SPRITE_SCALE } from '../config/playerConfig';
 import { TextureKeys } from '../config/textureKeys';
 import { PLAYER_COLOURS } from '../lobby/lobby';
 import { PoseBuffer } from '../net/interpolation';
+import { FLOOR_GROUND, type FloorId } from '../data/houseFloors';
 import { DIRS, INTERP_DELAY_MS } from '../net/protocol';
 
 const tintFor = (colour: string): number => parseInt((PLAYER_COLOURS.find((c) => c.id === colour)?.hex ?? '#5FD3E6').slice(1), 16);
@@ -21,6 +22,8 @@ export class RemotePlayer {
   private nickname: string;
   private away = false;
   private labelLift = 0;
+  private floorLevel: FloorId = FLOOR_GROUND;
+  private sameFloorVisible = true;
 
   constructor(private scene: Phaser.Scene, readonly id: string, nickname: string, colour: string, x: number, y: number) {
     const art = scene.textures.exists('player') && scene.textures.exists('player_tint');
@@ -55,7 +58,20 @@ export class RemotePlayer {
   }
 
   setVisible(v: boolean): void {
-    this.body.setVisible(v); this.tint?.setVisible(v); this.label.setVisible(v);
+    const show = v && this.sameFloorVisible;
+    this.body.setVisible(show); this.tint?.setVisible(show); this.label.setVisible(show);
+  }
+
+  setFloor(floor: FloorId): void {
+    this.floorLevel = floor;
+  }
+
+  getFloor(): FloorId {
+    return this.floorLevel;
+  }
+
+  setSameFloorVisible(v: boolean): void {
+    this.sameFloorVisible = v;
   }
 
   get isAway(): boolean { return this.away; }

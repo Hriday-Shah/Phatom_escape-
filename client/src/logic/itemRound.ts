@@ -11,6 +11,7 @@ import {
 import { MinigameId, selectMinigame, minigameSeed } from './minigames';
 import { createPuzzle, replayWin, type PuzzleSnapshot, type PlayView, playViewOf } from './minigames/replay';
 import { hashSeed, mulberry32, pick } from './seededRng';
+import type { FloorId } from '../data/houseFloors';
 import { clampDrop, reachableWithLos, canUseSpot, losBlockers } from './worldCollision';
 
 export const TV_UNIT = { x: 760, y: 110, width: 40, height: 110, id: 'tv_unit' };
@@ -114,9 +115,16 @@ export function createServerRound(round = 1): { minigame: MinigameId; gameSeed: 
   return createServerRoundFrom(randomU32(), randomSeedText(), round);
 }
 
-export function itemReachableFrom(pose: { x: number; y: number }, item: { x: number; y: number; spotId?: string | null }, reach = NEAR_ITEM): boolean {
+export function itemReachableFrom(
+  pose: { x: number; y: number; f?: number },
+  item: { x: number; y: number; spotId?: string | null; f?: number },
+  reach = NEAR_ITEM,
+): boolean {
+  const pf = pose.f ?? 0;
+  const itemF = item.f ?? 0;
+  if (pf !== itemF) return false;
   if (item.spotId) return canUseSpot(pose, item.spotId, reach);
-  return reachableWithLos(pose, { x: item.x, y: item.y }, reach);
+  return reachableWithLos(pose, { x: item.x, y: item.y }, reach, losBlockers(false, pf as FloorId));
 }
 
 export function visibleItems(items: PublicItem[], openSpots: Iterable<string>): PublicItem[] {
@@ -156,7 +164,7 @@ export class ItemRound {
       minigame: pub.minigame,
       gameSeed: pub.gameSeed,
       code: known ?? (['red', 'blue', 'violet', 'yellow'] as EscapeCode),
-      items: pub.items.map((i) => ({ ...i })),
+      items: pub.items.map((i) => ({ ...i, f: i.f ?? 0 })),
     });
   }
 
@@ -196,7 +204,10 @@ export class ItemRound {
   }
   codeFor(playerId: string): EscapeCode | null { return this.knows.has(playerId) ? this.code : null; }
 
-  pickup(playerId: string, itemId: string, pose: { x: number; y: number }, openSpots: Set<string> | string[]): { ok: boolean; error?: string } {
+  pickup(
+    playerId: string, itemId: string, pose: { x: number; y: number; f?: number },
+    openSpots: Set<string> | string[],
+  ): { ok: boolean; error?: string } {
     if (this.heldBy(playerId)) return { ok: false, error: 'hands-full' };
     const item = this.items.find((i) => i.id === itemId);
     if (!item || item.heldBy) return { ok: false, error: 'no-item' };
@@ -204,17 +215,18 @@ export class ItemRound {
     if (item.spotId) {
       if (!open.has(item.spotId)) return { ok: false, error: 'closed' };
       if (!canUseSpot(pose, item.spotId, NEAR_ITEM)) return { ok: false, error: 'too-far' };
-    } else if (!reachableWithLos(pose, { x: item.x, y: item.y }, NEAR_ITEM)) {
+    } else if (!itemReachableFrom(pose, item, NEAR_ITEM)) {
       return { ok: false, error: 'too-far' };
     }
     item.heldBy = playerId;
     item.spotId = null;
+    item.f = pose.f ?? 0;
     return { ok: true };
   }
 
   drop(
     playerId: string, x: number, y: number, intoSpot?: string | null,
-    pose?: { x: number; y: number }, openSpots?: Set<string> | string[],
+    pose?: { x: number; y: number; f?: number }, openSpots?: Set<string> | string[],
   ): { ok: boolean; error?: string } {
     const item = this.heldBy(playerId);
     if (!item) return { ok: false, error: 'empty-hands' };
@@ -230,7 +242,8 @@ export class ItemRound {
       dx = spot.x + spot.width / 2;
       dy = spot.y + spot.height / 2;
     } else {
-      const clamped = clampDrop(origin, { x: dx, y: dy }, NEAR_ITEM, losBlockers());
+      const floor = (origin.f ?? 0) as FloorId;
+      const clamped = clampDrop(origin, { x: dx, y: dy }, NEAR_ITEM, losBlockers(false, floor));
       dx = clamped.x;
       dy = clamped.y;
       // A floor drop must not land inside a closed spot (e.g. the bed).
@@ -248,6 +261,7 @@ export class ItemRound {
     item.x = dx;
     item.y = dy;
     item.spotId = spotId;
+    item.f = pose?.f ?? 0;
     this.cancelMinigame(playerId);
     return { ok: true };
   }
