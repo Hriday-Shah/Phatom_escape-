@@ -96,6 +96,11 @@ export class GameScene extends Phaser.Scene {
     this.hidingSpotManager = new HidingSpotManager(this, houseLayout.hidingSpots);
     this.hidingSpotManager.setWallGroup(this.wallGroup);
     this.applyHouseFloor(this.player.getFloor());
+
+    // Limited vision (before NetSync so a reconnect pose on the upper floor does not leave
+    // the light visible — applyHouseFloor toggles the layer when it already exists).
+    if (!hasDebugFlag('nolight') && LightLayer.available(this)) this.createLight();
+
     // Targeting after Arcade has synced the sprite to this frame's body position (POST_UPDATE),
     // so the highlight never lags a frame behind the player (QA R7-1 at low frame rates).
     const target = () => {
@@ -122,9 +127,6 @@ export class GameScene extends Phaser.Scene {
     const net = this.registry.get('net') as GameLink | null | undefined;
     if (net) this.netSync = new NetSync(this, net, this.player, this.hidingSpotManager);
 
-    // Limited vision (off with ?debug=nolight for QA).
-    if (!hasDebugFlag('nolight') && LightLayer.available(this)) this.createLight();
-
     // Setup controls
     this.setupControls();
 
@@ -144,6 +146,9 @@ export class GameScene extends Phaser.Scene {
     // Items / mini-game (after UIScene exists so the slot and overlay can be placed).
     this.items = new ItemDirector(this as any);
     this.time.delayedCall(0, () => { this.items?.attach(net ?? null); this.items?.place(); });
+
+    // Reconcile floor-dependent layers (light, spots) after online snap poses.
+    this.applyHouseFloor(this.player.getFloor());
 
     // Reposition on safe area changes
     watchInsets(this, () => this.onResize());
