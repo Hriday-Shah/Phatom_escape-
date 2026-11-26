@@ -96,6 +96,7 @@ export class GameScene extends Phaser.Scene {
     this.hidingSpotManager = new HidingSpotManager(this, houseLayout.hidingSpots);
     this.hidingSpotManager.setWallGroup(this.wallGroup);
     this.applyHouseFloor(this.player.getFloor());
+    this.mountGroundFloorArt();
 
     // Limited vision (before NetSync so a reconnect pose on the upper floor does not leave
     // the light visible — applyHouseFloor toggles the layer when it already exists).
@@ -135,7 +136,6 @@ export class GameScene extends Phaser.Scene {
     this.scene.launch('UIScene');
     this.uiScene = this.scene.get('UIScene');
 
-    this.mountGroundFloorArt();
     // Handle screen resize
     this.scale.on('resize', this.onResize, this);
 

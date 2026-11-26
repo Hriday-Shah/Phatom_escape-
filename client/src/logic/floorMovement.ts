@@ -41,16 +41,40 @@ export function footOnStairPad(x: number, y: number, floor: FloorId): boolean {
   return x >= pad.x && x <= pad.x + pad.width && y >= pad.y && y <= pad.y + pad.height;
 }
 
+export const STAIR_LANDING_SNAP = 32;
+
+export function stairLandingPose(fromFloor: FloorId): FloorPose {
+  if (fromFloor === FLOOR_GROUND) {
+    return { x: STAIR_LAND_UPPER.x, y: STAIR_LAND_UPPER.y, f: FLOOR_UPPER };
+  }
+  return { x: STAIR_LAND_GROUND.x, y: STAIR_LAND_GROUND.y, f: FLOOR_GROUND };
+}
+
 /**
  * After a move, if the feet are on the stair pad, pop to the other floor's landing.
  * Returns null when no transition happens.
  */
 export function applyStairTransition(pose: FloorPose): FloorPose | null {
   if (!footOnStairPad(pose.x, pose.y, pose.f)) return null;
-  if (pose.f === FLOOR_GROUND) {
-    return { x: STAIR_LAND_UPPER.x, y: STAIR_LAND_UPPER.y, f: FLOOR_UPPER };
+  return stairLandingPose(pose.f);
+}
+
+/**
+ * Walk-on pads or a client landing snap when the previous pose was on/near the pad
+ * (online clients may jump to the landing in one frame without an intermediate pos).
+ */
+export function resolveStairAfterMove(prev: FloorPose, x: number, y: number): FloorPose {
+  const stepped = applyStairTransition({ x, y, f: prev.f });
+  if (stepped) return stepped;
+  const land = stairLandingPose(prev.f);
+  if (
+    land.f !== prev.f &&
+    Math.hypot(x - land.x, y - land.y) <= STAIR_LANDING_SNAP &&
+    footOnStairPad(prev.x, prev.y, prev.f)
+  ) {
+    return land;
   }
-  return { x: STAIR_LAND_GROUND.x, y: STAIR_LAND_GROUND.y, f: FLOOR_GROUND };
+  return { x, y, f: prev.f };
 }
 
 /** Reject a client pose whose floor jumped without standing on a stair pad. */
@@ -58,9 +82,8 @@ export function reconcileFloor(
   prev: FloorPose,
   requested: { x: number; y: number; f?: unknown },
 ): FloorPose {
-  const afterMove: FloorPose = { x: requested.x, y: requested.y, f: prev.f };
-  const stair = applyStairTransition(afterMove);
-  if (stair) return stair;
+  const resolved = resolveStairAfterMove(prev, requested.x, requested.y);
+  if (resolved.f !== prev.f) return resolved;
   const want = normaliseFloor(requested.f);
   if (want !== prev.f) return { x: requested.x, y: requested.y, f: prev.f };
   return { x: requested.x, y: requested.y, f: prev.f };

@@ -10,7 +10,8 @@ import { devLog } from '../config/display';
 import { PLAYER_SPEED } from '../config/physicsConfig';
 import { FacingFilter } from '../logic/facingFilter';
 import { FLOOR_GROUND, type FloorId } from '../data/houseFloors';
-import { applyStairTransition, movementBlockersForFloor } from '../logic/floorMovement';
+import type { FloorPose } from '../logic/floorMovement';
+import { movementBlockersForFloor, resolveStairAfterMove } from '../logic/floorMovement';
 import { integrateSlide } from '../logic/worldCollision';
 import { DEFAULT_HOODIE_TINT } from '../lobby/lobby';
 
@@ -33,6 +34,8 @@ export class Player {
   private slideBlockers: { x: number; y: number; width: number; height: number }[] | null = null;
   private floorLevel: FloorId = FLOOR_GROUND;
   private onFloorChange: ((f: FloorId) => void) | null = null;
+  /** Offline Arcade: stair pads are checked after the physics step (POST_UPDATE). */
+  private footBeforePhysics: FloorPose = { x: 0, y: 0, f: FLOOR_GROUND };
 
   /** `hoodieTint`: colour for the hoodie layer (player_tint.png is a greyscale hoodie-only mask). */
   constructor(scene: Phaser.Scene, x: number, y: number, hoodieTint: number = DEFAULT_HOODIE_TINT) {
@@ -110,8 +113,10 @@ export class Player {
 
     // Keep the colour layer glued to the body sprite AFTER Arcade has moved it this frame.
     scene.events.on(Phaser.Scenes.Events.POST_UPDATE, this.syncLayers, this);
+    scene.events.on(Phaser.Scenes.Events.POST_UPDATE, this.afterPhysicsStairs, this);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       scene.events.off(Phaser.Scenes.Events.POST_UPDATE, this.syncLayers, this);
+      scene.events.off(Phaser.Scenes.Events.POST_UPDATE, this.afterPhysicsStairs, this);
     });
   }
 
@@ -119,6 +124,12 @@ export class Player {
     if (this.tintSprite !== this.bodySprite) {
       this.tintSprite.setPosition(this.bodySprite.x, this.bodySprite.y);
     }
+  }
+
+  private afterPhysicsStairs(): void {
+    if (this.sharedSlide) return;
+    const resolved = resolveStairAfterMove(this.footBeforePhysics, this.x, this.y);
+    if (resolved.f !== this.floorLevel) this.setFloor(resolved.f, resolved.x, resolved.y);
   }
 
   /** Current hoodie tint (QA / tests). */
@@ -185,8 +196,8 @@ export class Player {
       x = next.x;
       y = next.y;
     }
-    const stair = applyStairTransition({ x, y, f: this.floorLevel });
-    if (stair) {
+    const stair = resolveStairAfterMove({ x: this.x, y: this.y, f: this.floorLevel }, x, y);
+    if (stair.f !== this.floorLevel) {
       this.setFloor(stair.f, stair.x, stair.y);
     } else if (x !== this.x || y !== this.y) {
       this.physics.reset(x, y);
@@ -200,6 +211,7 @@ export class Player {
   }
 
   public update(delta = 1000 / 60): void {
+    this.footBeforePhysics = { x: this.x, y: this.y, f: this.floorLevel };
     const hasArt = this.scene.textures.exists('player') && this.tintSprite !== this.bodySprite;
     
     if (this.moveVector.length() > 0) {
@@ -211,8 +223,6 @@ export class Player {
       } else {
         this.physics.setVelocity(normalized.x * this.speed, normalized.y * this.speed);
         this.slideBlockers = movementBlockersForFloor(this.floorLevel);
-        const stair = applyStairTransition({ x: this.x, y: this.y, f: this.floorLevel });
-        if (stair) this.setFloor(stair.f, stair.x, stair.y);
       }
       
       // Determine direction (prioritize horizontal)

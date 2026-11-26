@@ -42,7 +42,8 @@ export function floorBounds(floor: FloorId): Rect {
 }
 
 /** Landings after a stair transition (see logic/floorMovement.ts stair pads). */
-export const STAIR_LAND_GROUND = { x: 620, y: 132 };
+/** South of the ground stair pad so a landing does not immediately re-trigger going up. */
+export const STAIR_LAND_GROUND = { x: 620, y: 158 };
 export const STAIR_LAND_UPPER = { x: 620, y: -68 };
 
 export function normaliseFloor(f: unknown): FloorId {

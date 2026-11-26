@@ -20,7 +20,7 @@ import { houseLayout } from '../../client/src/data/houseLayout';
 import { onlineSpawnSlots } from '../../client/src/logic/onlineSpawn';
 import { FLOOR_GROUND, normaliseFloor, poseInsideFloor } from '../../client/src/data/houseFloors';
 import {
-  applyStairTransition,
+  resolveStairAfterMove,
   movementBlockersForFloor,
   spotFloor,
 } from '../../client/src/logic/floorMovement';
@@ -394,6 +394,26 @@ export class HouseLogic {
     const wall = Math.min(MAX_ELAPSED_MS, elapsed);
     const budgetMs = wall > 0 ? wall : Math.min(MAX_ELAPSED_MS, prev.creditMs);
     const max = (PLAYER_SPEED * budgetMs / 1000) * SPEED_SLACK + SPEED_JITTER_PX;
+    const intentX = p.x;
+    const intentY = p.y;
+    const jump = resolveStairAfterMove(
+      { x: prev.pose.x, y: prev.pose.y, f: prev.pose.f as 0 | 1 },
+      intentX,
+      intentY,
+    );
+    if (jump.f !== prev.pose.f) {
+      p.x = jump.x;
+      p.y = jump.y;
+      p.f = jump.f;
+      if (!poseOnFloor(p, PLAYER_BODY_RADIUS)) {
+        p.x = prev.pose.x;
+        p.y = prev.pose.y;
+        p.f = prev.pose.f;
+        this.corrections++;
+      }
+      this.poses.set(id, { pose: p, at: now, dirty: true, creditMs: 0 });
+      return p;
+    }
     const dx = p.x - prev.pose.x, dy = p.y - prev.pose.y;
     const dist = Math.hypot(dx, dy);
     if (dist > max) {
@@ -410,13 +430,15 @@ export class HouseLogic {
     if (slid.x !== p.x || slid.y !== p.y) this.corrections++;
     p.x = slid.x;
     p.y = slid.y;
-    const stair = applyStairTransition({ x: p.x, y: p.y, f: prev.pose.f });
-    if (stair) {
-      p.x = stair.x;
-      p.y = stair.y;
-      p.f = stair.f;
-    } else if (normaliseFloor((msg as { f?: unknown })?.f) !== prev.pose.f) {
-      p.f = prev.pose.f;
+    const stair = resolveStairAfterMove(
+      { x: prev.pose.x, y: prev.pose.y, f: prev.pose.f as 0 | 1 },
+      p.x,
+      p.y,
+    );
+    p.x = stair.x;
+    p.y = stair.y;
+    p.f = stair.f;
+    if (stair.f === prev.pose.f && normaliseFloor((msg as { f?: unknown })?.f) !== prev.pose.f) {
       this.corrections++;
     }
     if (!poseOnFloor(p, PLAYER_BODY_RADIUS)) {

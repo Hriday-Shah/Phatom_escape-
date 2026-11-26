@@ -12,6 +12,7 @@ import {
   applyStairTransition,
   footOnStairPad,
   movementBlockersForFloor,
+  resolveStairAfterMove,
   STAIR_PAD_GROUND,
   STAIR_PAD_UPPER,
   reconcileFloor,
@@ -57,6 +58,19 @@ export function runHouseFloorsTest(): void {
   assert.ok(groundBlockers.length > 50);
   const upperBlockers = movementBlockersForFloor(FLOOR_UPPER);
   assert.ok(upperBlockers.length >= 4 && upperBlockers.length < groundBlockers.length);
+
+  assert.equal(
+    applyStairTransition({ x: STAIR_LAND_GROUND.x, y: STAIR_LAND_GROUND.y, f: FLOOR_GROUND }),
+    null,
+    'ground landing is south of the pad (no instant re-ride)',
+  );
+
+  const downSnap = resolveStairAfterMove(
+    { x: STAIR_PAD_UPPER.x + 25, y: STAIR_PAD_UPPER.y + 10, f: FLOOR_UPPER },
+    STAIR_LAND_GROUND.x,
+    STAIR_LAND_GROUND.y,
+  );
+  assert.equal(downSnap.f, FLOOR_GROUND, 'server/client landing snap from upper pad');
 
   assert.ok(footOnStairPad(STAIR_PAD_GROUND.x + 5, STAIR_PAD_GROUND.y + 5, FLOOR_GROUND));
   assert.ok(!pointBlocked(STAIR_LAND_UPPER.x, STAIR_LAND_UPPER.y, upperBlockers, PLAYER_BODY_RADIUS));

@@ -8,8 +8,8 @@ import { randomBytes } from 'node:crypto';
 import { MIN_WIN_MS, createRound, createServerRoundFrom, hidingSpotList } from '../../../client/src/logic/itemRound';
 import { canUseSpot, clampDrop, integrateSlide, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, pointBlocked, spotById } from '../../../client/src/logic/worldCollision';
 import { houseLayout } from '../../../client/src/data/houseLayout';
-import { FLOOR_UPPER, STAIR_LAND_UPPER } from '../../../client/src/data/houseFloors';
-import { STAIR_PAD_GROUND } from '../../../client/src/logic/floorMovement';
+import { FLOOR_GROUND, FLOOR_UPPER, STAIR_LAND_GROUND, STAIR_LAND_UPPER } from '../../../client/src/data/houseFloors';
+import { STAIR_PAD_GROUND, STAIR_PAD_UPPER } from '../../../client/src/logic/floorMovement';
 import { solvingLog, replayWin, createPuzzle } from '../../../client/src/logic/minigames/replay';
 
 let n = 0;
@@ -709,6 +709,11 @@ test('stairs: server applies floor change on the stair pad and rejects teleport'
   stand(h, 's0', 300, 430, 3000);
   const wall = h.move('s0', { x: 620, y: -68, d: 0, m: 0, f: FLOOR_UPPER }, 3100)!;
   assert.equal(wall.f, 0, 'cannot teleport upstairs without the stair pad');
+
+  h.setPoseForTest('s0', { x: STAIR_PAD_UPPER.x + 20, y: STAIR_PAD_UPPER.y + 10, d: 0, m: 0, f: FLOOR_UPPER }, 4000);
+  const down = h.move('s0', { x: STAIR_LAND_GROUND.x, y: STAIR_LAND_GROUND.y, d: 2, m: 1, f: FLOOR_GROUND }, 4100)!;
+  assert.equal(down.f, FLOOR_GROUND, 'descent from upper pad accepted when landing snap matches');
+  assert.equal(down.y, STAIR_LAND_GROUND.y);
 });
 
 console.log(`\n✅ ${n} server tests passed`);
