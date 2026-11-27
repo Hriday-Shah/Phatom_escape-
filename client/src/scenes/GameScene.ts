@@ -1,13 +1,15 @@
 import Phaser from 'phaser';
 import { Player } from '../objects/Player';
-import { hoodieTint } from '../lobby/lobby';
+import { hoodieTint, PLAYER_COLOURS } from '../lobby/lobby';
 import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { NetSync } from '../net/NetSync';
 import type { GameLink } from '../net/ColyseusLobbyService';
 import type { NoisePayload, PhasePayload } from '../net/protocol';
 import { canMove, canOpenSpot, canSeeInside, formatPhaseClock, isWaiting, PHASE_LABEL, phaseRemainingMs, type RoundPhase, type RoundRole } from '../logic/roundPhase';
+import { BEARING_SECTORS } from '../logic/interest';
+import type { MinimapFrame } from '../logic/minimap';
 import { canPassBedroomDoor } from '../logic/doorAccess';
-import { scaledLightRadius } from '../config/lightConfig';
+import { LIGHT_MASK_RADIUS, scaledLightRadius } from '../config/lightConfig';
 import { hideWaitingRoom, showWaitingRoom, updateWaitingClock } from '../lobby/WaitingRoom';
 import { hideHideMenu, hidePhantomReveal, showHideMenu, showPhantomReveal, updateHideMenu, phantomRevealText } from '../ui/phantomHud';
 import { spawnNoiseRipple } from '../objects/NoiseRipple';
@@ -61,6 +63,8 @@ export class GameScene extends Phaser.Scene {
   /** Items, Game Controller mini-game and paper-code reveal. */
   public items: ItemDirector | null = null;
   private floorView!: FloorView;
+  /** Bearing sectors only. Never another body's x,y. */
+  private bearings: [string, number][] = [];
 
   constructor() {
     super({ key: 'GameScene' });
@@ -157,6 +161,8 @@ export class GameScene extends Phaser.Scene {
       this.phaseUnsubs.push(net.onPhase(apply));
       this.phaseUnsubs.push(net.onNoise((n) => this.onDrawerNoise(n)));
       this.phaseUnsubs.push(net.onItems(() => this.onItemsChanged()));
+      this.phaseUnsubs.push(net.onMap((b) => { this.bearings = b; }));
+      this.bearings = net.bearings();
       const stored = net.phase();
       if (stored) apply(stored.view, stored.at);
       else this.setWaiting(true);
@@ -733,6 +739,7 @@ export class GameScene extends Phaser.Scene {
       this.player.setMovement(0, 0);
       this.player.update(delta);
       this.keepSpotClearOfPrompt(delta);
+      this.syncMinimap();
       return;
     }
 
@@ -768,6 +775,7 @@ export class GameScene extends Phaser.Scene {
     // Update player movement
     this.player.setMovement(moveX, moveY);
     this.player.update(delta);
+    this.syncMinimap();
 
     // Hiding spot highlights are updated at POST_UPDATE (see create), from this frame's position.
     this.keepSpotClearOfPrompt(delta);
@@ -848,5 +856,45 @@ export class GameScene extends Phaser.Scene {
 
   public getUIScene(): Phaser.Scene {
     return this.uiScene;
+  }
+
+  /**
+   * Own light on the current floor, plus bearings toward teammates. Offline
+   * ?debug=nolight may reveal the whole floor for QA. An online room never does.
+   */
+  private syncMinimap(): void {
+    const ui = this.uiScene as { setMinimap?: (frame: MinimapFrame) => void } | undefined;
+    if (!ui?.setMinimap || !this.player) return;
+    const waiting = !!(this.roundRole && this.roundPhaseName && isWaiting(this.roundRole, this.roundPhaseName));
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    const base = this.baseLightRadius || LIGHT_MASK_RADIUS;
+    const radius = this.lightLayer?.getRadius() ?? scaledLightRadius(base, this.roundRole, this.roundPhaseName);
+    ui.setMinimap({
+      show: !this.outside && !waiting,
+      floor: this.player.getFloor(),
+      x: this.player.x,
+      y: this.player.y,
+      radius,
+      role: this.roundRole,
+      bearings: this.minimapBearings(),
+      fullReveal: !net && hasDebugFlag('nolight'),
+    });
+  }
+
+  /** Players only, and only a sector. A Phantom id is dropped even if one arrives. */
+  private minimapBearings(): MinimapFrame['bearings'] {
+    if (this.roundRole === 'phantom') return [];
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    const roles = new Map((this.phaseView?.roles ?? []).map((r) => [r.id, r.role]));
+    const colours = new Map((net?.players() ?? []).map((p) => [p.id, p.colour]));
+    const out: MinimapFrame['bearings'] = [];
+    for (const [id, sector] of this.bearings) {
+      if (this.roundRole && roles.get(id) !== 'player') continue;
+      if (!this.roundRole && roles.size > 0 && roles.get(id) !== 'player') continue;
+      if (!Number.isInteger(sector) || sector < 0 || sector >= BEARING_SECTORS) continue;
+      const hex = PLAYER_COLOURS.find((c) => c.id === colours.get(id))?.hex ?? '#5FD3E6';
+      out.push({ id, sector, tint: parseInt(hex.slice(1), 16) });
+    }
+    return out;
   }
 }

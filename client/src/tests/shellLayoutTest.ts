@@ -7,7 +7,7 @@
  * orientation-matched (notch top/bottom in portrait, left/right in landscape) plus none; and
  * also the worst case on every viewport as a robustness check (scale steps down to fit).
  */
-import { Box, computeShellLayout, quitButtonBox, shellScale } from '../ui/shellLayout';
+import { Box, computeShellLayout, minimapBox, quitButtonBox, shellScale } from '../ui/shellLayout';
 import { snappedCameraZoom } from '../logic/cameraZoom';
 
 const VIEWPORTS: [number, number][] = [
@@ -74,6 +74,15 @@ export function runShellLayoutTest(): void {
     const cx = L.well.x + L.well.w / 2, cy = L.well.y + L.well.h / 2, zr = (L.well.w / 2) * 1.5;
     const nx = Math.max(q.x, Math.min(cx, q.x + q.w)), ny = Math.max(q.y, Math.min(cy, q.y + q.h));
     if (Math.hypot(nx - cx, ny - cy) < zr) errors.push(`${tag}: quit button inside the joystick touch zone`);
+    // Minimap: a circle inside the game screen, clear of Quit and the joystick, both orientations.
+    const map = minimapBox(L);
+    if (map.w < 36 || Math.abs(map.w - map.h) > 0.01) errors.push(`${tag}: minimap ${map.w}x${map.h}`);
+    if (!inside(map, L.screen)) errors.push(`${tag}: minimap outside the game screen ${JSON.stringify(map)}`);
+    if (!whole(map)) errors.push(`${tag}: minimap not on whole device px ${JSON.stringify(map)}`);
+    if (overlap(map, q)) errors.push(`${tag}: minimap overlaps quit`);
+    if (overlap(map, L.well)) errors.push(`${tag}: minimap overlaps the joystick`);
+    const mx = Math.max(map.x, Math.min(cx, map.x + map.w)), my = Math.max(map.y, Math.min(cy, map.y + map.h));
+    if (Math.hypot(mx - cx, my - cy) < zr - 0.5) errors.push(`${tag}: minimap inside the joystick touch zone`);
   }
   // R7-6: small landscape windows keep the camera zoom (screen at least as wide as tall).
   for (const [w, h, dpr, minZoom] of [[800, 600, 1, 2], [568, 320, 2, 2], [844, 390, 3, 3.5], [667, 375, 2, 2.5], [1366, 768, 1, 2.5]] as const) {

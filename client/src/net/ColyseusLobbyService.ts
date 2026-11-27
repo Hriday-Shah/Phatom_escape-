@@ -14,8 +14,9 @@ import type {
   ColourId, LobbyPlayer, LobbyResult, LobbyService, LobbySettings, LobbyState,
 } from '../lobby/lobby';
 import {
-  CLOSE_CONSENTED, HEARTBEAT_MS, WAKE_MAX_MS, SILENCE_DROP_MS, CLOSE_FLOOD, CLOSE_KICKED, JoinFailure, ItemPayload, NoisePayload, PhasePayload, PoseTuple, RECONNECT_RETRY_MS, RECONNECT_WINDOW_MS, RoundPayload,
+  CLOSE_CONSENTED, HEARTBEAT_MS, WAKE_MAX_MS, SILENCE_DROP_MS, CLOSE_FLOOD, CLOSE_KICKED, JoinFailure, ItemPayload, MapPayload, NoisePayload, PhasePayload, PoseTuple, RECONNECT_RETRY_MS, RECONNECT_WINDOW_MS, RoundPayload,
 } from './protocol';
+import { authoritativePoseMap, phaseEntriesFor, readBearings, type WirePose } from '../logic/interest';
 import type { EscapeCode } from '../logic/escapeCode';
 import type { RoundPublic } from '../logic/itemRound';
 import type { LogEvent, PlayView } from '../logic/minigames/replay';
@@ -35,8 +36,13 @@ export interface GameLink {
   sendPose(x: number, y: number, d: number, m: number, f?: number): void;
   /** Open / close of any hiding or search spot (drawer, sofa cushion, bed, fridge...). */
   sendSpot(id: string, open: boolean): void;
-  /** Returns unsubscribe. */
-  onPoses(cb: (p: PoseTuple[]) => void): () => void;
+  /** Returns unsubscribe. `drop` is ids to forget; those rows carry no coordinates. */
+  onPoses(cb: (p: PoseTuple[], drop: string[]) => void): () => void;
+  /** Bearing sectors toward teammates. Empty for a Phantom. No coordinates. */
+  onMap(cb: (b: [string, number][]) => void): () => void;
+  bearings(): [string, number][];
+  /** Drop a pose this phone must not keep (left the light, the floor, or the role). */
+  forgetPose(id: string): void;
   onSpot(cb: (id: string, open: boolean, by: string) => void): () => void;
   /** The server refused this phone's toggle. `open` is the flag to draw. */
   onSpotRejected(cb: (id: string, open: boolean) => void): () => void;
@@ -50,7 +56,7 @@ export interface GameLink {
   openSpots(): string[];
   /** This phone's pose from the last server snapshot, if one has arrived (reload / rejoin). */
   selfPose(): { x: number; y: number } | null;
-  /** Every pose from that snapshot, so a reloaded house can draw the others at once. */
+  /** Poses this phone is allowed to know. Hidden bodies are not in the list. */
   knownPoses(): PoseTuple[];
   leave(): void;
   /** Round snapshot (mini-game + items) captured at start, if the server sent one. */
@@ -106,7 +112,13 @@ function saveSeat(seat: Seat | null, store: Store | null = session()): void {
 const ok: LobbyResult = { ok: true };
 type First = { selfId: string; lobby: Omit<LobbyState, 'selfId'> };
 /** Spots and poses that arrived with welcome/lobby, before the room is attached. */
-type EarlyRoom = { open: string[] | null; poses: PoseTuple[]; phase: { view: PhasePayload; at: number } | null };
+type EarlyRoom = {
+  open: string[] | null;
+  poses: PoseTuple[];
+  drop: string[];
+  phase: { view: PhasePayload; at: number } | null;
+  map: [string, number][] | null;
+};
 
 export class ColyseusLobbyService implements LobbyService, GameLink {
   private state: LobbyState;
@@ -114,12 +126,14 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   private changes = new Emitter<[LobbyState]>();
   private ends = new Emitter<[EndReason]>();
   private statuses = new Emitter<[NetStatus]>();
-  private poses = new Emitter<[PoseTuple[]]>();
+  private poses = new Emitter<[PoseTuple[], string[]]>();
+  private mapEv = new Emitter<[[string, number][]]>();
+  private bearingsNow: [string, number][] = [];
   private spot = new Emitter<[string, boolean, string]>();
   private spotRejected = new Emitter<[string, boolean]>();
   private spots = new Emitter<[string[]]>();
   /** Latest pose per player, including this phone (a reload spawns there). */
-  private poseById = new Map<string, PoseTuple>();
+  private poseById = new Map<string, WirePose>();
   private leftEv = new Emitter<[string]>();
   private open: string[] = [];
   private left = false;
@@ -143,8 +157,9 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
     this.state = { ...first.lobby, selfId: first.selfId };
     // Copied, then the burst handlers are removed, before attach() adds the live ones.
     if (early.open) this.open = early.open;
-    if (early.phase) this.phaseState = early.phase;
-    for (const p of early.poses) this.rememberPose(p);
+    if (early.phase) this.phaseState = { view: phaseEntriesFor(first.selfId, early.phase.view), at: early.phase.at };
+    if (early.map) this.bearingsNow = early.map;
+    this.ingestPoses({ p: early.poses, drop: early.drop }, false);
     stopEarly();
     this.attach(room);
   }
@@ -163,17 +178,23 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
       }
     });
     room.onMessage('kicked', () => { this.kicked = true; });
-    room.onMessage('poses', (m: { p: PoseTuple[] }) => {
-      if (!Array.isArray(m?.p)) return;
-      for (const p of m.p) this.rememberPose(p);
-      this.poses.emit(m.p);
+    room.onMessage('poses', (m: { p?: PoseTuple[]; drop?: string[] }) => {
+      this.ingestPoses(m, true);
+    });
+    room.onMessage('map', (m: MapPayload) => {
+      const b = readBearings(m);
+      this.bearingsNow = b;
+      this.mapEv.emit(b);
     });
     room.onMessage('spot', (m: { id: string; open: boolean; by: string }) => {
       this.open = m.open ? [...new Set([...this.open, m.id])] : this.open.filter((x) => x !== m.id);
       this.spot.emit(m.id, m.open, m.by);
     });
     room.onMessage('spots', (m: { open: string[] }) => { this.open = Array.isArray(m?.open) ? m.open : []; this.spots.emit(this.open); });
-    room.onMessage('left', (m: { id: string }) => this.leftEv.emit(m.id));
+    room.onMessage('left', (m: { id: string }) => {
+      if (m?.id) this.poseById.delete(m.id);
+      this.leftEv.emit(m.id);
+    });
     room.onMessage('round', (m: RoundPayload) => {
       if (!m || !m.minigame || !Array.isArray(m.items)) return;
       this.roundState = m as RoundPublic;
@@ -221,7 +242,7 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
     if (this.hbTimer) clearInterval(this.hbTimer);
     let last = Date.now();
     room.onMessage('*', () => { last = Date.now(); });
-    for (const t of ['lobby', 'poses', 'spot', 'spots', 'hb', 'left', 'welcome', 'phase']) room.onMessage(t, () => { last = Date.now(); });
+    for (const t of ['lobby', 'poses', 'map', 'spot', 'spots', 'hb', 'left', 'welcome', 'phase']) room.onMessage(t, () => { last = Date.now(); });
     this.hbTimer = setInterval(() => {
       if (room !== this.room || this.left || this.ended) { clearInterval(this.hbTimer!); this.hbTimer = null; return; }
       if (this.status !== 'connected') return;
@@ -298,10 +319,11 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
       throw new JoinError(await ColyseusLobbyService.failure(server, e, code));
     }
     // Wait for our id and the first lobby snapshot (both sent right after the join).
-    const early: EarlyRoom = { open: null, poses: [], phase: null };
+    const early: EarlyRoom = { open: null, poses: [], drop: [], phase: null, map: null };
     let stopSpots = () => {};
     let stopPoses = () => {};
     let stopPhase = () => {};
+    let stopMap = () => {};
     const first = await new Promise<First>((resolve, reject) => {
       let selfId = ''; let lobby: Omit<LobbyState, 'selfId'> | null = null;
       const done = () => { if (selfId && lobby) { clearTimeout(t); resolve({ selfId, lobby }); } };
@@ -310,10 +332,14 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
       room.onMessage('lobby', (m: Omit<LobbyState, 'selfId'>) => { lobby = m; done(); });
       // The rejoin burst (spots + poses) can arrive in the same turn as lobby, before attach().
       stopSpots = room.onMessage('spots', (m: { open?: string[] }) => { early.open = Array.isArray(m?.open) ? m.open : []; });
-      stopPoses = room.onMessage('poses', (m: { p?: PoseTuple[] }) => { if (Array.isArray(m?.p)) early.poses.push(...m.p); });
+      stopPoses = room.onMessage('poses', (m: { p?: PoseTuple[]; drop?: string[] }) => {
+        if (Array.isArray(m?.p)) early.poses = m.p;
+        if (Array.isArray(m?.drop)) early.drop = m.drop.filter((id) => typeof id === 'string');
+      });
       stopPhase = room.onMessage('phase', (m: PhasePayload) => { if (m?.phase) early.phase = { view: m, at: performance.now() }; });
+      stopMap = room.onMessage('map', (m: MapPayload) => { early.map = readBearings(m); });
     }).catch((e) => { void room.leave(); throw e; });
-    const svc = new ColyseusLobbyService(room, server, first, early, () => { stopSpots(); stopPoses(); stopPhase(); });
+    const svc = new ColyseusLobbyService(room, server, first, early, () => { stopSpots(); stopPoses(); stopPhase(); stopMap(); });
     return svc;
   }
 
@@ -382,7 +408,7 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
     this.left = true;
     saveSeat(null);
     // Nothing more reaches the (torn-down) lobby / game after a deliberate leave.
-    for (const e of [this.changes, this.poses, this.spot, this.spotRejected, this.spots, this.leftEv, this.ends, this.statuses, this.phaseEv, this.noiseEv, this.heldEv]) e.clear();
+    for (const e of [this.changes, this.poses, this.mapEv, this.spot, this.spotRejected, this.spots, this.leftEv, this.ends, this.statuses, this.phaseEv, this.noiseEv, this.heldEv]) e.clear();
     if (this.hbTimer) { clearInterval(this.hbTimer); this.hbTimer = null; }
     if (this.room.connection.isOpen) void this.room.leave(true); // else already gone (ended / dropped)
   }
@@ -414,11 +440,13 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   players(): NetPlayer[] { return this.getState().players; }
   sendPose(x: number, y: number, d: number, m: number, f = 0): void { this.send('pos', { x, y, d, m, f }); }
   sendSpot(id: string, open: boolean): void { this.send('spot', { id, open }); }
-  onPoses(cb: (p: PoseTuple[]) => void): () => void { return this.poses.on(cb); }
+  onPoses(cb: (p: PoseTuple[], drop: string[]) => void): () => void { return this.poses.on(cb); }
+  onMap(cb: (b: [string, number][]) => void): () => void { return this.mapEv.on(cb); }
+  bearings(): [string, number][] { return this.bearingsNow.map(([id, sector]) => [id, sector]); }
+  forgetPose(id: string): void { if (id !== this.state.selfId) this.poseById.delete(id); }
   onSpot(cb: (id: string, open: boolean, by: string) => void): () => void { return this.spot.on(cb); }
   onSpotRejected(cb: (id: string, open: boolean) => void): () => void { return this.spotRejected.on(cb); }
   onSpots(cb: (open: string[]) => void): () => void { return this.spots.on(cb); }
-  private rememberPose(p: PoseTuple): void { this.poseById.set(p[0], p); }
   selfPose(): { x: number; y: number } | null {
     const p = this.poseById.get(this.state.selfId);
     return p ? { x: p[1], y: p[2] } : null;
@@ -446,8 +474,19 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
 
   private rememberPhase(m: PhasePayload): void {
     if (!m?.phase || !Array.isArray(m.roles)) return;
+    const view = phaseEntriesFor(this.state.selfId, m);
     const at = performance.now();
-    this.phaseState = { view: m, at };
-    this.phaseEv.emit(m, at);
+    this.phaseState = { view, at };
+    this.phaseEv.emit(view, at);
+  }
+
+  /** Replace pose memory with what this message is allowed to contain. */
+  private ingestPoses(m: { p?: PoseTuple[]; drop?: string[] } | null | undefined, emit: boolean): void {
+    const drop = Array.isArray(m?.drop) ? m.drop.filter((id): id is string => typeof id === 'string' && id !== this.state.selfId) : [];
+    const raw = Array.isArray(m?.p) ? m.p.filter((row) => Array.isArray(row) && typeof row[0] === 'string' && Number.isFinite(row[1]) && Number.isFinite(row[2])) : [];
+    const phase = this.phaseState?.view ?? null;
+    const next = authoritativePoseMap(this.poseById, { p: raw, drop }, this.state.selfId, phase);
+    this.poseById = next;
+    if (emit) this.poses.emit([...next.values()], drop);
   }
 }

@@ -173,3 +173,55 @@ export function quitButtonBox(l: ShellLayout): Box {
   const m = 2 * l.s;
   return { x: snapToDevice(l.screen.x + m, l.dpr), y: snapToDevice(l.screen.y + m, l.dpr), w: size, h: size };
 }
+
+function closestOnBox(box: Box, x: number, y: number): { x: number; y: number } {
+  return {
+    x: Math.max(box.x, Math.min(x, box.x + box.w)),
+    y: Math.max(box.y, Math.min(y, box.y + box.h)),
+  };
+}
+
+/** True when `box` stays outside the joystick's 1.5× touch circle. */
+function clearOfJoystick(box: Box, l: ShellLayout): boolean {
+  const cx = l.well.x + l.well.w / 2;
+  const cy = l.well.y + l.well.h / 2;
+  const zr = (l.well.w / 2) * 1.5;
+  const p = closestOnBox(box, cx, cy);
+  return Math.hypot(p.x - cx, p.y - cy) >= zr - 0.5;
+}
+
+/**
+ * Circular minimap: bottom-left of the game screen, inside the shell, in both
+ * orientations. Stays off the Quit button (top-left) and the joystick.
+ */
+export function minimapBox(l: ShellLayout): Box {
+  const scr = l.screen;
+  const dpr = l.dpr;
+  const m = snapToDevice(Math.max(4, 2 * l.s), dpr);
+  const quit = quitButtonBox(l);
+  const gap = snapToDevice(Math.max(4, l.s), dpr);
+  let size = Math.min(88, Math.max(52, Math.min(scr.w, scr.h) * 0.22));
+  size = Math.min(size, scr.w - m * 2, scr.h - m * 2);
+  const belowQuit = quit.y + quit.h + gap;
+  const roomUnderQuit = scr.y + scr.h - m - belowQuit;
+  if (roomUnderQuit < size) size = Math.max(36, roomUnderQuit);
+  size = snapToDevice(size, dpr);
+  let x = snapToDevice(scr.x + m, dpr);
+  let y = snapToDevice(scr.y + scr.h - m - size, dpr);
+  let box: Box = { x, y, w: size, h: size };
+  const step = Math.max(l.s, 1 / dpr);
+  for (let i = 0; i < 12 && !clearOfJoystick(box, l); i++) {
+    if (l.portrait) y = snapToDevice(y - step * 2, dpr);
+    else x = snapToDevice(x + step * 2, dpr);
+    if (y < scr.y + m) y = snapToDevice(scr.y + m, dpr);
+    if (x + size > scr.x + scr.w - m) {
+      size = snapToDevice(Math.max(36, scr.x + scr.w - m - x), dpr);
+    }
+    box = { x, y, w: size, h: size };
+  }
+  if (x < scr.x) x = snapToDevice(scr.x, dpr);
+  if (y < scr.y) y = snapToDevice(scr.y, dpr);
+  if (x + size > scr.x + scr.w) size = snapToDevice(scr.x + scr.w - x, dpr);
+  if (y + size > scr.y + scr.h) y = snapToDevice(scr.y + scr.h - size, dpr);
+  return { x, y, w: size, h: size };
+}

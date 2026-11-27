@@ -11,8 +11,11 @@ import {
   ColourId, DrawerNoise, LobbyPlayer, LobbyResult, LobbyRoom, LobbySettings, MAX_PLAYERS, PLAYER_COLOURS, maxPhantoms, validSettings,
 } from '../../client/src/lobby/lobby';
 import {
-  RoundPhase, RoundRole, canMove, canOpenSpot, canSeeInside, isWaiting, minutesToMs, pickPhantoms,
+  RoundPhase, RoundRole, canMove, canOpenSpot, canSeeInside, minutesToMs, pickPhantoms,
 } from '../../client/src/logic/roundPhase';
+import {
+  type InterestActor, interestSignature, mayShareExactPose, phaseEntriesFor, posesForViewer, teammateBearings, type WirePose,
+} from '../../client/src/logic/interest';
 import { displayNickname } from '../../client/src/home/settings';
 import { randomBytes, randomInt } from 'node:crypto';
 import { PLAYER_SPEED } from '../../client/src/config/physicsConfig';
@@ -177,6 +180,9 @@ export class HouseLogic {
   /** Sessions whose latest move was refused because this phase does not let them walk. */
   private held = new Set<string>();
   private pendingNoise: DrawerNoiseEvent | null = null;
+  /** Last pose snapshot sent to each player id, so a later tick can drop ids without repeating x,y. */
+  private interestSig = new Map<string, string>();
+  private interestIds = new Map<string, Set<string>>();
   /** Drawer noise captured when the host presses Start. */
   private drawerNoise: DrawerNoise = 'off';
 
@@ -223,6 +229,8 @@ export class HouseLogic {
     this.poses.delete(id);
     this.placeOnReturn.delete(id);
     this.roles.delete(id);
+    this.interestSig.delete(id);
+    this.interestIds.delete(id);
     if (this.lobby?.state.players.some((p) => p.id === id)) this.lobby.leave(id);
     this.capPhantoms();
   }
@@ -282,7 +290,11 @@ export class HouseLogic {
     const r = this.act(session, (l, id) => l.kick(id, target));
     if (!r.ok) return r;
     const s = this.sessionOf(target);
-    if (s) { this.bySession.delete(s); this.away.delete(s); this.poses.delete(target); this.placeOnReturn.delete(target); this.roles.delete(target); }
+    if (s) {
+      this.bySession.delete(s); this.away.delete(s); this.poses.delete(target);
+      this.placeOnReturn.delete(target); this.roles.delete(target);
+      this.interestSig.delete(target); this.interestIds.delete(target);
+    }
     return { ok: true, session: s };
   }
   start(session: string, now = Date.now()): LobbyResult {
@@ -433,14 +445,82 @@ export class HouseLogic {
     return view;
   }
 
-  /** Hide anyone who is not in the house from anyone who is, and the reverse. */
+  /**
+   * Exact pose of `subject` may be sent to `viewer`. Same floor, same role, and
+   * inside the viewer's light. Own pose is always included. Players never see a
+   * Phantom. Phantoms never see a player. No wall ray: a doorway does not hide
+   * a teammate who is still in the light.
+   */
   canSeeActor(viewerId: string, subjectId: string): boolean {
-    const phase = this.round?.phase ?? 'ended';
-    const viewer = this.roles.get(viewerId) ?? 'player';
-    const subject = this.roles.get(subjectId) ?? 'player';
-    if (isWaiting(viewer, phase) || isWaiting(subject, phase)) return false;
-    if (phase === 'search' && (viewer === 'phantom' || subject === 'phantom')) return false;
-    return true;
+    const actors = this.interestActors();
+    const viewer = actors.find((a) => a.id === viewerId);
+    const subject = actors.find((a) => a.id === subjectId);
+    if (!viewer || !subject) return false;
+    return mayShareExactPose(viewer, subject, this.round?.phase ?? 'ended');
+  }
+
+  /** Poses this phone may hold, including its own. Hidden bodies are absent. */
+  posesFor(viewerId: string): WirePose[] {
+    const actors = this.interestActors();
+    const viewer = actors.find((a) => a.id === viewerId);
+    if (!viewer) return [];
+    return posesForViewer(viewer, actors, this.round?.phase ?? 'ended');
+  }
+
+  /** Bearing sectors toward other players on this floor. Empty for a Phantom. No coordinates. */
+  bearingsFor(viewerId: string): [string, number][] {
+    const actors = this.interestActors();
+    const viewer = actors.find((a) => a.id === viewerId);
+    if (!viewer) return [];
+    return teammateBearings(viewer, actors, this.round?.phase ?? 'ended');
+  }
+
+  /** Phase message for one phone. Entrance x,y of anyone else is removed. */
+  phaseFor(viewerId: string, view: RoundView): RoundView {
+    return phaseEntriesFor(viewerId, view);
+  }
+
+  /** Forget what was last sent so the next delivery is a full snapshot. */
+  invalidateInterest(): void {
+    this.interestSig.clear();
+    this.interestIds.clear();
+  }
+
+  /** Record a snapshot already handed to this phone (reconnect), so the next tick does not repeat it. */
+  noteDelivered(viewerId: string, poses: readonly WirePose[]): void {
+    this.interestSig.set(viewerId, interestSignature(poses));
+    this.interestIds.set(viewerId, new Set(poses.map((row) => row[0])));
+  }
+
+  /**
+   * Full snapshot for this phone when it changed, plus ids that left the set.
+   * `drop` never carries coordinates. Null when nothing changed.
+   */
+  takePoseDelivery(viewerId: string): { p: WirePose[]; drop: string[] } | null {
+    const next = this.posesFor(viewerId);
+    const sig = interestSignature(next);
+    if (this.interestSig.get(viewerId) === sig) return null;
+    const prev = this.interestIds.get(viewerId) ?? new Set<string>();
+    const nextIds = new Set(next.map((row) => row[0]));
+    const drop = [...prev].filter((id) => !nextIds.has(id));
+    this.noteDelivered(viewerId, next);
+    return { p: next, drop };
+  }
+
+  private interestActors(): InterestActor[] {
+    const out: InterestActor[] = [];
+    for (const [id, t] of this.poses) {
+      out.push({
+        id,
+        role: this.roles.get(id) ?? 'player',
+        x: t.pose.x,
+        y: t.pose.y,
+        f: t.pose.f ?? FLOOR_GROUND,
+        d: t.pose.d,
+        m: t.pose.m,
+      });
+    }
+    return out;
   }
 
   canSeeHouse(playerId: string): boolean {
@@ -669,8 +749,8 @@ export class HouseLogic {
   }
 
   /**
-   * TODO(stage 3): per-player interest management for positions — broadcast only
-   * poses a client can actually see, instead of every pose to everyone.
+   * Poses that changed since the last drain. The room does not broadcast this
+   * list: each phone gets `posesFor` / `takePoseDelivery` instead.
    */
   takeDirtyPoses(): [string, number, number, number, number, number][] {
     const out: [string, number, number, number, number, number][] = [];
