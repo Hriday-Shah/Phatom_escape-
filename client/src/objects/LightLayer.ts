@@ -90,6 +90,17 @@ export class LightLayer {
     return scene.textures.exists(LightLayer.MASK_KEY);
   }
 
+  /** Resize the light circle. `radius` is world px (the same units as the constructor). */
+  public setRadius(radius: number): void {
+    if (!Number.isFinite(radius) || radius <= 0 || radius === this.radius) return;
+    this.radius = radius;
+    const d = (radius * 2) / LightLayer.RES;
+    this.brush.setDisplaySize(d, d);
+    this.lastX = NaN;
+  }
+
+  public getRadius(): number { return this.radius; }
+
   /** (Re)build the darkness texture for the current camera view; call on resize. */
   public createTexture(): void {
     const cam = this.scene.cameras.main;

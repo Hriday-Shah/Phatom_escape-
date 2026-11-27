@@ -200,6 +200,7 @@ export class HidingSpotManager {
   }
 
   public update(playerPosition: Phaser.Math.Vector2, facing: { x: number; y: number } = { x: 0, y: 1 }): void {
+    if (!this.inputEnabled) return;
     if (this.activeFloor !== FLOOR_GROUND) {
       this.setHighlight(null);
       return;
@@ -292,7 +293,16 @@ export class HidingSpotManager {
     if (this.highlightedSpot) this.hideMessage();
   }
 
+  private inputEnabled = true;
+
+  /** Phantom search covers the house: no highlight and no open. */
+  public setInputEnabled(on: boolean): void {
+    this.inputEnabled = on;
+    if (!on) this.clearHighlight();
+  }
+
   public interact(): void {
+    if (!this.inputEnabled) return;
     if (this.activeFloor !== FLOOR_GROUND) return;
     if (!this.highlightedSpot) return;
     if (this.highlightedSpot.isOpen && this.tryPickup?.(this.highlightedSpot.data.id)) return;

@@ -11,7 +11,7 @@ import { PLAYER_SPEED } from '../config/physicsConfig';
 import { hasLineOfSight, distanceToRect, centerOf, buildInteractables } from './spotTargeting';
 import { houseLayout } from '../data/houseLayout';
 import { FLOOR_GROUND, type FloorId, normaliseFloor, poseInsideFloor } from '../data/houseFloors';
-import { losBlockersForFloor, movementBlockersForFloor, spotFloor } from './floorMovement';
+import { losBlockersForFloor, movementBlockersForFloor, spotFloor, wallDoorBlockersForFloor } from './floorMovement';
 
 export const NEAR_ITEM = 90;
 
@@ -27,8 +27,10 @@ export type Point = { x: number; y: number };
  * Bodies the player cannot walk through. Matches the Arcade groups in GameScene:
  * wall bodies, blocking furniture, every hiding spot (those are solid too), and locked doors.
  */
-export function movementBlockers(debugUnlock = false, floor: FloorId | number = FLOOR_GROUND): Rect[] {
-  return movementBlockersForFloor(normaliseFloor(floor), debugUnlock);
+export function movementBlockers(
+  debugUnlock = false, floor: FloorId | number = FLOOR_GROUND, passBedroom = false,
+): Rect[] {
+  return movementBlockersForFloor(normaliseFloor(floor), debugUnlock, passBedroom);
 }
 
 /** Bodies that block sight (walls + locked doors; furniture never does). */
@@ -36,9 +38,11 @@ export function losBlockers(debugUnlock = false, floor: FloorId | number = FLOOR
   return losBlockersForFloor(normaliseFloor(floor), debugUnlock);
 }
 
-/** Walls and locked doors only — used so furniture corners are not treated as doorways. */
-export function wallDoorBlockers(debugUnlock = false, floor: FloorId | number = FLOOR_GROUND): Rect[] {
-  return losBlockersForFloor(normaliseFloor(floor), debugUnlock);
+/** Walls and doors that still block this body — used so furniture corners are not treated as doorways. */
+export function wallDoorBlockers(
+  debugUnlock = false, floor: FloorId | number = FLOOR_GROUND, passBedroom = false,
+): Rect[] {
+  return wallDoorBlockersForFloor(normaliseFloor(floor), debugUnlock, passBedroom);
 }
 
 /** Axis-aligned rect inflated by a circle radius (conservative at corners). */

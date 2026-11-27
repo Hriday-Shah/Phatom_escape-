@@ -1,0 +1,40 @@
+/*
+ * Lobby-style waiting room shown to non-Phantoms during hiding.
+ * Uses the theme variables in home.css :root. Ids are the hooks.
+ */
+#pe-waiting {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(env(safe-area-inset-top, 0px), 8px) max(env(safe-area-inset-right, 0px), 8px)
+           max(env(safe-area-inset-bottom, 0px), 8px) max(env(safe-area-inset-left, 0px), 8px);
+  background: var(--pe-shell, #1a1612);
+  color: var(--pe-text, #f4f1ea);
+  font: var(--pe-text-size, 18px) / 1.35 var(--pe-font, system-ui, sans-serif);
+  touch-action: manipulation;
+}
+#pe-waiting[hidden] { display: none !important; }
+#pe-waiting-panel {
+  width: 100%;
+  max-width: var(--pe-panel-max, 880px);
+  max-height: 100%;
+  overflow: auto;
+  padding: var(--pe-pad, 16px);
+  background: var(--pe-screen, #241e18);
+  border: 2px solid var(--pe-outline, #3a322a);
+  border-radius: var(--pe-radius, 12px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pe-gap, 12px);
+}
+#pe-waiting-title { margin: 0; }
+#pe-waiting-copy { margin: 0; color: var(--pe-muted, #b0a89c); }
+#pe-waiting-clock {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: 0.08em;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}

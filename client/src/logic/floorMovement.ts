@@ -4,6 +4,8 @@
  */
 import type { Rect } from '../data/colliders';
 import { getStaticColliders } from '../data/colliders';
+import { EXTERIOR_WALL_BODY_EXTRA } from '../config/physicsConfig';
+import { houseLayout } from '../data/houseLayout';
 import {
   FLOOR_GROUND,
   FLOOR_UPPER,
@@ -20,15 +22,22 @@ export type FloorPose = { x: number; y: number; f: FloorId };
 export const STAIR_PAD_GROUND: Rect = { x: 565, y: 118, width: 110, height: 28 };
 export const STAIR_PAD_UPPER: Rect = { x: 565, y: -28, width: 110, height: 36 };
 
-export function movementBlockersForFloor(floor: FloorId, debugUnlock = false): Rect[] {
+export function movementBlockersForFloor(floor: FloorId, debugUnlock = false, passBedroom = false): Rect[] {
   if (floor === FLOOR_UPPER) return [...upperFloorWalls()];
-  const c = getStaticColliders(debugUnlock);
+  const c = getStaticColliders(debugUnlock, EXTERIOR_WALL_BODY_EXTRA, houseLayout, passBedroom);
   return [...c.walls, ...c.furniture, ...c.spots, ...c.doors];
 }
 
 export function losBlockersForFloor(floor: FloorId, debugUnlock = false): Rect[] {
   if (floor === FLOOR_UPPER) return upperFloorWalls();
   const c = getStaticColliders(debugUnlock);
+  return [...c.walls, ...c.doors];
+}
+
+/** Walls + doors that still block this body (bedroom door omitted when the Phantom may pass). */
+export function wallDoorBlockersForFloor(floor: FloorId, debugUnlock = false, passBedroom = false): Rect[] {
+  if (floor === FLOOR_UPPER) return upperFloorWalls();
+  const c = getStaticColliders(debugUnlock, EXTERIOR_WALL_BODY_EXTRA, houseLayout, passBedroom);
   return [...c.walls, ...c.doors];
 }
 

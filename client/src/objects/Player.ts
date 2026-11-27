@@ -14,6 +14,9 @@ import type { FloorPose } from '../logic/floorMovement';
 import { movementBlockersForFloor, resolveStairAfterMove } from '../logic/floorMovement';
 import { integrateSlide, wallDoorBlockers } from '../logic/worldCollision';
 import { DEFAULT_HOODIE_TINT } from '../lobby/lobby';
+import type { RoundRole } from '../logic/roundPhase';
+import { walkAnimKey } from '../logic/roundPhase';
+import { ensureCharacterAnims, PHANTOM_FRAME_SIZE } from './characterAnims';
 
 // Re-exported so callers (and tests, via config/playerConfig) share one source of truth.
 export { PLAYER_BODY_RADIUS, PLAYER_BODY_RADIUS_FRAME } from '../config/playerConfig';
@@ -26,6 +29,9 @@ export class Player {
   private bodySprite: Phaser.GameObjects.Sprite;
   private physics: Phaser.Physics.Arcade.Body;
   private lastDirection: string = 'down';
+  private role: RoundRole = 'player';
+  private hoodieTint: number = DEFAULT_HOODIE_TINT;
+  private passBedroom = false;
   /** Online: move with the shared slide instead of a private Arcade body. */
   private sharedSlide = false;
   /** Leftover milliseconds so every phone steps the slide at 60 Hz, whatever the refresh. */
@@ -40,30 +46,15 @@ export class Player {
   /** `hoodieTint`: colour for the hoodie layer (player_tint.png is a greyscale hoodie-only mask). */
   constructor(scene: Phaser.Scene, x: number, y: number, hoodieTint: number = DEFAULT_HOODIE_TINT) {
     this.scene = scene;
+    this.hoodieTint = hoodieTint;
     this.moveVector = new Phaser.Math.Vector2(0, 0);
     
     // Check if art is available
     const hasPlayerArt = scene.textures.exists('player');
     const hasTintArt = scene.textures.exists('player_tint');
     
+    ensureCharacterAnims(scene);
     if (hasPlayerArt && hasTintArt) {
-      // Create animations if not already created
-      if (!scene.anims.exists('walk_down')) {
-        ['down', 'left', 'right', 'up'].forEach((dir, row) => {
-          scene.anims.create({
-            key: `walk_${dir}`,
-            frames: scene.anims.generateFrameNumbers('player', { start: row * 4, end: row * 4 + 3 }),
-            frameRate: 8,
-            repeat: -1,
-          });
-          scene.anims.create({
-            key: `walk_${dir}_tint`,
-            frames: scene.anims.generateFrameNumbers('player_tint', { start: row * 4, end: row * 4 + 3 }),
-            frameRate: 8,
-            repeat: -1,
-          });
-        });
-      }
       
       // Validate spritesheet frames (should have 16 frames: 4 directions × 4 frames)
       const playerTexture = scene.textures.get('player');
@@ -186,13 +177,13 @@ export class Player {
   private stepSlide(dirX: number, dirY: number, delta: number): void {
     const step = 1000 / 60;
     this.slideDebt = Math.min(100, this.slideDebt + Math.max(0, delta));
-    const blockers = this.slideBlockers ??= movementBlockersForFloor(this.floorLevel);
+    const blockers = this.slideBlockers ??= movementBlockersForFloor(this.floorLevel, false, this.passBedroom);
     let x = this.x;
     let y = this.y;
     let guard = 0;
     while (this.slideDebt >= step && guard++ < 8) {
       this.slideDebt -= step;
-      const next = integrateSlide({ x, y }, dirX, dirY, step, blockers, this.speed, PLAYER_BODY_RADIUS, wallDoorBlockers(false, this.floorLevel));
+      const next = integrateSlide({ x, y }, dirX, dirY, step, blockers, this.speed, PLAYER_BODY_RADIUS, wallDoorBlockers(false, this.floorLevel, this.passBedroom));
       x = next.x;
       y = next.y;
     }
@@ -210,9 +201,40 @@ export class Player {
     this.physics.reset(this.x + dx, this.y + dy);
   }
 
+
+  /** Switch between the player hoodie sheet and the Phantom walk sheet. */
+  public setRole(role: RoundRole): void {
+    if (role === this.role) return;
+    this.role = role;
+    const phantomArt = role === 'phantom' && this.scene.textures.exists('phantom');
+    ensureCharacterAnims(this.scene);
+    if (phantomArt) {
+      this.bodySprite.setTexture('phantom', 0).setScale(PLAYER_SPRITE_SCALE);
+      const off = PHANTOM_FRAME_SIZE / 2 - PLAYER_BODY_RADIUS_FRAME;
+      this.physics.setCircle(PLAYER_BODY_RADIUS_FRAME, off, off);
+      if (this.tintSprite !== this.bodySprite) this.tintSprite.setVisible(false);
+    } else if (this.scene.textures.exists('player')) {
+      this.bodySprite.setTexture('player', 0).setScale(PLAYER_SPRITE_SCALE);
+      this.physics.setCircle(PLAYER_BODY_RADIUS_FRAME, PLAYER_BODY_OFFSET_FRAME, PLAYER_BODY_OFFSET_FRAME);
+      if (this.tintSprite !== this.bodySprite) {
+        this.tintSprite.setVisible(true);
+        this.tintSprite.setTexture('player_tint', 0).setTint(this.hoodieTint);
+      }
+    }
+  }
+
+  public setPassBedroom(on: boolean): void {
+    if (this.passBedroom === on) return;
+    this.passBedroom = on;
+    this.bumpBlockers();
+  }
+
+  public getPassBedroom(): boolean { return this.passBedroom; }
+
   public update(delta = 1000 / 60): void {
     this.footBeforePhysics = { x: this.x, y: this.y, f: this.floorLevel };
-    const hasArt = this.scene.textures.exists('player') && this.tintSprite !== this.bodySprite;
+    const phantomArt = this.role === 'phantom' && this.scene.textures.exists('phantom');
+    const hasArt = phantomArt || (this.scene.textures.exists('player') && this.tintSprite !== this.bodySprite);
     
     if (this.moveVector.length() > 0) {
       const normalized = this.moveVector.clone().normalize();
@@ -222,7 +244,7 @@ export class Player {
         this.stepSlide(normalized.x, normalized.y, delta);
       } else {
         this.physics.setVelocity(normalized.x * this.speed, normalized.y * this.speed);
-        this.slideBlockers = movementBlockersForFloor(this.floorLevel);
+        this.slideBlockers = movementBlockersForFloor(this.floorLevel, false, this.passBedroom);
       }
       
       // Determine direction (prioritize horizontal)
@@ -238,10 +260,11 @@ export class Player {
       }
       
       // Play walk animation if art exists
-      if (hasArt && this.scene.anims.exists(`walk_${direction}`)) {
-        this.bodySprite.play(`walk_${direction}`, true);
-        if (this.tintSprite !== this.bodySprite) {
-          this.tintSprite.play(`walk_${direction}_tint`, true);
+      const walk = walkAnimKey(this.role, direction);
+      if (hasArt && this.scene.anims.exists(walk)) {
+        this.bodySprite.play(walk, true);
+        if (!phantomArt && this.tintSprite !== this.bodySprite) {
+          this.tintSprite.play(`${walk}_tint`, true);
         }
       }
     } else {
@@ -253,7 +276,7 @@ export class Player {
         const dirIndex = ['down', 'left', 'right', 'up'].indexOf(this.lastDirection);
         const idleFrame = dirIndex * 4; // row * 4 + 0
         this.bodySprite.stop().setFrame(idleFrame);
-        if (this.tintSprite !== this.bodySprite) {
+        if (!phantomArt && this.tintSprite !== this.bodySprite) {
           this.tintSprite.stop().setFrame(idleFrame);
         }
       }

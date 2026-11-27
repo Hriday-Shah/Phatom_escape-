@@ -2577,7 +2577,8 @@
     192,
     192
    ],
-   "status": "pending review",
+   "status": "approved",
+   "approvedDate": "2026-11-27",
    "spritesheet": {
     "frameWidth": 24,
     "frameHeight": 24,
@@ -2591,7 +2592,7 @@
     "idleFrame": "col 0",
     "frameIndex": "row*4+col"
    },
-   "note": "no glow; only seen at close range"
+   "note": "Phantom walk cycle (existing designer sheet). No glow; only seen at close range."
   },
   {
    "key": "phantom_stunned",

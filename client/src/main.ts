@@ -9,6 +9,7 @@ import type { StartInfo } from './home/HomeScreen';
 import { serverFromUrl } from './net/serverConfig';
 import { confirmLeave, hideQuitButton, showQuitButton } from './ui/QuitButton';
 import { hideOverlay, setHomeHandler } from './net/NetOverlay';
+import { hideWaitingRoom } from './lobby/WaitingRoom';
 
 // Production builds must not leave window.Phaser (or __PE_GAME__) for the console.
 if (typeof window !== 'undefined' && !isDevOrQaBuild()) {
@@ -88,6 +89,7 @@ async function quitGame(): Promise<void> {
   const net = g.registry.get('net') as StartInfo['net'] | null;
   net?.leave();
   hideQuitButton();
+  hideWaitingRoom();
   hideOverlay();
   teardown?.();
   teardown = null;

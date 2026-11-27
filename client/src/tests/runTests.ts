@@ -16,6 +16,8 @@ import { runNetTest } from './netTest';
 import { runOnlineSpawnTest } from './onlineSpawnTest';
 import { runMinigameTest } from './minigameTest';
 import { runHouseFloorsTest } from './houseFloorsTest';
+import { runRoundPhaseTest } from './roundPhaseTest';
+import { runBedroomRulesTest } from './bedroomRulesTest';
 
 console.log('Running tests...\n');
 
@@ -34,6 +36,8 @@ try {
   runOnlineSpawnTest();
   runMinigameTest();
   runHouseFloorsTest();
+  runRoundPhaseTest();
+  runBedroomRulesTest();
   console.log('\n✅ All tests passed!');
   process.exit(0);
 } catch (error) {

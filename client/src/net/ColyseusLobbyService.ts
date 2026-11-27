@@ -14,7 +14,7 @@ import type {
   ColourId, LobbyPlayer, LobbyResult, LobbyService, LobbySettings, LobbyState,
 } from '../lobby/lobby';
 import {
-  CLOSE_CONSENTED, HEARTBEAT_MS, WAKE_MAX_MS, SILENCE_DROP_MS, CLOSE_FLOOD, CLOSE_KICKED, JoinFailure, ItemPayload, PoseTuple, RECONNECT_RETRY_MS, RECONNECT_WINDOW_MS, RoundPayload,
+  CLOSE_CONSENTED, HEARTBEAT_MS, WAKE_MAX_MS, SILENCE_DROP_MS, CLOSE_FLOOD, CLOSE_KICKED, JoinFailure, ItemPayload, NoisePayload, PhasePayload, PoseTuple, RECONNECT_RETRY_MS, RECONNECT_WINDOW_MS, RoundPayload,
 } from './protocol';
 import type { EscapeCode } from '../logic/escapeCode';
 import type { RoundPublic } from '../logic/itemRound';
@@ -57,6 +57,7 @@ export interface GameLink {
   round(): RoundPublic | null;
   sendItemPickup(id: string): void;
   sendItemDrop(x: number, y: number, spotId?: string | null): void;
+  sendHideItem(kind: string, spotId: string): void;
   sendMinigameStart(): void;
   sendMinigameWin(log: LogEvent[]): void;
   sendMinigameClose(): void;
@@ -66,6 +67,13 @@ export interface GameLink {
   onCodeReveal(cb: (code: EscapeCode) => void): () => void;
   onMinigameStartOk(cb: (m: { minigame: string; gameSeed: number; puzzle: PlayView }) => void): () => void;
   onMinigameReveal(cb: (m: { index: number; face: number }) => void): () => void;
+  /** Phase name, roles, and the server clock. `at` is performance.now() when it arrived. */
+  onPhase(cb: (view: PhasePayload, at: number) => void): () => void;
+  phase(): { view: PhasePayload; at: number } | null;
+  /** Drawer ripple for a Phantom phone. */
+  onNoise(cb: (n: NoisePayload) => void): () => void;
+  /** Stand here: this phase does not allow the move the phone just sent. */
+  onHeld(cb: (p: { x: number; y: number; f: number }) => void): () => void;
 }
 
 type Listener<T extends unknown[]> = (...a: T) => void;
@@ -98,7 +106,7 @@ function saveSeat(seat: Seat | null, store: Store | null = session()): void {
 const ok: LobbyResult = { ok: true };
 type First = { selfId: string; lobby: Omit<LobbyState, 'selfId'> };
 /** Spots and poses that arrived with welcome/lobby, before the room is attached. */
-type EarlyRoom = { open: string[] | null; poses: PoseTuple[] };
+type EarlyRoom = { open: string[] | null; poses: PoseTuple[]; phase: { view: PhasePayload; at: number } | null };
 
 export class ColyseusLobbyService implements LobbyService, GameLink {
   private state: LobbyState;
@@ -126,11 +134,16 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   private codeEv = new Emitter<[EscapeCode]>();
   private startOkEv = new Emitter<[{ minigame: string; gameSeed: number; puzzle: PlayView }]>();
   private revealEv = new Emitter<[{ index: number; face: number }]>();
+  private phaseEv = new Emitter<[PhasePayload, number]>();
+  private noiseEv = new Emitter<[NoisePayload]>();
+  private heldEv = new Emitter<[{ x: number; y: number; f: number }]>();
+  private phaseState: { view: PhasePayload; at: number } | null = null;
 
   private constructor(room: Room, readonly server: string, first: First, early: EarlyRoom, stopEarly: () => void) {
     this.state = { ...first.lobby, selfId: first.selfId };
     // Copied, then the burst handlers are removed, before attach() adds the live ones.
     if (early.open) this.open = early.open;
+    if (early.phase) this.phaseState = early.phase;
     for (const p of early.poses) this.rememberPose(p);
     stopEarly();
     this.attach(room);
@@ -180,6 +193,13 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
       if (m && Number.isFinite(m.index) && Number.isFinite(m.face)) this.revealEv.emit(m);
     });
     room.onMessage('hb', () => {});
+    room.onMessage('phase', (m: PhasePayload) => this.rememberPhase(m));
+    room.onMessage('noise', (m: NoisePayload) => {
+      if (m && typeof m.id === 'string' && Number.isFinite(m.x) && Number.isFinite(m.y)) this.noiseEv.emit(m);
+    });
+    room.onMessage('held', (m: { x: number; y: number; f: number }) => {
+      if (m && Number.isFinite(m.x) && Number.isFinite(m.y)) this.heldEv.emit(m);
+    });
     this.watch(room);
     room.onLeave((code) => {
       if (room !== this.room || this.left || this.ended || this.status === 'reconnecting') return;
@@ -201,7 +221,7 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
     if (this.hbTimer) clearInterval(this.hbTimer);
     let last = Date.now();
     room.onMessage('*', () => { last = Date.now(); });
-    for (const t of ['lobby', 'poses', 'spot', 'spots', 'hb', 'left', 'welcome']) room.onMessage(t, () => { last = Date.now(); });
+    for (const t of ['lobby', 'poses', 'spot', 'spots', 'hb', 'left', 'welcome', 'phase']) room.onMessage(t, () => { last = Date.now(); });
     this.hbTimer = setInterval(() => {
       if (room !== this.room || this.left || this.ended) { clearInterval(this.hbTimer!); this.hbTimer = null; return; }
       if (this.status !== 'connected') return;
@@ -278,9 +298,10 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
       throw new JoinError(await ColyseusLobbyService.failure(server, e, code));
     }
     // Wait for our id and the first lobby snapshot (both sent right after the join).
-    const early: EarlyRoom = { open: null, poses: [] };
+    const early: EarlyRoom = { open: null, poses: [], phase: null };
     let stopSpots = () => {};
     let stopPoses = () => {};
+    let stopPhase = () => {};
     const first = await new Promise<First>((resolve, reject) => {
       let selfId = ''; let lobby: Omit<LobbyState, 'selfId'> | null = null;
       const done = () => { if (selfId && lobby) { clearTimeout(t); resolve({ selfId, lobby }); } };
@@ -290,8 +311,9 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
       // The rejoin burst (spots + poses) can arrive in the same turn as lobby, before attach().
       stopSpots = room.onMessage('spots', (m: { open?: string[] }) => { early.open = Array.isArray(m?.open) ? m.open : []; });
       stopPoses = room.onMessage('poses', (m: { p?: PoseTuple[] }) => { if (Array.isArray(m?.p)) early.poses.push(...m.p); });
+      stopPhase = room.onMessage('phase', (m: PhasePayload) => { if (m?.phase) early.phase = { view: m, at: performance.now() }; });
     }).catch((e) => { void room.leave(); throw e; });
-    const svc = new ColyseusLobbyService(room, server, first, early, () => { stopSpots(); stopPoses(); });
+    const svc = new ColyseusLobbyService(room, server, first, early, () => { stopSpots(); stopPoses(); stopPhase(); });
     return svc;
   }
 
@@ -360,7 +382,7 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
     this.left = true;
     saveSeat(null);
     // Nothing more reaches the (torn-down) lobby / game after a deliberate leave.
-    for (const e of [this.changes, this.poses, this.spot, this.spotRejected, this.spots, this.leftEv, this.ends, this.statuses]) e.clear();
+    for (const e of [this.changes, this.poses, this.spot, this.spotRejected, this.spots, this.leftEv, this.ends, this.statuses, this.phaseEv, this.noiseEv, this.heldEv]) e.clear();
     if (this.hbTimer) { clearInterval(this.hbTimer); this.hbTimer = null; }
     if (this.room.connection.isOpen) void this.room.leave(true); // else already gone (ended / dropped)
   }
@@ -406,6 +428,7 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   openSpots(): string[] { return [...this.open]; }
   round(): RoundPublic | null { return this.roundState; }
   sendItemPickup(id: string): void { if (!this.left) this.room.send('itemPickup', { id }); }
+  sendHideItem(kind: string, spotId: string): void { if (!this.left) this.room.send('hideItem', { kind, spotId }); }
   sendItemDrop(x: number, y: number, spotId?: string | null): void { if (!this.left) this.room.send('itemDrop', { x, y, spotId: spotId ?? null }); }
   sendMinigameStart(): void { if (!this.left) this.room.send('minigameStart', {}); }
   sendMinigameWin(log: LogEvent[]): void { if (!this.left) this.room.send('minigameWin', { log }); }
@@ -416,4 +439,15 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   onCodeReveal(cb: (code: EscapeCode) => void): () => void { return this.codeEv.on(cb); }
   onMinigameStartOk(cb: (m: { minigame: string; gameSeed: number; puzzle: PlayView }) => void): () => void { return this.startOkEv.on(cb); }
   onMinigameReveal(cb: (m: { index: number; face: number }) => void): () => void { return this.revealEv.on(cb); }
+  onPhase(cb: (view: PhasePayload, at: number) => void): () => void { return this.phaseEv.on(cb); }
+  phase(): { view: PhasePayload; at: number } | null { return this.phaseState; }
+  onNoise(cb: (n: NoisePayload) => void): () => void { return this.noiseEv.on(cb); }
+  onHeld(cb: (p: { x: number; y: number; f: number }) => void): () => void { return this.heldEv.on(cb); }
+
+  private rememberPhase(m: PhasePayload): void {
+    if (!m?.phase || !Array.isArray(m.roles)) return;
+    const at = performance.now();
+    this.phaseState = { view: m, at };
+    this.phaseEv.emit(m, at);
+  }
 }

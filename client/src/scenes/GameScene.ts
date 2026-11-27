@@ -4,6 +4,13 @@ import { hoodieTint } from '../lobby/lobby';
 import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { NetSync } from '../net/NetSync';
 import type { GameLink } from '../net/ColyseusLobbyService';
+import type { NoisePayload, PhasePayload } from '../net/protocol';
+import { canMove, canOpenSpot, canSeeInside, formatPhaseClock, isWaiting, PHASE_LABEL, phaseRemainingMs, type RoundPhase, type RoundRole } from '../logic/roundPhase';
+import { canPassBedroomDoor } from '../logic/doorAccess';
+import { scaledLightRadius } from '../config/lightConfig';
+import { hideWaitingRoom, showWaitingRoom, updateWaitingClock } from '../lobby/WaitingRoom';
+import { hideHideMenu, hidePhantomReveal, showHideMenu, showPhantomReveal, updateHideMenu, phantomRevealText } from '../ui/phantomHud';
+import { spawnNoiseRipple } from '../objects/NoiseRipple';
 import { Furniture, houseLayout } from '../data/houseLayout';
 import { createComposedWalls } from '../utils/wallRenderer';
 import { wallBodyRects, isDoorLocked } from '../data/colliders';
@@ -36,10 +43,21 @@ export class GameScene extends Phaser.Scene {
   private dropKey!: Phaser.Input.Keyboard.Key;
   private wallGroup!: Phaser.Physics.Arcade.StaticGroup;
   private doorGroup!: Phaser.Physics.Arcade.StaticGroup;
+  private bedroomDoorBodies: Phaser.GameObjects.Rectangle[] = [];
+  private baseLightRadius = 0;
+  private revealTimer: Phaser.Time.TimerEvent | null = null;
   private uiScene!: Phaser.Scene;
   private lightLayer: LightLayer | null = null;
   /** Online only (QA reads netSync.remotePositions()). */
   public netSync: NetSync | null = null;
+  /** Online phase. Offline stays null so movement and drawers are unchanged. */
+  private roundRole: RoundRole | null = null;
+  private roundPhaseName: RoundPhase | null = null;
+  private phaseView: PhasePayload | null = null;
+  private phaseAt = 0;
+  private outside = false;
+  private blind!: Phaser.GameObjects.Rectangle;
+  private phaseUnsubs: (() => void)[] = [];
   /** Items, Game Controller mini-game and paper-code reveal. */
   public items: ItemDirector | null = null;
   private floorView!: FloorView;
@@ -98,6 +116,7 @@ export class GameScene extends Phaser.Scene {
     this.applyHouseFloor(this.player.getFloor());
     this.mountGroundFloorArt();
     this.floorView.drawLivingStairs();
+    this.blind = this.add.rectangle(0, 0, 4, 4, 0x07060a).setDepth(80).setVisible(false);
 
     // Limited vision (before NetSync so a reconnect pose on the upper floor does not leave
     // the light visible — applyHouseFloor toggles the layer when it already exists).
@@ -106,6 +125,7 @@ export class GameScene extends Phaser.Scene {
     // Targeting after Arcade has synced the sprite to this frame's body position (POST_UPDATE),
     // so the highlight never lags a frame behind the player (QA R7-1 at low frame rates).
     const target = () => {
+      if (this.outside) return;
       this.hidingSpotManager.update(this.player.getPosition(), this.player.getFacing());
       const override = this.items?.promptOverride();
       if (override) (this.uiScene as any)?.showHidingSpotPrompt?.(override);
@@ -117,6 +137,10 @@ export class GameScene extends Phaser.Scene {
     this.events.on(Phaser.Scenes.Events.POST_UPDATE, target);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(Phaser.Scenes.Events.POST_UPDATE, target);
+      this.phaseUnsubs.forEach((u) => u());
+      hideWaitingRoom();
+      hideHideMenu();
+      hidePhantomReveal();
       this.items?.destroy();
       this.items = null;
     });
@@ -127,7 +151,16 @@ export class GameScene extends Phaser.Scene {
 
     // Online room: other players + spot sync. Offline (no 'net') is unchanged.
     const net = this.registry.get('net') as GameLink | null | undefined;
-    if (net) this.netSync = new NetSync(this, net, this.player, this.hidingSpotManager);
+    if (net) {
+      this.netSync = new NetSync(this, net, this.player, this.hidingSpotManager);
+      const apply = (view: PhasePayload, at: number) => this.applyPhase(view, at);
+      this.phaseUnsubs.push(net.onPhase(apply));
+      this.phaseUnsubs.push(net.onNoise((n) => this.onDrawerNoise(n)));
+      this.phaseUnsubs.push(net.onItems(() => this.onItemsChanged()));
+      const stored = net.phase();
+      if (stored) apply(stored.view, stored.at);
+      else this.setWaiting(true);
+    }
 
     // Setup controls
     this.setupControls();
@@ -146,10 +179,13 @@ export class GameScene extends Phaser.Scene {
 
     // Items / mini-game (after UIScene exists so the slot and overlay can be placed).
     this.items = new ItemDirector(this as any);
-    this.time.delayedCall(0, () => { this.items?.attach(net ?? null); this.items?.place(); });
+    this.time.delayedCall(0, () => { this.items?.attach(net ?? null); this.items?.place(); this.onItemsChanged(); });
 
     // Reconcile floor-dependent layers (light, spots) after online snap poses.
     this.applyHouseFloor(this.player.getFloor());
+    if (this.outside) this.fitOutside();
+    // launch() has not run UIScene.create yet, so the phase line waits for its text.
+    this.uiScene.events.once(Phaser.Scenes.Events.CREATE, () => this.refreshPhaseHud());
 
     // Reposition on safe area changes
     watchInsets(this, () => this.onResize());
@@ -175,8 +211,9 @@ export class GameScene extends Phaser.Scene {
       ...houseLayout.hidingSpots,
       ...houseLayout.furniture.filter((f) => f.blocking),
     ] : [];
+    this.baseLightRadius = GameScene.lightRadius(this.cache.json.get('artManifest'));
     this.lightLayer = new LightLayer(
-      this, GameScene.lightRadius(this.cache.json.get('artManifest')), wallsAndDoors, furniture,
+      this, scaledLightRadius(this.baseLightRadius, this.roundRole, this.roundPhaseName), wallsAndDoors, furniture,
     );
     // After Arcade has synced the body to the sprite (POST_UPDATE), so the light never lags.
     const sync = () => this.lightLayer?.update(this.player.x, this.player.y);
@@ -218,6 +255,10 @@ export class GameScene extends Phaser.Scene {
     const scr = currentShellLayout(this).screen;
     const cam = this.cameras.main;
     cam.setViewport(Math.round(scr.x * dpr), Math.round(scr.y * dpr), Math.round(scr.w * dpr), Math.round(scr.h * dpr));
+    if (this.outside) {
+      this.fitOutside();
+      return;
+    }
     // Close-up camera: about 280 world units on the screen's short side (roughly one room),
     // snapped so every art pixel covers the same whole number of device pixels.
     cam.setZoom(snappedCameraZoom(Math.min(cam.width, cam.height)));
@@ -226,6 +267,148 @@ export class GameScene extends Phaser.Scene {
     if (this.player) {
       cam.centerOn(this.player.x, this.player.y);
     }
+  }
+
+  /** Phantom search: the whole ground floor, covered, so a drawer ripple can land anywhere. */
+  private fitOutside(): void {
+    const cam = this.cameras.main;
+    cam.setBounds(0, 0, houseLayout.width, houseLayout.height);
+    const zoom = Math.min(cam.width / houseLayout.width, cam.height / houseLayout.height) * 0.92;
+    cam.setZoom(Math.max(0.05, zoom));
+    cam.centerOn(houseLayout.width / 2, houseLayout.height / 2);
+    this.blind.setPosition(houseLayout.width / 2, houseLayout.height / 2);
+    this.blind.setSize(houseLayout.width + 80, houseLayout.height + 80);
+  }
+
+  private applyPhase(view: PhasePayload, at: number): void {
+    this.phaseView = view;
+    this.phaseAt = at;
+    const role = view.roles.find((r) => r.id === (this.registry.get('net') as GameLink).selfId)?.role ?? 'player';
+    this.roundRole = role;
+    this.roundPhaseName = view.phase;
+    this.player.setRole(role);
+    const entry = view.entries?.find((e) => e.id === (this.registry.get('net') as GameLink).selfId);
+    if (entry) this.player.place(entry.x, entry.y, (entry.f ?? 0) as FloorId);
+    const waiting = isWaiting(role, view.phase);
+    this.setWaiting(waiting);
+    const blind = !waiting && role === 'phantom' && !canSeeInside(role, view.phase);
+    this.setOutside(blind);
+    const open = !waiting && (!this.roundPhaseName || !this.roundRole || canOpenSpot(this.roundRole, this.roundPhaseName));
+    this.hidingSpotManager.setInputEnabled(!blind && !waiting && open);
+    this.syncDoorAccess();
+    this.syncLightRadius();
+    this.syncRevealBanner();
+    this.syncHideMenu();
+    this.refreshPhaseHud();
+  }
+
+  private onItemsChanged(): void {
+    this.syncDoorAccess();
+    this.syncHideMenu();
+  }
+
+  private syncDoorAccess(): void {
+    const debugUnlock = hasDebugFlag('unlock');
+    const hasKey = !!this.items?.holdsKind('room_key');
+    const pass = canPassBedroomDoor(this.roundRole, hasKey, debugUnlock);
+    this.player.setPassBedroom(pass);
+    this.setBedroomDoorSolid(!pass);
+  }
+
+  private setBedroomDoorSolid(solid: boolean): void {
+    for (const body of this.bedroomDoorBodies) {
+      const phys = body.body as Phaser.Physics.Arcade.StaticBody | undefined;
+      if (phys) phys.enable = solid;
+      if ((body as any).doorData) (body as any).doorData.locked = solid;
+    }
+  }
+
+  private syncLightRadius(): void {
+    if (!this.lightLayer || !this.baseLightRadius) return;
+    this.lightLayer.setRadius(scaledLightRadius(this.baseLightRadius, this.roundRole, this.roundPhaseName));
+  }
+
+  private syncRevealBanner(): void {
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    const show = !!net && this.roundPhaseName === 'search' && this.roundRole === 'player';
+    if (!show) {
+      this.revealTimer?.remove(false);
+      this.revealTimer = null;
+      hidePhantomReveal();
+      return;
+    }
+    const text = phantomRevealText(this.phaseView?.roles ?? [], net.players());
+    showPhantomReveal(text);
+    this.revealTimer?.remove(false);
+    this.revealTimer = this.time.delayedCall(6000, () => hidePhantomReveal());
+  }
+
+  private syncHideMenu(): void {
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    if (!net || this.roundRole !== 'phantom' || this.roundPhaseName !== 'hiding') {
+      hideHideMenu();
+      return;
+    }
+    const items = this.items?.worldItems() ?? [];
+    showHideMenu(items, (kind, spotId) => {
+      net.sendHideItem(kind, spotId);
+    });
+    updateHideMenu(items);
+  }
+
+  private setWaiting(on: boolean): void {
+    if (on) {
+      this.cameras.main.stopFollow();
+      showWaitingRoom(this.waitingClockText());
+      (this.uiScene as { hideHidingSpotPrompt?: () => void })?.hideHidingSpotPrompt?.();
+    } else {
+      hideWaitingRoom();
+      if (this.player && !this.outside) {
+        this.applyHouseFloor(this.player.getFloor());
+        this.updateCameraZoom();
+        this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+      }
+    }
+  }
+
+  private waitingClockText(): string {
+    if (!this.phaseView) return '0:00';
+    const ms = phaseRemainingMs(this.phaseView.endsAt, this.phaseView.serverNow, this.phaseAt, performance.now());
+    return formatPhaseClock(ms);
+  }
+
+  private setOutside(on: boolean): void {
+    this.outside = on;
+    this.blind.setVisible(on);
+    if (on) {
+      this.cameras.main.stopFollow();
+      this.fitOutside();
+      (this.uiScene as { hideHidingSpotPrompt?: () => void })?.hideHidingSpotPrompt?.();
+    } else if (this.player) {
+      this.applyHouseFloor(this.player.getFloor());
+      this.updateCameraZoom();
+      this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    }
+  }
+
+  private onDrawerNoise(noise: NoisePayload): void {
+    if (this.roundRole !== 'phantom') return;
+    spawnNoiseRipple(this, noise);
+  }
+
+  private refreshPhaseHud(): void {
+    const ui = this.uiScene as { setPhaseLine?: (text: string) => void } | undefined;
+    if (!ui?.setPhaseLine || !this.phaseView || !this.roundRole || !this.roundPhaseName) return;
+    if (this.roundPhaseName === 'ended') {
+      ui.setPhaseLine(PHASE_LABEL.ended);
+      return;
+    }
+    const ms = phaseRemainingMs(this.phaseView.endsAt, this.phaseView.serverNow, this.phaseAt, performance.now());
+    const who = this.roundRole === 'phantom' ? 'Phantom' : 'Player';
+    const outside = this.outside ? '\nYou are outside the house.' : '';
+    const clock = formatPhaseClock(ms);
+    ui.setPhaseLine(`${who} · ${PHASE_LABEL[this.roundPhaseName]}  ${clock}${outside}`);
+    if (isWaiting(this.roundRole, this.roundPhaseName)) updateWaitingClock(clock);
   }
 
   private createRooms(): void {
@@ -300,8 +483,7 @@ export class GameScene extends Phaser.Scene {
     const debugUnlock = hasDebugFlag('unlock');
 
     houseLayout.doors.forEach(door => {
-      // Apply debug unlock only to bedroom_door
-      const isLocked = door.locked && !(debugUnlock && door.id === 'bedroom_door');
+      const isLocked = isDoorLocked(door.id, door.locked, debugUnlock);
       // Map door IDs to art keys
       let textureKey = 'door'; // Default
       
@@ -353,6 +535,7 @@ export class GameScene extends Phaser.Scene {
             .setVisible(false);
           if (i === 0) (body as any).doorData = doorData;
           this.doorGroup.add(body);
+          if (door.id === 'bedroom_door') this.bedroomDoorBodies.push(body);
         });
       }
     });
@@ -502,6 +685,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onInteract(): void {
+    if (this.roundRole && this.roundPhaseName && !canOpenSpot(this.roundRole, this.roundPhaseName)) return;
+    if (this.outside) return;
     if (this.items?.onUse()) return;
     // Check for door interaction
     const nearbyDoor = this.checkNearbyDoor();
@@ -527,6 +712,7 @@ export class GameScene extends Phaser.Scene {
     for (const sprite of doorSprites) {
       const doorData = (sprite as any).doorData;
       if (!doorData || !doorData.locked) continue;
+      if (doorData.id === 'bedroom_door' && this.player.getPassBedroom()) continue;
       
       const doorCenter = new Phaser.Math.Vector2(
         doorData.x + doorData.width / 2,
@@ -572,6 +758,12 @@ export class GameScene extends Phaser.Scene {
       moveX = joystickDir.x;
       moveY = joystickDir.y;
     }
+
+    if (this.roundRole && this.roundPhaseName && !canMove(this.roundRole, this.roundPhaseName)) {
+      moveX = 0;
+      moveY = 0;
+    }
+    this.refreshPhaseHud();
 
     // Update player movement
     this.player.setMovement(moveX, moveY);
