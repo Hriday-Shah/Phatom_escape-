@@ -1,8 +1,15 @@
 /**
  * Messages between the client and the game server (server/src/HouseRoom.ts). JSON payloads.
  * Pose tuple: [playerId, x, y, dir 0..3 (down, left, right, up), moving 0/1, floor 0/1].
+ * A `poses` message is the full set this phone may know, plus `drop` (ids only)
+ * for bodies that left that set. Hidden x,y are not included.
+ * `map` is bearings only: [playerId, sector 0..7]. No distance and no coordinates.
  */
 export type PoseTuple = [string, number, number, number, number, number?];
+/** Teammate bearing. Sector 0 is east. Never a coordinate. */
+export type BearingTuple = [string, number];
+export interface MapPayload { b: BearingTuple[] }
+export interface PoseMessage { p: PoseTuple[]; drop?: string[] }
 export const DIRS = ['down', 'left', 'right', 'up'] as const;
 export type Dir = (typeof DIRS)[number];
 export const dirIndex = (d: string): number => Math.max(0, DIRS.indexOf(d as Dir));

@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
-import { quitButtonBox, snapToDevice } from '../ui/shellLayout';
+import { minimapBox, quitButtonBox, snapToDevice } from '../ui/shellLayout';
+import { MinimapView } from '../ui/MinimapView';
+import type { MinimapFrame } from '../logic/minimap';
 import { placeQuitButton } from '../ui/QuitButton';
 import { VirtualJoystick } from '../objects/VirtualJoystick';
 import { UIControls } from '../objects/UIControls';
@@ -25,6 +27,7 @@ export class UIScene extends Phaser.Scene {
   private doorDeadline = new RealDeadline();
 
   private layout!: ShellLayout;
+  private minimap!: MinimapView;
 
   constructor() {
     super({ key: 'UIScene' });
@@ -36,6 +39,7 @@ export class UIScene extends Phaser.Scene {
     // Create HUD elements at zoom 1 (CSS px) in this scene
     this.joystick = new VirtualJoystick(this);
     this.uiControls = new UIControls(this);
+    this.minimap = new MinimapView(this);
 
     const textStyle = (): Phaser.Types.GameObjects.Text.TextStyle => ({
       fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
@@ -134,6 +138,11 @@ export class UIScene extends Phaser.Scene {
     return this.uiControls.getItemSlotBounds();
   }
 
+  /** Fogged floor and teammate bearings. Hidden poses are not passed in. */
+  public setMinimap(frame: MinimapFrame): void {
+    this.minimap?.setFrame(frame);
+  }
+
   /** Online phase line. Empty hides it. Offline never sets this. */
   public setPhaseLine(text: string): void {
     // GameScene can ask during its own create, before this scene's text exists.
@@ -197,14 +206,16 @@ export class UIScene extends Phaser.Scene {
     this.hidingSpotPrompt.setPosition(this.promptCenterX, snapToDevice(top, dpr));
     this.stackDoorMessage();
     this.placePhaseLine();
+    this.minimap?.layout();
   }
 
-  /** Bottom of the game screen, so it stays clear of the spot prompt. */
+  /** Just above the minimap, so the phase line does not sit on the circle. */
   private placePhaseLine(): void {
     if (!this.phaseText || !this.layout) return;
     const scr = this.layout.screen;
     const dpr = gameDpr(this);
+    const map = minimapBox(this.layout);
     this.phaseText.setX(snapToDevice(scr.x + scr.w / 2, dpr));
-    this.phaseText.setY(snapToDevice(scr.y + scr.h - 8, dpr));
+    this.phaseText.setY(snapToDevice(Math.min(scr.y + scr.h - 8, map.y - 6), dpr));
   }
 }

@@ -7,7 +7,8 @@ import { PLAYER_SPEED } from '../../../client/src/config/physicsConfig';
 import { originAllowed, parseOrigins } from '../origins';
 import { randomBytes } from 'node:crypto';
 import { MIN_WIN_MS, createRound, createServerRoundFrom, hidingSpotList } from '../../../client/src/logic/itemRound';
-import { canUseSpot, clampDrop, integrateSlide, losBlockers, movementBlockers, moveHitsWall, PLAYER_BODY_RADIUS, pointBlocked, spotById, wallDoorBlockers } from '../../../client/src/logic/worldCollision';
+import { canUseSpot, clampDrop, hasLineOfSight, integrateSlide, losBlockers, movementBlockers, moveHitsWall, PLAYER_BODY_RADIUS, pointBlocked, spotById, wallDoorBlockers } from '../../../client/src/logic/worldCollision';
+import { liveMessages, messageLeaksPoint } from '../../../client/src/logic/interest';
 import { BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR, bedroomItemCount, isBedroomSpot } from '../../../client/src/logic/bedroomHide';
 import { houseLayout } from '../../../client/src/data/houseLayout';
 import { FLOOR_GROUND, FLOOR_UPPER, STAIR_LAND_GROUND, STAIR_LAND_UPPER } from '../../../client/src/data/houseFloors';
@@ -1158,6 +1159,109 @@ test('auto-place at the end of hiding keeps the bedroom limit and never hides th
   const key = items.find((i) => i.kind === 'room_key')!;
   assert.ok(key.spotId && !isBedroomSpot(key.spotId), 'the room key was not auto-placed in the bedroom');
   assert.ok(bedroomItemCount(items) <= 3, `bedroom held ${bedroomItemCount(items)} after auto-place`);
+});
+
+function chaseOf(players = 4, phantoms = 1): HouseLogic {
+  const h = room(players, () => 0);
+  h.updateSettings('s0', { patch: { hidingMinutes: 1, searchMinutes: 1, chaseMinutes: 5, phantoms } });
+  assert.equal(h.start('s0', 0).ok, true);
+  h.advance(60_000);
+  h.advance(120_000);
+  assert.equal(h.roundView()!.phase, 'chase');
+  return h;
+}
+
+test('interest: a player snapshot has no Phantom, no other floor, and does include a lit teammate', () => {
+  const h = chaseOf(4, 1);
+  assert.equal(h.roleOf(h.playerId('s0')!), 'phantom');
+  assert.equal(h.roleOf(h.playerId('s1')!), 'player');
+  const viewer = h.playerId('s1')!;
+  const mate = h.playerId('s2')!;
+  const upstairs = h.playerId('s3')!;
+  const phantom = h.playerId('s0')!;
+  // Close enough to share a light, including across a floor change and onto the Phantom.
+  h.setPoseForTest('s1', { x: 400, y: 400, d: 2, m: 0, f: 0 });
+  h.setPoseForTest('s2', { x: 440, y: 420, d: 2, m: 1, f: 0 });
+  h.setPoseForTest('s3', { x: 420, y: 380, d: 0, m: 0, f: 1 });
+  h.setPoseForTest('s0', { x: 408.5, y: 401.5, d: 0, m: 0, f: 0 });
+  const snap = h.posesFor(viewer);
+  assert.ok(snap.some((row) => row[0] === mate && row[1] === 440 && row[2] === 420), 'teammate in the light on this floor is included');
+  assert.equal(snap.some((row) => row[0] === phantom), false, 'a player snapshot has no Phantom pose');
+  assert.equal(snap.some((row) => row[0] === upstairs), false, 'a cross-floor pose is omitted');
+  assert.equal(h.canSeeActor(viewer, mate), true);
+  assert.equal(h.canSeeActor(viewer, phantom), false);
+  assert.equal(h.canSeeActor(viewer, upstairs), false);
+  const wire = liveMessages(snap, [], h.bearingsFor(viewer));
+  assert.equal(messageLeaksPoint(wire, 408.5, 401.5), false, 'the live message must not carry the Phantom x,y');
+  assert.equal(messageLeaksPoint(wire, 420, 380), false, 'the live message must not carry the other floor x,y');
+  assert.equal(wire.map.b.some((row) => row[0] === phantom), false, 'never an arrow toward a Phantom');
+  assert.equal(wire.map.b.some((row) => row[0] === upstairs), false);
+  assert.ok(wire.map.b.some((row) => row[0] === mate && row.length === 2));
+  const asPhantom = h.posesFor(phantom);
+  assert.ok(asPhantom.every((row) => row[0] === phantom), 'a Phantom snapshot has no player poses');
+  assert.deepEqual(h.bearingsFor(phantom), [], 'a Phantom map has no arrows');
+  assert.equal(messageLeaksPoint(liveMessages(asPhantom, [], h.bearingsFor(phantom)), 400, 400), false);
+  assert.equal(messageLeaksPoint(liveMessages(asPhantom, [], []), 440, 420), false);
+  assert.equal(messageLeaksPoint(liveMessages(asPhantom, [], []), 420, 380), false);
+});
+
+test('interest: leaving the light drops the id and does not send the new x,y; a doorway does not hide a lit teammate', () => {
+  const h = chaseOf(3, 1);
+  const viewer = h.playerId('s1')!;
+  const mate = h.playerId('s2')!;
+  h.setPoseForTest('s1', { x: 400, y: 400, d: 2, m: 0, f: 0 });
+  h.setPoseForTest('s2', { x: 440, y: 420, d: 2, m: 1, f: 0 });
+  const first = h.takePoseDelivery(viewer);
+  assert.ok(first);
+  assert.ok(first!.p.some((row) => row[0] === mate && row[1] === 440));
+  h.setPoseForTest('s2', { x: 900.5, y: 700.5, d: 1, m: 1, f: 0 });
+  const second = h.takePoseDelivery(viewer);
+  assert.ok(second);
+  assert.ok(second!.drop.includes(mate), 'the phone is told to forget them');
+  assert.equal(second!.p.some((row) => row[0] === mate), false);
+  const wire = liveMessages(second!.p, second!.drop, h.bearingsFor(viewer));
+  assert.equal(messageLeaksPoint(wire, 900.5, 700.5), false, 'hidden x,y must not be sent');
+  assert.ok(wire.map.b.some((row) => row[0] === mate), 'same floor still gets a bearing');
+  for (const row of wire.map.b) assert.equal(row.length, 2);
+  assert.equal(JSON.stringify(wire).includes('900.5'), false);
+  assert.equal(JSON.stringify(wire).includes('700.5'), false);
+
+  // Bedroom wall sits between these two points. They are still inside one light.
+  const above = { x: 200, y: 350 };
+  const below = { x: 200, y: 400 };
+  assert.equal(hasLineOfSight(above.x, above.y, below.x, below.y, losBlockers()), false, 'the wall is between them');
+  h.setPoseForTest('s1', { x: above.x, y: above.y, d: 0, m: 0, f: 0 });
+  h.setPoseForTest('s2', { x: below.x, y: below.y, d: 0, m: 0, f: 0 });
+  const through = h.posesFor(viewer);
+  assert.ok(through.some((row) => row[0] === mate && row[1] === below.x && row[2] === below.y), 'a lit teammate stays visible at a doorway');
+});
+
+test('phase messages carry only this phone\'s entrance, not the other role\'s x,y', () => {
+  const h = room(2, () => 0);
+  h.updateSettings('s0', { patch: { hidingMinutes: 1, searchMinutes: 1, chaseMinutes: 5, phantoms: 1 } });
+  assert.equal(h.start('s0', 0).ok, true);
+  const phantom = h.playerId('s0')!;
+  const player = h.playerId('s1')!;
+  h.setPoseForTest('s0', { x: 700.25, y: 250.25, d: 0, m: 0, f: 0 }, 1000);
+  const search = h.takePhaseEvent(60_000);
+  assert.equal(search?.phase, 'search');
+  const toPhantom = h.phaseFor(phantom, search!);
+  const toPlayer = h.phaseFor(player, search!);
+  assert.equal(toPhantom.entries, undefined, 'a Phantom is not told where players walk in');
+  const entrance = toPlayer.entries?.find((e) => e.id === player);
+  assert.ok(entrance, 'the player is told their own entrance');
+  assert.equal(toPlayer.entries!.every((e) => e.id === player), true);
+  assert.equal(messageLeaksPoint(toPhantom, entrance!.x, entrance!.y), false);
+  assert.equal(messageLeaksPoint(toPlayer, 700.25, 250.25), false, 'the player is not told where the Phantom stood');
+  h.setPoseForTest('s1', { x: 500.75, y: 500.75, d: 2, m: 0, f: 0 }, 60_000);
+  const chase = h.takePhaseEvent(120_000);
+  assert.equal(chase?.phase, 'chase');
+  const chasePlayer = h.phaseFor(player, chase!);
+  const chasePhantom = h.phaseFor(phantom, chase!);
+  const letIn = chasePhantom.entries?.find((e) => e.id === phantom);
+  assert.ok(letIn);
+  assert.equal(chasePlayer.entries, undefined);
+  assert.equal(messageLeaksPoint(chasePlayer, letIn!.x, letIn!.y), false, 'players are not told where the Phantom is let in');
 });
 
 console.log(`\n✅ ${n} server tests passed`);

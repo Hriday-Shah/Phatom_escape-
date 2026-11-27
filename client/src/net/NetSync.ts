@@ -5,8 +5,11 @@
  * walk/idle flag are the stick, so both phones show the same row. Mirrors every hiding /
  * search spot both ways, rolls a refused drawer back, applies the full spot state after a
  * reconnection, and posts short notices (left, reconnecting, new host). Other players stay
- * drawn; the light circle is what hides someone standing in the dark. Roles and the
- * phase clock come from the server. Created by GameScene only for an online room
+ * drawn when this phone is allowed to know where they stand. Anyone outside the
+ * light, on another floor, or on the other role is omitted: their sprite is
+ * destroyed, not merely hidden, so the last x,y does not stay on the remote.
+ * A doorway jamb does not hide a teammate who is still inside the light.
+ * Roles and the phase clock come from the server. Created by GameScene only for an online room
  * (registry 'net'); offline play never touches this.
  */
 import Phaser from 'phaser';
@@ -15,6 +18,7 @@ import { RemotePlayer } from '../objects/RemotePlayer';
 import { FLOOR_GROUND, type FloorId } from '../data/houseFloors';
 import { SEND_HZ, type PhasePayload } from './protocol';
 import { canMove, canSeeInside, isWaiting, type RoundRole } from '../logic/roundPhase';
+import { mayShareExactPose } from '../logic/interest';
 import { poseIntent } from './dirOf';
 import type { PoseTuple } from './protocol';
 import { reconcilePose, type SentPose } from './reconcile';
@@ -65,12 +69,12 @@ export class NetSync {
     this.hostId = st.hostId;
     for (const p of st.players) this.known.set(p.id, p);
     this.unsubs.push(
-      link.onPoses((poses) => this.applyPoses(poses, performance.now())),
+      link.onPoses((poses, drop) => this.applyPoses(poses, drop, performance.now())),
       link.onSpot((id, open, by) => { if (by !== link.selfId) spots.setOpen(id, open); }),
       link.onSpotRejected((id, open) => spots.setOpen(id, open)),
       link.onSpots((open) => spots.syncOpen(open)),
       link.onStatus((s) => { if (s === 'connected') this.resend = true; }),
-      link.onPlayerLeft((id) => { this.remotes.get(id)?.destroy(); this.remotes.delete(id); }),
+      link.onPlayerLeft((id) => this.forgetRemote(id)),
       link.onChange((s) => this.onLobby(s.players, s.hostId)),
       link.onPhase((view) => this.onPhase(view)),
       link.onHeld((p) => this.snapHeld(p)),
@@ -79,7 +83,7 @@ export class NetSync {
     if (already) this.onPhase(already.view);
     // The rejoin burst was stored before this scene existed. Draw it now; later
     // broadcasts arrive through onPoses.
-    this.applyPoses(link.knownPoses(), performance.now());
+    this.applyPoses(link.knownPoses(), [], performance.now());
     scene.events.on(Phaser.Scenes.Events.POST_UPDATE, this.tick, this);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroy());
     scene.events.once(Phaser.Scenes.Events.DESTROY, () => this.destroy()); // game torn down (Quit)
@@ -90,22 +94,56 @@ export class NetSync {
    * point. After that, our own broadcast is the slide correction the other phone draws,
    * and a far snapshot is left alone. The server places the return pose.
    */
-  private applyPoses(poses: readonly PoseTuple[], now: number): void {
-    const myFloor = this.me.getFloor();
+  private applyPoses(poses: readonly PoseTuple[], drop: readonly string[], now: number): void {
+    for (const id of drop) this.forgetRemote(id);
+    const self = poses.find((row) => row[0] === this.link.selfId);
+    if (self) {
+      const f = (self[5] ?? FLOOR_GROUND) as FloorId;
+      if (!this.sentOnce) this.me.place(self[1], self[2], f);
+      else this.adopt(self[1], self[2], f);
+    }
+    const keep = new Set<string>([this.link.selfId]);
     for (const row of poses) {
       const [id, x, y, d, m, fRaw] = row;
+      if (id === this.link.selfId) continue;
       const f = (fRaw ?? FLOOR_GROUND) as FloorId;
-      if (id === this.link.selfId) {
-        if (!this.sentOnce) this.me.place(x, y, f);
-        else this.adopt(x, y, f);
+      if (!this.allowRemote(row, self)) {
+        this.forgetRemote(id);
         continue;
       }
+      keep.add(id);
       const remote = this.remote(id, x, y);
       if (!remote) continue;
       remote.setFloor(f);
-      remote.setSameFloorVisible(f === myFloor);
+      remote.setSameFloorVisible(true);
       remote.buffer.push({ t: now, x, y, d, m, f });
     }
+    // A snapshot that includes this phone is the full visible set.
+    if (self) {
+      for (const id of [...this.remotes.keys()]) if (!keep.has(id)) this.forgetRemote(id);
+    }
+  }
+
+  /** Same rule as the server. Uses the snapshot's own pose, not a wall ray. */
+  private allowRemote(row: PoseTuple, self: PoseTuple | undefined): boolean {
+    if (!this.phase || !self) return false;
+    const them = this.roles.get(row[0]);
+    if (!them) return false;
+    return mayShareExactPose(
+      { id: this.link.selfId, role: this.role, x: self[1], y: self[2], f: self[5] ?? FLOOR_GROUND },
+      { id: row[0], role: them, x: row[1], y: row[2], f: row[5] ?? FLOOR_GROUND },
+      this.phase,
+    );
+  }
+
+  private forgetRemote(id: string): void {
+    if (id === this.link.selfId) return;
+    const remote = this.remotes.get(id);
+    if (remote) {
+      remote.destroy();
+      this.remotes.delete(id);
+    }
+    this.link.forgetPose(id);
   }
 
   /** Roster changes during the game: grey out dropped players, notices. */
@@ -124,7 +162,7 @@ export class NetSync {
     this.known = now; this.hostId = hostId;
     for (const [id, r] of this.remotes) {
       const p = now.get(id);
-      if (!p) { r.destroy(); this.remotes.delete(id); } else r.setInfo(p.nickname, p.colour, !!p.away);
+      if (!p) this.forgetRemote(id); else r.setInfo(p.nickname, p.colour, !!p.away);
     }
   }
 
@@ -183,10 +221,13 @@ export class NetSync {
 
   private tick(): void {
     const now = performance.now();
+    const myFloor = this.me.getFloor();
+    for (const r of [...this.remotes.values()]) {
+      if (r.getFloor() !== myFloor) this.forgetRemote(r.id);
+    }
     const list = [...this.remotes.values()];
-    // The light circle hides anyone outside it. A wall ray between the two centres
-    // was also zeroing the sprite, so a player still standing in the light vanished
-    // at a doorway jamb.
+    // In-light teammates stay drawn, including beside a doorway. Anyone the
+    // server stopped sending has already been removed from this.remotes.
     for (const r of list) r.update(now);
     this.applyRoleVisibility();
     staggerLabels(list);
@@ -208,9 +249,6 @@ export class NetSync {
     this.sent.push({ x, y });
     if (this.sent.length > 24) this.sent.shift();
     this.link.sendPose(x, y, d, m, f);
-    for (const r of this.remotes.values()) {
-      r.setSameFloorVisible(r.getFloor() === f);
-    }
   }
 
   /** Our own broadcast pose: the point the other phone is drawing. */

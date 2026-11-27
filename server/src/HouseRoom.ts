@@ -9,7 +9,8 @@
  *                     | minigameStart {} | minigameWin {log} | minigameClose {} | minigameInput {index}
  *   server -> client: welcome {selfId} | lobby PublicLobby | rejected {action, error}
  *                     | rejected {action:'spot', id, open} (toggle refused: draw this open flag)
- *                     | kicked {} | poses {p: [id, x, y, d, m, f][]} | spot {id, open, by}
+ *                     | kicked {} | poses {p: [id, x, y, d, m, f][], drop?: id[]} | spot {id, open, by}
+ *                     | map {b: [id, sector][]} (bearing only; no x,y)
  *                     | spots {open: id[]} (full state: anything not listed is closed) | left {id}
  *                     | round {minigame, gameSeed, items} | items {items} (per-client, never every spot's contents)
  *                     | minigameStartOk {minigame, gameSeed, puzzle} | minigameReveal {index, face}
@@ -53,6 +54,8 @@ export class HouseRoom extends Room {
    * token, so a backlog cannot freeze the broadcast on an older foyer pose.
    */
   private pendingPos = new Map<string, unknown>();
+  /** Last minimap bearing list sent to each player id. */
+  private lastMap = new Map<string, string>();
 
   onCreate(): void {
     const code = newRoomCode();
@@ -88,6 +91,7 @@ export class HouseRoom extends Room {
         // House state goes only to clients who can see inside (Phantoms, during hiding).
         this.resyncHouse();
         this.pushPhase();
+        this.sendInterest();
       }
       return r;
     });
@@ -168,43 +172,54 @@ export class HouseRoom extends Room {
     this.clock.setInterval(() => {
       this.pushPhase();
       this.flushPendingPoses();
-      const p = this.logic.takeDirtyPoses();
-      if (p.length) {
-        this.sendPoses(p);
-        // A player who just gained line of sight on an open spot receives its contents.
-        this.sendItemsToAll();
-      }
+      const dirty = this.logic.takeDirtyPoses();
+      this.sendInterest();
+      // A player who just moved may have gained line of sight on an open spot.
+      if (dirty.length) this.sendItemsToAll();
     }, 1000 / TICK_HZ);
   }
 
-  /** Phase clock. On chase, Phantoms who were outside receive the house again. */
+  /** Phase clock. Each phone hears only its own entrance coordinates. */
   private pushPhase(): void {
     const view = this.logic.takePhaseEvent(Date.now());
     if (!view) return;
-    this.broadcast('phase', view);
+    this.logic.invalidateInterest();
+    this.lastMap.clear();
+    for (const c of this.clients) {
+      const id = this.logic.playerId(c.sessionId);
+      c.send('phase', this.logic.phaseFor(id ?? '', view));
+    }
     if (view.phase === 'search' || view.phase === 'chase') this.resyncHouse();
   }
 
-  /** Poses a phone is allowed to see. During search a Phantom is outside the house. */
-  private sendPoses(p: [string, number, number, number, number, number][]): void {
+  /**
+   * Exact poses this phone may know, and ids to forget. The minimap message is
+   * sectors only. A hidden body's x,y is not in either payload.
+   */
+  private sendInterest(): void {
     for (const c of this.clients) {
       const id = this.logic.playerId(c.sessionId);
       if (!id) continue;
-      const vis = p.filter((row) => this.logic.canSeeActor(id, row[0]));
-      if (vis.length) c.send('poses', { p: vis });
+      const delivery = this.logic.takePoseDelivery(id);
+      if (delivery && (delivery.p.length || delivery.drop.length)) {
+        c.send('poses', delivery.drop.length ? { p: delivery.p, drop: delivery.drop } : { p: delivery.p });
+      }
+      const b = this.logic.bearingsFor(id);
+      const sig = JSON.stringify(b);
+      if (this.lastMap.get(id) !== sig) {
+        this.lastMap.set(id, sig);
+        c.send('map', { b });
+      }
     }
   }
 
   private resyncHouse(): void {
     const open = this.logic.openSpots();
-    const poses = this.logic.allPoses();
     for (const c of this.clients) {
       const id = this.logic.playerId(c.sessionId);
       if (!id || !this.logic.canSeeHouse(id)) continue;
       c.send('spots', { open });
       c.send('items', { items: this.logic.itemListFor(id) });
-      const vis = poses.filter((row) => this.logic.canSeeActor(id, row[0]));
-      if (vis.length) c.send('poses', { p: vis });
     }
   }
 
@@ -284,6 +299,7 @@ export class HouseRoom extends Room {
     this.limits.delete(sid);
     this.pendingPos.delete(sid);
     this.noReturn.delete(sid);
+    if (id) this.lastMap.delete(id);
     if (id) this.broadcast('left', { id });
     if (this.logic.started) this.sendItemsToAll();
     this.broadcastLobby();
@@ -305,16 +321,20 @@ export class HouseRoom extends Room {
     if (this.logic.started) {
       this.logic.advance(Date.now());
       const view = this.logic.roundView();
-      if (view) client.send('phase', view);
       const pid = this.logic.playerId(client.sessionId);
+      if (view) client.send('phase', this.logic.phaseFor(pid ?? '', view));
       const see = !pid || this.logic.canSeeHouse(pid);
       if (see) client.send('spots', { open: this.logic.openSpots() });
       const round = this.logic.roundPublic();
       if (round && see) client.send('round', round);
       if (pid && see) client.send('items', { items: this.logic.itemListFor(pid) });
-      if (see) {
-        const p = this.logic.allPoses().filter((row) => !pid || this.logic.canSeeActor(pid, row[0]));
+      if (pid) {
+        const p = this.logic.posesFor(pid);
+        this.logic.noteDelivered(pid, p);
         if (p.length) client.send('poses', { p });
+        const b = this.logic.bearingsFor(pid);
+        this.lastMap.set(pid, JSON.stringify(b));
+        client.send('map', { b });
       }
     }
   }
