@@ -10,8 +10,8 @@ import { MIN_WIN_MS, createRound, createServerRoundFrom, hidingSpotList } from '
 import { canUseSpot, clampDrop, integrateSlide, losBlockers, movementBlockers, moveHitsWall, PLAYER_BODY_RADIUS, pointBlocked, spotById, wallDoorBlockers } from '../../../client/src/logic/worldCollision';
 import { BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR, bedroomItemCount, isBedroomSpot } from '../../../client/src/logic/bedroomHide';
 import { houseLayout } from '../../../client/src/data/houseLayout';
-import { FLOOR_GROUND, FLOOR_UPPER, STAIR_LAND_GROUND, STAIR_LAND_UPPER } from '../../../client/src/data/houseFloors';
-import { STAIR_PAD_GROUND, STAIR_PAD_UPPER } from '../../../client/src/logic/floorMovement';
+import { FLOOR_GROUND, FLOOR_UPPER, STAIR_LAND_GROUND, STAIR_LAND_UPPER, poseInsideFloor } from '../../../client/src/data/houseFloors';
+import { movementBlockersForFloor, STAIR_PAD_GROUND, STAIR_PAD_UPPER } from '../../../client/src/logic/floorMovement';
 import { solvingLog, replayWin, createPuzzle } from '../../../client/src/logic/minigames/replay';
 
 let n = 0;
@@ -1407,6 +1407,124 @@ test('walking south from the upper landing reaches the down stair pad', () => {
   }
   assert.equal(pose.f, FLOOR_GROUND, `should descend (ended ${pose.x.toFixed(1)},${pose.y.toFixed(1)} f=${pose.f})`);
   assert.equal(pose.y, STAIR_LAND_GROUND.y);
+});
+
+
+test('stairs: descent from several approaches, a one-shot landing, and an up-down-up trip', () => {
+  const approaches: { x: number; y: number; label: string }[] = [
+    { x: STAIR_LAND_UPPER.x, y: STAIR_LAND_UPPER.y, label: 'upper landing' },
+    { x: 580, y: -90, label: 'south-east from west deck' },
+    { x: 660, y: -90, label: 'south-west from east deck' },
+    { x: 620, y: -100, label: 'due south from north rail' },
+    { x: 580, y: -40, label: 'along the west gap' },
+    { x: 660, y: -40, label: 'along the east gap' },
+  ];
+  for (const a of approaches) {
+    const h = room(1);
+    h.start('s0', 0);
+    assert.equal(poseInsideFloor(a.x, a.y, FLOOR_UPPER, PLAYER_BODY_RADIUS), true, `${a.label} must be on the deck`);
+    assert.equal(pointBlocked(a.x, a.y, movementBlockersForFloor(FLOOR_UPPER), PLAYER_BODY_RADIUS), false, `${a.label} start is free`);
+    h.setPoseForTest('s0', { x: a.x, y: a.y, d: 2, m: 1, f: FLOOR_UPPER }, 1000);
+    // Client already at the ground landing in one pos (the usual online send after setFloor).
+    const jumped = h.move('s0', { x: STAIR_LAND_GROUND.x, y: STAIR_LAND_GROUND.y, d: 2, m: 1, f: FLOOR_GROUND }, 1100);
+    assert.ok(jumped, `${a.label}: move accepted`);
+    assert.equal(jumped!.f, FLOOR_GROUND, `${a.label}: a one-shot landing must descend, not stay on floor 2`);
+    assert.equal(jumped!.x, STAIR_LAND_GROUND.x);
+    assert.equal(jumped!.y, STAIR_LAND_GROUND.y);
+    // Holding south after landing must not bounce back up.
+    const after = h.move('s0', { x: jumped!.x, y: jumped!.y + 20, d: 2, m: 1, f: FLOOR_GROUND }, 1200);
+    assert.ok(after);
+    assert.equal(after!.f, FLOOR_GROUND, `${a.label}: must stay on the ground after descent`);
+  }
+
+  // Walk the pad step-by-step from the landing (no teleport).
+  const h = room(1);
+  h.start('s0', 0);
+  h.setPoseForTest('s0', { x: STAIR_LAND_UPPER.x, y: STAIR_LAND_UPPER.y, d: 2, m: 1, f: FLOOR_UPPER }, 1000);
+  let now = 1000;
+  let pose = h.poseForTest('s0')!;
+  for (let i = 0; i < 80; i++) {
+    now += 1000 / 12;
+    const got = h.move('s0', { x: pose.x, y: pose.y + 16, d: 2, m: 1, f: pose.f }, now);
+    assert.ok(got, 'step south accepted');
+    pose = got;
+    if (pose.f === FLOOR_GROUND) break;
+  }
+  assert.equal(pose.f, FLOOR_GROUND, `stepwise descent (ended ${pose.x.toFixed(1)},${pose.y.toFixed(1)})`);
+
+  // Up-down-up from the living-room floor.
+  const trip = room(1);
+  trip.start('s0', 0);
+  trip.setPoseForTest('s0', { x: STAIR_LAND_GROUND.x, y: STAIR_LAND_GROUND.y + 20, d: 0, m: 1, f: FLOOR_GROUND }, 2000);
+  now = 2000;
+  pose = trip.poseForTest('s0')!;
+  const walkTo = (goalY: number, fExpect: number, label: string) => {
+    for (let i = 0; i < 100; i++) {
+      now += 1000 / 12;
+      const dir = goalY > pose.y ? 16 : -16;
+      const got = trip.move('s0', { x: STAIR_LAND_GROUND.x, y: pose.y + dir, d: dir > 0 ? 2 : 0, m: 1, f: pose.f }, now);
+      assert.ok(got, `${label} move accepted`);
+      pose = got;
+      if (pose.f === fExpect && (fExpect === FLOOR_UPPER || Math.abs(pose.y - STAIR_LAND_GROUND.y) < 1 || pose.y > STAIR_LAND_GROUND.y)) {
+        if (pose.f === fExpect) return;
+      }
+    }
+    assert.equal(pose.f, fExpect, `${label} (ended ${pose.x.toFixed(1)},${pose.y.toFixed(1)} f=${pose.f})`);
+  };
+  walkTo(STAIR_PAD_GROUND.y, FLOOR_UPPER, 'go up');
+  assert.equal(pose.f, FLOOR_UPPER);
+  walkTo(STAIR_PAD_UPPER.y + STAIR_PAD_UPPER.height, FLOOR_GROUND, 'go down');
+  assert.equal(pose.f, FLOOR_GROUND);
+  // Step clear of the landing before walking back to the up pad.
+  now += 1000 / 12;
+  pose = trip.move('s0', { x: pose.x, y: pose.y + 16, d: 2, m: 1, f: FLOOR_GROUND }, now)!;
+  assert.equal(pose.f, FLOOR_GROUND, 'cleared the up pad after descent');
+  walkTo(STAIR_PAD_GROUND.y, FLOOR_UPPER, 'go up again');
+  assert.equal(pose.f, FLOOR_UPPER, 'up-down-up round trip');
+});
+
+test('a 16px body can sweep the upper deck in 8 directions without freezing', () => {
+  const h = room(1);
+  h.start('s0', 0);
+  const blockers = movementBlockersForFloor(FLOOR_UPPER);
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]] as const;
+  const starts: { x: number; y: number }[] = [];
+  for (let x = 520; x <= 720; x += 20) {
+    for (let y = -114; y <= -8; y += 20) {
+      if (poseInsideFloor(x, y, FLOOR_UPPER, PLAYER_BODY_RADIUS) && !pointBlocked(x, y, blockers, PLAYER_BODY_RADIUS)) {
+        starts.push({ x, y });
+      }
+    }
+  }
+  assert.ok(starts.length >= 8, `expected a walkable grid, got ${starts.length}`);
+  let now = 3000;
+  for (const s of starts) {
+    for (const [dx, dy] of dirs) {
+      const aheadX = s.x + dx * 10;
+      const aheadY = s.y + dy * 10;
+      const free = poseInsideFloor(aheadX, aheadY, FLOOR_UPPER, PLAYER_BODY_RADIUS)
+        && !pointBlocked(aheadX, aheadY, blockers, PLAYER_BODY_RADIUS);
+      h.setPoseForTest('s0', { x: s.x, y: s.y, d: 0, m: 1, f: FLOOR_UPPER }, now);
+      now += 1000 / 12;
+      const got = h.move('s0', { x: s.x + dx * 16, y: s.y + dy * 16, d: 0, m: 1, f: FLOOR_UPPER }, now);
+      assert.ok(got, `move from ${s.x},${s.y} dir ${dx},${dy}`);
+      if (got!.f === FLOOR_GROUND) continue; // stepped onto the down pad — not a freeze
+      const moved = Math.hypot(got!.x - s.x, got!.y - s.y);
+      if (free) {
+        assert.ok(moved > 0.5, `froze at ${s.x},${s.y} walking ${dx},${dy} into free space (ended ${got!.x},${got!.y})`);
+      }
+    }
+  }
+
+  // Reconnect must keep a legal upstairs pose.
+  const up = { x: STAIR_LAND_UPPER.x, y: STAIR_LAND_UPPER.y, d: 0, m: 0, f: FLOOR_UPPER };
+  h.setPoseForTest('s0', up, now);
+  h.drop('s0');
+  assert.equal(h.reconnect('s0'), true);
+  const back = h.move('s0', { x: up.x, y: up.y, d: 0, m: 0, f: FLOOR_UPPER }, now + 50);
+  assert.ok(back);
+  assert.equal(back!.f, FLOOR_UPPER, 'reconnect on floor 2 keeps the upper pose');
+  assert.ok(Math.hypot(back!.x - up.x, back!.y - up.y) < 2);
 });
 
 console.log(`\n✅ ${n} server tests passed`);

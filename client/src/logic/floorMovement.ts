@@ -48,7 +48,39 @@ export function spotFloor(_spotId: string): FloorId {
 
 export function footOnStairPad(x: number, y: number, floor: FloorId): boolean {
   const pad = floor === FLOOR_UPPER ? STAIR_PAD_UPPER : STAIR_PAD_GROUND;
-  return x >= pad.x && x <= pad.x + pad.width && y >= pad.y && y <= pad.y + pad.height;
+  return pointInRect(x, y, pad);
+}
+
+function pointInRect(x: number, y: number, r: Rect): boolean {
+  return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
+}
+
+/** True if the segment touches or crosses the pad (so a long step cannot tunnel through it). */
+export function segmentHitsRect(x0: number, y0: number, x1: number, y1: number, r: Rect): boolean {
+  if (pointInRect(x0, y0, r) || pointInRect(x1, y1, r)) return true;
+  const minX = r.x, maxX = r.x + r.width, minY = r.y, maxY = r.y + r.height;
+  if ((x0 < minX && x1 < minX) || (x0 > maxX && x1 > maxX) || (y0 < minY && y1 < minY) || (y0 > maxY && y1 > maxY)) {
+    return false;
+  }
+  let t0 = 0, t1 = 1;
+  const dx = x1 - x0, dy = y1 - y0;
+  const clip = (p: number, q: number): boolean => {
+    if (p === 0) return q >= 0;
+    const t = q / p;
+    if (p < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
+    return true;
+  };
+  return clip(-dx, x0 - minX) && clip(dx, maxX - x0) && clip(-dy, y0 - minY) && clip(dy, maxY - y0);
+}
+
+function stairPadFor(floor: FloorId): Rect {
+  return floor === FLOOR_UPPER ? STAIR_PAD_UPPER : STAIR_PAD_GROUND;
 }
 
 export const STAIR_LANDING_SNAP = 32;
@@ -74,8 +106,18 @@ export function applyStairTransition(pose: FloorPose): FloorPose | null {
  * (online clients may jump to the landing in one frame without an intermediate pos).
  */
 export function resolveStairAfterMove(prev: FloorPose, x: number, y: number): FloorPose {
-  const stepped = applyStairTransition({ x, y, f: prev.f });
-  if (stepped) return stepped;
+  const pad = stairPadFor(prev.f);
+  // Ending on the pad, starting on it, or a long step that tunnels through it
+  // all count as taking the stairs. A client that already snapped to the landing
+  // sends that point in one pos; the segment from the last upstairs pose crosses
+  // the pad, so the server must follow instead of leaving them on floor 2.
+  if (
+    footOnStairPad(x, y, prev.f) ||
+    footOnStairPad(prev.x, prev.y, prev.f) ||
+    segmentHitsRect(prev.x, prev.y, x, y, pad)
+  ) {
+    return stairLandingPose(prev.f);
+  }
   const land = stairLandingPose(prev.f);
   if (
     land.f !== prev.f &&
