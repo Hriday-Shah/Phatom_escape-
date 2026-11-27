@@ -8,6 +8,8 @@ import { randomBytes } from 'node:crypto';
 import { MIN_WIN_MS, createRound, createServerRoundFrom, hidingSpotList } from '../../../client/src/logic/itemRound';
 import { canUseSpot, clampDrop, integrateSlide, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, pointBlocked, spotById } from '../../../client/src/logic/worldCollision';
 import { houseLayout } from '../../../client/src/data/houseLayout';
+import { FLOOR_GROUND, FLOOR_UPPER, STAIR_LAND_GROUND, STAIR_LAND_UPPER } from '../../../client/src/data/houseFloors';
+import { STAIR_PAD_GROUND, STAIR_PAD_UPPER } from '../../../client/src/logic/floorMovement';
 import { solvingLog, replayWin, createPuzzle } from '../../../client/src/logic/minigames/replay';
 
 let n = 0;
@@ -35,7 +37,7 @@ function beside(spotId: string): { x: number; y: number } {
 }
 
 function stand(h: HouseLogic, session: string, x: number, y: number, now = Date.now()): void {
-  h.setPoseForTest(session, { x, y, d: 0, m: 0 }, now);
+  h.setPoseForTest(session, { x, y, d: 0, m: 0, f: 0 }, now);
 }
 
 function standAtSpot(h: HouseLogic, session: string, spotId: string, now = Date.now()): { x: number; y: number } {
@@ -232,7 +234,7 @@ test('reconnect places a free pose once, then speed-caps again', () => {
   h.reconnect('s0');
   const table = { x: 195, y: 394 };
   assert.equal(pointBlocked(table.x, table.y, blockers), true, 'car table centre is solid');
-  const refused = h.move('s0', { x: table.x, y: table.y, d: 0, m: 0 }, 9000)!;
+  const refused = h.move('s0', { x: table.x, y: table.y, d: 0, m: 0, f: 0 }, 9000)!;
   assert.equal(pointBlocked(refused.x, refused.y, blockers), false, 'a blocked return pose is not accepted');
   assert.ok(Math.hypot(refused.x - table.x, refused.y - table.y) > 16, 'did not stand inside the table');
 });
@@ -282,7 +284,7 @@ test('car table: the server keeps the slide the phone walked, including facing a
   assert.ok(pose.y > table.y + table.height, 'does not tunnel through the table');
 
   // Stick up and to the right: slide along the table instead of sticking on the chord.
-  h.setPoseForTest('s0', { x: spawn.x, y: spawn.y, d: 0, m: 0 }, now);
+  h.setPoseForTest('s0', { x: spawn.x, y: spawn.y, d: 0, m: 0, f: 0 }, now);
   pose = { x: spawn.x, y: spawn.y };
   for (let i = 0; i < 8; i++) {
     const sent = reportSlide(pose, 0.4, -1);
@@ -353,7 +355,7 @@ test('a stall then one pose through the foyer is not stuck on the sideboard', ()
 
   // The same walk delivered as one millisecond of samples still ends on the phone.
   stand(h, 's0', start.x, start.y, 2000);
-  let burst = { x: start.x, y: start.y, d: 0, m: 0 };
+  let burst = { x: start.x, y: start.y, d: 0, m: 0, f: 0 };
   for (const s of samples) burst = h.move('s0', { x: s.x, y: s.y, d: 3, m: 1 }, 3000)!;
   assert.ok(Math.hypot(burst.x - phone.x, burst.y - phone.y) < 1, `burst server ${burst.x},${burst.y} phone ${phone.x},${phone.y}`);
   assert.equal(burst.d, 3);
@@ -693,6 +695,25 @@ test('R15-10: clamping a far drop to reach must not go through a wall', () => {
   assert.equal(r.ok, true, r.error);
   const dropped = h.items!.items[0]!;
   assert.ok(dropped.y > 100, `server drop y=${dropped.y}`);
+});
+
+test('stairs: server applies floor change on the stair pad and rejects teleport', () => {
+  const h = room(1);
+  h.start('s0', 1000);
+  stand(h, 's0', STAIR_PAD_GROUND.x + 15, STAIR_PAD_GROUND.y + 10, 2000);
+  const moved = h.move('s0', { x: STAIR_PAD_GROUND.x + 20, y: STAIR_PAD_GROUND.y + 12, d: 3, m: 1, f: FLOOR_UPPER }, 2100)!;
+  assert.equal(moved.f, FLOOR_UPPER);
+  assert.equal(moved.x, STAIR_LAND_UPPER.x);
+  const cheat = h.move('s0', { x: STAIR_LAND_UPPER.x, y: STAIR_LAND_UPPER.y, d: 0, m: 0, f: FLOOR_UPPER }, 2200)!;
+  assert.equal(cheat.f, FLOOR_UPPER, 'still upstairs without pad is only ok if already upstairs on valid point');
+  stand(h, 's0', 300, 430, 3000);
+  const wall = h.move('s0', { x: 620, y: -68, d: 0, m: 0, f: FLOOR_UPPER }, 3100)!;
+  assert.equal(wall.f, 0, 'cannot teleport upstairs without the stair pad');
+
+  h.setPoseForTest('s0', { x: STAIR_PAD_UPPER.x + 20, y: STAIR_PAD_UPPER.y + 10, d: 0, m: 0, f: FLOOR_UPPER }, 4000);
+  const down = h.move('s0', { x: STAIR_LAND_GROUND.x, y: STAIR_LAND_GROUND.y, d: 2, m: 1, f: FLOOR_GROUND }, 4100)!;
+  assert.equal(down.f, FLOOR_GROUND, 'descent from upper pad accepted when landing snap matches');
+  assert.equal(down.y, STAIR_LAND_GROUND.y);
 });
 
 console.log(`\n✅ ${n} server tests passed`);

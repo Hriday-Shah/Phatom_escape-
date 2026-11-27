@@ -97,8 +97,18 @@ export class ItemDirector {
     this.code.place(scr, slot);
   }
 
+  private playerPose() {
+    return {
+      x: this.host.player.x,
+      y: this.host.player.y,
+      f: this.host.player.getFloor?.() ?? 0,
+    };
+  }
+
   atTv(): boolean {
-    return inFrontOfTv(this.host.player.x, this.host.player.y);
+    const p = this.playerPose();
+    if ((p.f ?? 0) !== 0) return false;
+    return inFrontOfTv(p.x, p.y);
   }
 
   holdingController(): boolean {
@@ -112,7 +122,7 @@ export class ItemDirector {
 
   floorItemInReach(): WorldItem | undefined {
     if (!this.round) return;
-    const pose = { x: this.host.player.x, y: this.host.player.y };
+    const pose = this.playerPose();
     return this.round.items.find((i) => !i.heldBy && !i.spotId && itemReachableFrom(pose, i, NEAR_ITEM));
   }
 
@@ -164,7 +174,7 @@ export class ItemDirector {
     if (!this.round) return false;
     const item = this.floorItemInReach();
     if (!item) return false;
-    const pose = { x: this.host.player.x, y: this.host.player.y };
+    const pose = this.playerPose();
     const open = this.host.hidingSpotManager.openIds();
     if (this.net) this.net.sendItemPickup(item.id);
     const r = this.round.pickup(this.selfId, item.id, pose, open);
@@ -187,7 +197,7 @@ export class ItemDirector {
       const ui = this.host.getUIScene() as unknown as { showHidingSpotPrompt?: (t: string, d?: number) => void };
       ui?.showHidingSpotPrompt?.("Can't hide it in a closed spot — open it first", 2500);
     }
-    const pose = { x: this.host.player.x, y: this.host.player.y };
+    const pose = this.playerPose();
     const open = this.host.hidingSpotManager.openIds();
     if (this.net) this.net.sendItemDrop(x, y, into);
     else this.round.drop(this.selfId, x, y, into, pose, open);
@@ -200,7 +210,7 @@ export class ItemDirector {
     if (!this.round) return false;
     const item = this.round.itemInSpot(spotId);
     if (!item) return false;
-    const pose = { x: this.host.player.x, y: this.host.player.y };
+    const pose = this.playerPose();
     const open = this.host.hidingSpotManager.openIds();
     if (this.net) this.net.sendItemPickup(item.id);
     const r = this.round.pickup(this.selfId, item.id, pose, open);
@@ -223,7 +233,7 @@ export class ItemDirector {
 
   private openMinigame(id?: MinigameId, fromDebug = false): void {
     if (!this.round || this.overlay.isOpen() || this.opening) return;
-    const pose = { x: this.host.player.x, y: this.host.player.y };
+    const pose = this.playerPose();
     if (this.net && !fromDebug) {
       this.opening = true;
       this.net.sendMinigameStart();

@@ -9,7 +9,10 @@ import {
 import { devLog } from '../config/display';
 import { PLAYER_SPEED } from '../config/physicsConfig';
 import { FacingFilter } from '../logic/facingFilter';
-import { integrateSlide, movementBlockers } from '../logic/worldCollision';
+import { FLOOR_GROUND, type FloorId } from '../data/houseFloors';
+import type { FloorPose } from '../logic/floorMovement';
+import { movementBlockersForFloor, resolveStairAfterMove } from '../logic/floorMovement';
+import { integrateSlide } from '../logic/worldCollision';
 import { DEFAULT_HOODIE_TINT } from '../lobby/lobby';
 
 // Re-exported so callers (and tests, via config/playerConfig) share one source of truth.
@@ -29,6 +32,10 @@ export class Player {
   private slideDebt = 0;
   /** Wall, furniture, hiding-spot and door rects. The layout does not change mid-round. */
   private slideBlockers: { x: number; y: number; width: number; height: number }[] | null = null;
+  private floorLevel: FloorId = FLOOR_GROUND;
+  private onFloorChange: ((f: FloorId) => void) | null = null;
+  /** Offline Arcade: stair pads are checked after the physics step (POST_UPDATE). */
+  private footBeforePhysics: FloorPose = { x: 0, y: 0, f: FLOOR_GROUND };
 
   /** `hoodieTint`: colour for the hoodie layer (player_tint.png is a greyscale hoodie-only mask). */
   constructor(scene: Phaser.Scene, x: number, y: number, hoodieTint: number = DEFAULT_HOODIE_TINT) {
@@ -106,8 +113,10 @@ export class Player {
 
     // Keep the colour layer glued to the body sprite AFTER Arcade has moved it this frame.
     scene.events.on(Phaser.Scenes.Events.POST_UPDATE, this.syncLayers, this);
+    scene.events.on(Phaser.Scenes.Events.POST_UPDATE, this.afterPhysicsStairs, this);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       scene.events.off(Phaser.Scenes.Events.POST_UPDATE, this.syncLayers, this);
+      scene.events.off(Phaser.Scenes.Events.POST_UPDATE, this.afterPhysicsStairs, this);
     });
   }
 
@@ -115,6 +124,12 @@ export class Player {
     if (this.tintSprite !== this.bodySprite) {
       this.tintSprite.setPosition(this.bodySprite.x, this.bodySprite.y);
     }
+  }
+
+  private afterPhysicsStairs(): void {
+    if (this.sharedSlide) return;
+    const resolved = resolveStairAfterMove(this.footBeforePhysics, this.x, this.y);
+    if (resolved.f !== this.floorLevel) this.setFloor(resolved.f, resolved.x, resolved.y);
   }
 
   /** Current hoodie tint (QA / tests). */
@@ -147,11 +162,31 @@ export class Player {
     this.physics.checkCollision.none = on;
   }
 
+  public getFloor(): FloorId {
+    return this.floorLevel;
+  }
+
+  public setFloor(floor: FloorId, x?: number, y?: number): void {
+    const changed = this.floorLevel !== floor;
+    this.floorLevel = floor;
+    this.slideBlockers = null;
+    if (x != null && y != null) this.physics.reset(x, y);
+    if (changed) this.onFloorChange?.(floor);
+  }
+
+  public onFloorChanged(cb: (f: FloorId) => void): void {
+    this.onFloorChange = cb;
+  }
+
+  public bumpBlockers(): void {
+    this.slideBlockers = null;
+  }
+
   /** Fixed 60 Hz slides. A 120 Hz phone must not take a different path around the table. */
   private stepSlide(dirX: number, dirY: number, delta: number): void {
     const step = 1000 / 60;
     this.slideDebt = Math.min(100, this.slideDebt + Math.max(0, delta));
-    const blockers = this.slideBlockers ??= movementBlockers(false);
+    const blockers = this.slideBlockers ??= movementBlockersForFloor(this.floorLevel);
     let x = this.x;
     let y = this.y;
     let guard = 0;
@@ -161,7 +196,12 @@ export class Player {
       x = next.x;
       y = next.y;
     }
-    if (x !== this.x || y !== this.y) this.physics.reset(x, y);
+    const stair = resolveStairAfterMove({ x: this.x, y: this.y, f: this.floorLevel }, x, y);
+    if (stair.f !== this.floorLevel) {
+      this.setFloor(stair.f, stair.x, stair.y);
+    } else if (x !== this.x || y !== this.y) {
+      this.physics.reset(x, y);
+    }
   }
 
   /** Nudge the body by a server correction without waiting for the next step. */
@@ -171,6 +211,7 @@ export class Player {
   }
 
   public update(delta = 1000 / 60): void {
+    this.footBeforePhysics = { x: this.x, y: this.y, f: this.floorLevel };
     const hasArt = this.scene.textures.exists('player') && this.tintSprite !== this.bodySprite;
     
     if (this.moveVector.length() > 0) {
@@ -181,6 +222,7 @@ export class Player {
         this.stepSlide(normalized.x, normalized.y, delta);
       } else {
         this.physics.setVelocity(normalized.x * this.speed, normalized.y * this.speed);
+        this.slideBlockers = movementBlockersForFloor(this.floorLevel);
       }
       
       // Determine direction (prioritize horizontal)
@@ -238,8 +280,8 @@ export class Player {
   }
 
   /** Stand on a pose the server already has (a reload or the first snapshot). */
-  public place(x: number, y: number): void {
-    this.physics.reset(x, y);
+  public place(x: number, y: number, floor: FloorId = FLOOR_GROUND): void {
+    this.setFloor(floor, x, y);
     this.syncLayers();
   }
 

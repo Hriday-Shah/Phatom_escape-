@@ -10,6 +10,8 @@ import { PLAYER_BODY_RADIUS } from '../config/playerConfig';
 import { PLAYER_SPEED } from '../config/physicsConfig';
 import { hasLineOfSight, distanceToRect, centerOf, buildInteractables } from './spotTargeting';
 import { houseLayout } from '../data/houseLayout';
+import { FLOOR_GROUND, type FloorId, poseInsideFloor } from '../data/houseFloors';
+import { losBlockersForFloor, movementBlockersForFloor, spotFloor } from './floorMovement';
 
 export const NEAR_ITEM = 90;
 
@@ -25,15 +27,13 @@ export type Point = { x: number; y: number };
  * Bodies the player cannot walk through. Matches the Arcade groups in GameScene:
  * wall bodies, blocking furniture, every hiding spot (those are solid too), and locked doors.
  */
-export function movementBlockers(debugUnlock = false): Rect[] {
-  const c = getStaticColliders(debugUnlock);
-  return [...c.walls, ...c.furniture, ...c.spots, ...c.doors];
+export function movementBlockers(debugUnlock = false, floor: FloorId = FLOOR_GROUND): Rect[] {
+  return movementBlockersForFloor(floor, debugUnlock);
 }
 
 /** Bodies that block sight (walls + locked doors; furniture never does). */
-export function losBlockers(debugUnlock = false): Rect[] {
-  const c = getStaticColliders(debugUnlock);
-  return [...c.walls, ...c.doors];
+export function losBlockers(debugUnlock = false, floor: FloorId = FLOOR_GROUND): Rect[] {
+  return losBlockersForFloor(floor, debugUnlock);
 }
 
 /** Axis-aligned rect inflated by a circle radius (conservative at corners). */
@@ -326,10 +326,23 @@ export function spotById(id: string): { id: string; x: number; y: number; width:
   return hidingSpots().find((s) => s.id === id);
 }
 
-export function canUseSpot(pose: Point, spotId: string, reach = NEAR_ITEM): boolean {
+export function canUseSpot(
+  pose: Point & { f?: FloorId },
+  spotId: string,
+  reach = NEAR_ITEM,
+): boolean {
   const spot = spotById(spotId);
   if (!spot) return false;
-  return reachableWithLos(pose, spot, reach);
+  const f = pose.f ?? FLOOR_GROUND;
+  if (f !== spotFloor(spotId)) return false;
+  return reachableWithLos(pose, spot, reach, losBlockers(false, f));
 }
+
+export function poseOnFloor(pose: Point & { f?: FloorId }, radius = PLAYER_BODY_RADIUS): boolean {
+  const f = pose.f ?? FLOOR_GROUND;
+  return poseInsideFloor(pose.x, pose.y, f, radius);
+}
+
+export { poseInsideFloor };
 
 export { hasLineOfSight, distanceToRect, PLAYER_BODY_RADIUS };

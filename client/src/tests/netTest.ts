@@ -49,25 +49,25 @@ export function runNetTest(): void {
 
   const b = new PoseBuffer(100);
   assert.equal(b.sample(0), null);
-  b.push({ t: 1000, x: 0, y: 0, d: 2, m: 1 });
-  b.push({ t: 1080, x: 16, y: 0, d: 2, m: 1 });
-  assert.deepEqual(b.sample(1100), { t: 1000, x: 0, y: 0, d: 2, m: 1 });
+  b.push({ t: 1000, x: 0, y: 0, d: 2, m: 1, f: 0 });
+  b.push({ t: 1080, x: 16, y: 0, d: 2, m: 1, f: 0 });
+  assert.deepEqual(b.sample(1100), { t: 1000, x: 0, y: 0, d: 2, m: 1, f: 0 });
   assert.equal(b.sample(1140)!.x, 8);
-  b.push({ t: 1080, x: 99, y: 0, d: 2, m: 1 }); // same clock reading: keep the newer arrival
+  b.push({ t: 1080, x: 99, y: 0, d: 2, m: 1, f: 0 }); // same clock reading: keep the newer arrival
   assert.equal(b.sample(1500)!.x, 99, 'a same-time burst shows the newest pose, not the oldest');
   // a hole holds the last real pose; it does not slide a chord toward the next one
-  b.push({ t: 1080 + GAP_MS + 500, x: 40, y: 0, d: 2, m: 1 });
+  b.push({ t: 1080 + GAP_MS + 500, x: 40, y: 0, d: 2, m: 1, f: 0 });
   const t = 1080 + GAP_MS + 500;
   assert.equal(b.sample(t - 1000 / 12 + 100)!.x, 99);
   assert.equal(b.sample(t + 100)!.x, 40);
   const burst = new PoseBuffer(0);
-  burst.push({ t: 50, x: 744, y: 330, d: 2, m: 1 });
-  burst.push({ t: 50, x: 820, y: 270, d: 2, m: 1 });
-  burst.push({ t: 50, x: 900, y: 265, d: 2, m: 1 });
+  burst.push({ t: 50, x: 744, y: 330, d: 2, m: 1, f: 0 });
+  burst.push({ t: 50, x: 820, y: 270, d: 2, m: 1, f: 0 });
+  burst.push({ t: 50, x: 900, y: 265, d: 2, m: 1, f: 0 });
   assert.equal(burst.sample(50)!.x, 900, 'foyer burst is not frozen on the first sample');
   const hole = new PoseBuffer(0);
-  hole.push({ t: 0, x: 0, y: 0, d: 0, m: 0 });
-  hole.push({ t: 1000, x: 200, y: 0, d: 2, m: 1 });
+  hole.push({ t: 0, x: 0, y: 0, d: 0, m: 0, f: 0 });
+  hole.push({ t: 1000, x: 200, y: 0, d: 2, m: 1, f: 0 });
   assert.equal(hole.sample(500)!.x, 0, 'a hole does not draw the straight line across it');
   assert.equal(hole.sample(1000)!.x, 200);
 

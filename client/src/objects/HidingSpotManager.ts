@@ -5,6 +5,7 @@ import { HIDING_SPOT_TEXTURES } from '../utils/artHelpers';
 import { spriteCenter, spotRotation } from '../data/spotArt';
 import { boostedOpenKey } from './openContrast';
 import { RealDeadline } from '../logic/realTimer';
+import { FLOOR_GROUND, type FloorId } from '../data/houseFloors';
 import {
   CORNER_SECTIONS, Interactable, Rect, buildInteractables, isEligible, selectTarget, sightBlockers,
 } from '../logic/spotTargeting';
@@ -47,6 +48,7 @@ export class HidingSpotManager {
   public contentsLabel: ((id: string) => string | null) | null = null;
   /** Called when the player uses an open spot; return true if an item was picked up. */
   public tryPickup: ((id: string) => boolean) | null = null;
+  private activeFloor: FloorId = FLOOR_GROUND;
 
   constructor(scene: Phaser.Scene, hidingSpots: HidingSpot[]) {
     this.scene = scene;
@@ -192,7 +194,16 @@ export class HidingSpotManager {
   /** The outline is stroked 3px outside the spot with a 4px line: it reaches 5px out. */
   static readonly OUTLINE_PAD = 5;
 
+  public setActiveFloor(floor: FloorId): void {
+    this.activeFloor = floor;
+    if (floor !== FLOOR_GROUND) this.setHighlight(null);
+  }
+
   public update(playerPosition: Phaser.Math.Vector2, facing: { x: number; y: number } = { x: 0, y: 1 }): void {
+    if (this.activeFloor !== FLOOR_GROUND) {
+      this.setHighlight(null);
+      return;
+    }
     this.tickMessage();
     const px = playerPosition.x, py = playerPosition.y;
     this.eligible.clear();
@@ -282,6 +293,7 @@ export class HidingSpotManager {
   }
 
   public interact(): void {
+    if (this.activeFloor !== FLOOR_GROUND) return;
     if (!this.highlightedSpot) return;
     if (this.highlightedSpot.isOpen && this.tryPickup?.(this.highlightedSpot.data.id)) return;
     this.toggleSpot(this.highlightedSpot);

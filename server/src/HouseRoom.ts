@@ -4,12 +4,12 @@
  *
  * Protocol (JSON messages, no Colyseus schema state):
  *   client -> server: colour {colour} | ready {ready} | settings {patch} | kick {id} | start {}
- *                     | pos {x, y, d, m} | spot {id, open}   (any hiding / search spot)
+ *                     | pos {x, y, d, m, f} | spot {id, open}   (any hiding / search spot)
  *                     | itemPickup {id} | itemDrop {x, y, spotId}
  *                     | minigameStart {} | minigameWin {log} | minigameClose {} | minigameInput {index}
  *   server -> client: welcome {selfId} | lobby PublicLobby | rejected {action, error}
  *                     | rejected {action:'spot', id, open} (toggle refused: draw this open flag)
- *                     | kicked {} | poses {p: [id, x, y, d, m][]} | spot {id, open, by}
+ *                     | kicked {} | poses {p: [id, x, y, d, m, f][]} | spot {id, open, by}
  *                     | spots {open: id[]} (full state: anything not listed is closed) | left {id}
  *                     | round {minigame, gameSeed, items} | items {items} (per-client, never every spot's contents)
  *                     | minigameStartOk {minigame, gameSeed, puzzle} | minigameReveal {index, face}

@@ -32,7 +32,7 @@ export interface GameLink {
   readonly selfId: string;
   players(): NetPlayer[];
   getState(): LobbyState;
-  sendPose(x: number, y: number, d: number, m: number): void;
+  sendPose(x: number, y: number, d: number, m: number, f?: number): void;
   /** Open / close of any hiding or search spot (drawer, sofa cushion, bed, fridge...). */
   sendSpot(id: string, open: boolean): void;
   /** Returns unsubscribe. */
@@ -390,7 +390,7 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
 
   get selfId(): string { return this.state.selfId; }
   players(): NetPlayer[] { return this.getState().players; }
-  sendPose(x: number, y: number, d: number, m: number): void { this.send('pos', { x, y, d, m }); }
+  sendPose(x: number, y: number, d: number, m: number, f = 0): void { this.send('pos', { x, y, d, m, f }); }
   sendSpot(id: string, open: boolean): void { this.send('spot', { id, open }); }
   onPoses(cb: (p: PoseTuple[]) => void): () => void { return this.poses.on(cb); }
   onSpot(cb: (id: string, open: boolean, by: string) => void): () => void { return this.spot.on(cb); }

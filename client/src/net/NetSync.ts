@@ -12,8 +12,10 @@
 import Phaser from 'phaser';
 import type { GameLink, NetPlayer } from './ColyseusLobbyService';
 import { RemotePlayer } from '../objects/RemotePlayer';
+import { FLOOR_GROUND, type FloorId } from '../data/houseFloors';
 import { SEND_HZ } from './protocol';
 import { poseIntent } from './dirOf';
+import type { PoseTuple } from './protocol';
 import { reconcilePose, type SentPose } from './reconcile';
 import { netToast } from './NetOverlay';
 
@@ -21,10 +23,11 @@ export interface NetPlayerSource {
   x: number;
   y: number;
   getMoveInput(): { x: number; y: number };
+  getFloor(): FloorId;
   useSharedSlide(on: boolean): void;
   shift(dx: number, dy: number): void;
   /** Put the body on a pose the server already stored (reload / rejoin). */
-  place(x: number, y: number): void;
+  place(x: number, y: number, floor?: FloorId): void;
 }
 export interface NetSpots {
   setOpen(id: string, open: boolean): void;
@@ -35,7 +38,7 @@ export interface NetSpots {
 export class NetSync {
   private remotes = new Map<string, RemotePlayer>();
   private unsubs: (() => void)[] = [];
-  private lastSent = { x: NaN, y: NaN, d: -1, m: -1, at: 0 };
+  private lastSent = { x: NaN, y: NaN, d: -1, m: -1, f: -1, at: 0 };
   private nextSend = 0;
   private lastMoveDir = 0;
   /** Send the current pose on the next tick (the link just came back; the server never saw the last ones). */
@@ -76,14 +79,21 @@ export class NetSync {
    * point. After that, our own broadcast is the slide correction the other phone draws,
    * and a far snapshot is left alone. The server places the return pose.
    */
-  private applyPoses(poses: readonly [string, number, number, number, number][], now: number): void {
-    for (const [id, x, y, d, m] of poses) {
+  private applyPoses(poses: readonly PoseTuple[], now: number): void {
+    const myFloor = this.me.getFloor();
+    for (const row of poses) {
+      const [id, x, y, d, m, fRaw] = row;
+      const f = (fRaw ?? FLOOR_GROUND) as FloorId;
       if (id === this.link.selfId) {
-        if (!this.sentOnce) this.me.place(x, y);
-        else this.adopt(x, y);
+        if (!this.sentOnce) this.me.place(x, y, f);
+        else this.adopt(x, y, f);
         continue;
       }
-      this.remote(id, x, y)?.buffer.push({ t: now, x, y, d, m });
+      const remote = this.remote(id, x, y);
+      if (!remote) continue;
+      remote.setFloor(f);
+      remote.setSameFloorVisible(f === myFloor);
+      remote.buffer.push({ t: now, x, y, d, m, f });
     }
   }
 
@@ -135,21 +145,26 @@ export class NetSync {
     const intent = poseIntent(input.x, input.y, this.lastMoveDir);
     this.lastMoveDir = intent.d;
     const { d, m } = intent;
+    const f = this.me.getFloor();
     const s = this.lastSent;
-    if (!this.resend && x === s.x && y === s.y && d === s.d && m === s.m && now - s.at < 1000) return;
+    if (!this.resend && x === s.x && y === s.y && d === s.d && m === s.m && f === s.f && now - s.at < 1000) return;
     this.resend = false;
     this.sentOnce = true;
-    this.lastSent = { x, y, d, m, at: now };
+    this.lastSent = { x, y, d, m, f, at: now };
     this.sent.push({ x, y });
     if (this.sent.length > 24) this.sent.shift();
-    this.link.sendPose(x, y, d, m);
+    this.link.sendPose(x, y, d, m, f);
+    for (const r of this.remotes.values()) {
+      r.setSameFloorVisible(r.getFloor() === f);
+    }
   }
 
   /** Our own broadcast pose: the point the other phone is drawing. */
-  private adopt(x: number, y: number): void {
+  private adopt(x: number, y: number, floor: FloorId): void {
     const r = reconcilePose(this.sent, { x, y }, { x: this.me.x, y: this.me.y });
     this.sent = r.pending;
     if (r.dx || r.dy) this.me.shift(r.dx, r.dy);
+    if (this.me.getFloor() !== floor) this.me.setFloor(floor, x, y);
   }
 
   /** QA: remote players' drawn positions and state. */

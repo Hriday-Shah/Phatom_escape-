@@ -18,8 +18,14 @@ import { EscapeCode } from '../../client/src/logic/escapeCode';
 import { PublicItem } from '../../client/src/logic/items';
 import { houseLayout } from '../../client/src/data/houseLayout';
 import { onlineSpawnSlots } from '../../client/src/logic/onlineSpawn';
+import { FLOOR_GROUND, normaliseFloor, poseInsideFloor } from '../../client/src/data/houseFloors';
 import {
-  canUseSpot, hasLineOfSight, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, pointBlocked, resolveMove, spotById,
+  resolveStairAfterMove,
+  movementBlockersForFloor,
+  spotFloor,
+} from '../../client/src/logic/floorMovement';
+import {
+  canUseSpot, hasLineOfSight, losBlockers, PLAYER_BODY_RADIUS, pointBlocked, poseOnFloor, resolveMove, spotById,
 } from '../../client/src/logic/worldCollision';
 import type { PlayView } from '../../client/src/logic/minigames/replay';
 
@@ -34,8 +40,8 @@ export interface PublicLobby {
   started: boolean;
 }
 
-/** One remote-visible pose: world x/y, direction 0..3 (down, left, right, up), moving 0/1. */
-export interface Pose { x: number; y: number; d: number; m: number }
+/** One remote-visible pose: world x/y, direction 0..3 (down, left, right, up), moving 0/1, floor f. */
+export interface Pose { x: number; y: number; d: number; m: number; f: number }
 
 const COLOUR_IDS = new Set<string>(PLAYER_COLOURS.map((c) => c.id));
 /** Spot / section ids (drawers, sofa cushions, bed, fridge...) look like `sofa_d1`; anything else is refused. */
@@ -83,7 +89,8 @@ export const parse = {
     if (!isObj(m) || !finite(m.x) || !finite(m.y)) return null;
     if (Math.abs(m.x) > WORLD_LIMIT || Math.abs(m.y) > WORLD_LIMIT) return null;
     const d = m.d === 0 || m.d === 1 || m.d === 2 || m.d === 3 ? m.d : 0;
-    return { x: Math.round(m.x * 10) / 10, y: Math.round(m.y * 10) / 10, d, m: m.m === 1 || m.m === true ? 1 : 0 };
+    const f = normaliseFloor(m.f);
+    return { x: Math.round(m.x * 10) / 10, y: Math.round(m.y * 10) / 10, d, m: m.m === 1 || m.m === true ? 1 : 0, f };
   },
   spot(m: unknown): { id: string; open: boolean } | null {
     return isObj(m) && typeof m.id === 'string' && SPOT_ID.test(m.id) && typeof m.open === 'boolean' ? { id: m.id, open: m.open } : null;
@@ -236,7 +243,7 @@ export class HouseLogic {
       const slots = onlineSpawnSlots({ x: 300, y: 430 }, Math.max(players.length, 1));
       players.forEach((p, i) => {
         const s = slots[i % slots.length]!;
-        this.poses.set(p.id, { pose: { x: s.x, y: s.y, d: 0, m: 0 }, at: now, dirty: true, creditMs: 0 });
+        this.poses.set(p.id, { pose: { x: s.x, y: s.y, d: 0, m: 0, f: FLOOR_GROUND }, at: now, dirty: true, creditMs: 0 });
       });
     }
     return r;
@@ -258,11 +265,14 @@ export class HouseLogic {
     const pose = this.poseOf(playerId);
     if (!pose) return [];
     const open = new Set(this.openSpots());
-    const blockers = losBlockers();
+    const pf = pose.f ?? FLOOR_GROUND;
+    const blockers = losBlockers(false, pf);
     const out: PublicItem[] = [];
     for (const item of this.items.items) {
+      if ((item.f ?? 0) !== pf) continue;
       if (item.heldBy === playerId) { out.push({ ...item }); continue; }
       if (item.spotId) {
+        if (spotFloor(item.spotId) !== pf) continue;
         if (!open.has(item.spotId)) continue;
         const spot = spotById(item.spotId);
         if (!spot) continue;
@@ -272,16 +282,18 @@ export class HouseLogic {
         out.push({ ...item });
         continue;
       }
-      const target = item.heldBy ? (this.poseOf(item.heldBy) ?? { x: item.x, y: item.y }) : { x: item.x, y: item.y };
+      const holder = item.heldBy ? this.poseOf(item.heldBy) : null;
+      const target = holder ?? { x: item.x, y: item.y };
+      if (holder && (holder.f ?? 0) !== pf) continue;
       if (!hasLineOfSight(pose.x, pose.y, target.x, target.y, blockers)) continue;
       out.push({ ...item });
     }
     return out;
   }
 
-  private poseOf(playerId: string): { x: number; y: number } | null {
+  private poseOf(playerId: string): Pose | null {
     const t = this.poses.get(playerId);
-    return t ? { x: t.pose.x, y: t.pose.y } : null;
+    return t ? { ...t.pose } : null;
   }
 
   pickup(session: string, msg: unknown): { ok: boolean; error?: string } {
@@ -289,7 +301,7 @@ export class HouseLogic {
     if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
     const itemId = isObj(msg) && typeof msg.id === 'string' && msg.id.length <= 48 ? msg.id : null;
     if (!itemId) return { ok: false, error: 'no-item' };
-    const pose = this.poseOf(id) ?? { x: 0, y: 0 };
+    const pose = this.poseOf(id) ?? { x: 0, y: 0, d: 0, m: 0, f: FLOOR_GROUND };
     return this.items.pickup(id, itemId, pose, this.openSpots());
   }
 
@@ -298,7 +310,7 @@ export class HouseLogic {
     if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
     if (!isObj(msg) || !finite(msg.x) || !finite(msg.y)) return { ok: false, error: 'bad-pos' };
     const spot = typeof msg.spotId === 'string' && SPOT_ID.test(msg.spotId) ? msg.spotId : null;
-    const pose = this.poseOf(id) ?? { x: 0, y: 0 };
+    const pose = this.poseOf(id) ?? { x: 0, y: 0, d: 0, m: 0, f: FLOOR_GROUND };
     return this.items.drop(id, msg.x, msg.y, spot, pose, this.openSpots());
   }
 
@@ -371,9 +383,9 @@ export class HouseLogic {
     // One pose after a reconnect: the phone kept walking (or reloaded onto the stored
     // point). Accept that free point once. Every later pose is speed-capped and slid.
     if (this.placeOnReturn.delete(id)) {
-      const inside = p.x >= PLAYER_BODY_RADIUS && p.y >= PLAYER_BODY_RADIUS
-        && p.x <= houseLayout.width - PLAYER_BODY_RADIUS && p.y <= houseLayout.height - PLAYER_BODY_RADIUS;
-      if (inside && !pointBlocked(p.x, p.y, movementBlockers(false), PLAYER_BODY_RADIUS)) {
+      const floor = normaliseFloor(p.f);
+      p.f = floor;
+      if (poseOnFloor(p, PLAYER_BODY_RADIUS) && !pointBlocked(p.x, p.y, movementBlockersForFloor(floor), PLAYER_BODY_RADIUS)) {
         this.poses.set(id, { pose: p, at: now, dirty: true, creditMs: 0 });
         return p;
       }
@@ -382,6 +394,26 @@ export class HouseLogic {
     const wall = Math.min(MAX_ELAPSED_MS, elapsed);
     const budgetMs = wall > 0 ? wall : Math.min(MAX_ELAPSED_MS, prev.creditMs);
     const max = (PLAYER_SPEED * budgetMs / 1000) * SPEED_SLACK + SPEED_JITTER_PX;
+    const intentX = p.x;
+    const intentY = p.y;
+    const jump = resolveStairAfterMove(
+      { x: prev.pose.x, y: prev.pose.y, f: prev.pose.f as 0 | 1 },
+      intentX,
+      intentY,
+    );
+    if (jump.f !== prev.pose.f) {
+      p.x = jump.x;
+      p.y = jump.y;
+      p.f = jump.f;
+      if (!poseOnFloor(p, PLAYER_BODY_RADIUS)) {
+        p.x = prev.pose.x;
+        p.y = prev.pose.y;
+        p.f = prev.pose.f;
+        this.corrections++;
+      }
+      this.poses.set(id, { pose: p, at: now, dirty: true, creditMs: 0 });
+      return p;
+    }
     const dx = p.x - prev.pose.x, dy = p.y - prev.pose.y;
     const dist = Math.hypot(dx, dy);
     if (dist > max) {
@@ -390,11 +422,31 @@ export class HouseLogic {
       p.y = Math.round((prev.pose.y + dy * k) * 10) / 10;
       this.corrections++;
     }
-    const blockers = movementBlockers(false);
+    p.f = prev.pose.f;
+    p.d = p.d ?? prev.pose.d;
+    p.m = p.m ?? prev.pose.m;
+    const blockers = movementBlockersForFloor(prev.pose.f, false);
     const slid = resolveMove(prev.pose, p, blockers, max, PLAYER_BODY_RADIUS);
     if (slid.x !== p.x || slid.y !== p.y) this.corrections++;
     p.x = slid.x;
     p.y = slid.y;
+    const stair = resolveStairAfterMove(
+      { x: prev.pose.x, y: prev.pose.y, f: prev.pose.f as 0 | 1 },
+      p.x,
+      p.y,
+    );
+    p.x = stair.x;
+    p.y = stair.y;
+    p.f = stair.f;
+    if (stair.f === prev.pose.f && normaliseFloor((msg as { f?: unknown })?.f) !== prev.pose.f) {
+      this.corrections++;
+    }
+    if (!poseOnFloor(p, PLAYER_BODY_RADIUS)) {
+      p.x = prev.pose.x;
+      p.y = prev.pose.y;
+      p.f = prev.pose.f;
+      this.corrections++;
+    }
     const moved = Math.hypot(p.x - prev.pose.x, p.y - prev.pose.y);
     const pxPerMs = (PLAYER_SPEED * SPEED_SLACK) / 1000;
     const spentMs = pxPerMs > 0 ? moved / pxPerMs : budgetMs;
@@ -407,13 +459,18 @@ export class HouseLogic {
    * TODO(stage 3): per-player interest management for positions — broadcast only
    * poses a client can actually see, instead of every pose to everyone.
    */
-  takeDirtyPoses(): [string, number, number, number, number][] {
-    const out: [string, number, number, number, number][] = [];
-    for (const [id, t] of this.poses) if (t.dirty) { t.dirty = false; out.push([id, t.pose.x, t.pose.y, t.pose.d, t.pose.m]); }
+  takeDirtyPoses(): [string, number, number, number, number, number][] {
+    const out: [string, number, number, number, number, number][] = [];
+    for (const [id, t] of this.poses) {
+      if (t.dirty) {
+        t.dirty = false;
+        out.push([id, t.pose.x, t.pose.y, t.pose.d, t.pose.m, t.pose.f ?? FLOOR_GROUND]);
+      }
+    }
     return out;
   }
-  allPoses(): [string, number, number, number, number][] {
-    return [...this.poses].map(([id, t]) => [id, t.pose.x, t.pose.y, t.pose.d, t.pose.m]);
+  allPoses(): [string, number, number, number, number, number][] {
+    return [...this.poses].map(([id, t]) => [id, t.pose.x, t.pose.y, t.pose.d, t.pose.m, t.pose.f ?? FLOOR_GROUND]);
   }
 
   /** In-game open / close of any hiding or search spot (anyone in the room, after start). */
@@ -424,7 +481,7 @@ export class HouseLogic {
     // Only real house spots (unknown ids such as kitchen_d1 are refused).
     if (!spotById(d.id)) return null;
     const pose = this.poseOf(by);
-    if (!pose || !canUseSpot(pose, d.id)) return null;
+    if (!pose || pose.f !== FLOOR_GROUND || spotFloor(d.id) !== FLOOR_GROUND || !canUseSpot(pose, d.id)) return null;
     if (this.spots.get(d.id) === d.open) return null;
     this.spots.set(d.id, d.open);
     if (d.open) this.spotOpener.set(d.id, by);

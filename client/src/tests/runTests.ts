@@ -15,6 +15,7 @@ import { runFacingFilterTest } from './facingFilterTest';
 import { runNetTest } from './netTest';
 import { runOnlineSpawnTest } from './onlineSpawnTest';
 import { runMinigameTest } from './minigameTest';
+import { runHouseFloorsTest } from './houseFloorsTest';
 
 console.log('Running tests...\n');
 
@@ -32,6 +33,7 @@ try {
   runNetTest();
   runOnlineSpawnTest();
   runMinigameTest();
+  runHouseFloorsTest();
   console.log('\n✅ All tests passed!');
   process.exit(0);
 } catch (error) {

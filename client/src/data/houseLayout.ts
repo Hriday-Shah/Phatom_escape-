@@ -126,7 +126,7 @@ export const houseLayout: HouseLayout = {
     { x: 420, y: 380, width: 10, height: 6 }, // right top (before opening to living)
     { x: 420, y: 484, width: 10, height: 6 }, // right bottom (after opening to living)
     
-    // Living/Dining outer walls (window at x=540-700, y=94-106 is decorative - solid wall behind)
+    // Living/Dining outer walls (stairs opening x=540-700, y=100 — no window tile; see houseFloors.ts)
     { x: 430, y: 100, width: 10, height: 286 }, // left top (before entrance opening)
     { x: 430, y: 484, width: 10, height: 6 }, // left bottom (after entrance opening)
     { x: 430, y: 100, width: 110, height: 10 }, // top left (before window)
@@ -182,7 +182,7 @@ export const houseLayout: HouseLayout = {
 
   windows: [
     { x: 190, y: 140, width: 140, height: 10 }, // bedroom, top wall
-    { x: 540, y: 100, width: 160, height: 10 }, // living room, top wall
+    // Living-room top wall: stairs placeholder (S3-A) — no window tile here.
     { x: 916, y: 600, width: 64, height: 10 }, // kitchen, bottom wall (behind the south-wall sink)
   ],
 

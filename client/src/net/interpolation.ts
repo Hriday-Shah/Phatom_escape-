@@ -8,7 +8,7 @@
 /** Longer than this between poses = a hole, not a step to lerp across. */
 export const GAP_MS = 300;
 
-export interface Sample { t: number; x: number; y: number; d: number; m: number }
+export interface Sample { t: number; x: number; y: number; d: number; m: number; f: number }
 
 export class PoseBuffer {
   private s: Sample[] = [];
@@ -34,11 +34,18 @@ export class PoseBuffer {
     const t = now - this.delayMs;
     while (this.s.length > 2 && this.s[1].t <= t) this.s.shift();
     const a = this.s[0], b = this.s[1];
-    if (!b || t <= a.t) return { ...a, t };
-    if (t >= b.t) return { ...b, t };
+    if (!b || t <= a.t) return { ...a, t, f: a.f ?? 0 };
+    if (t >= b.t) return { ...b, t, f: b.f ?? 0 };
     // The missing samples are gone. Holding beats crawling a chord through the house.
-    if (b.t - a.t > GAP_MS) return { ...a, t };
+    if (b.t - a.t > GAP_MS) return { ...a, t, f: a.f ?? 0 };
     const k = (t - a.t) / (b.t - a.t);
-    return { t, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, d: k < 0.5 ? a.d : b.d, m: a.m || b.m };
+    return {
+      t,
+      x: a.x + (b.x - a.x) * k,
+      y: a.y + (b.y - a.y) * k,
+      d: k < 0.5 ? a.d : b.d,
+      m: a.m || b.m,
+      f: k < 0.5 ? a.f : b.f,
+    };
   }
 }

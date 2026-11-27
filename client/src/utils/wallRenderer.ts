@@ -12,6 +12,7 @@
  */
 import Phaser from 'phaser';
 import type { Wall, WindowRect } from '../data/houseLayout';
+import { LIVING_STAIR_OPENING } from '../data/houseFloors';
 
 export const WALL_TEXTURE_KEY = 'walls_composed';
 const REQUIRED = ['wall', 'wall_v', 'wall_fill', 'window', 'window_v'];
@@ -49,12 +50,15 @@ export function canComposeWalls(scene: Phaser.Scene): boolean {
 }
 
 /** Builds the composed wall texture and adds it to the scene. Returns the image, or null if art is missing. */
+const stairWellPx: Px = [0x45, 0x38, 0x30, 255];
+
 export function createComposedWalls(
   scene: Phaser.Scene,
   worldWidth: number,
   worldHeight: number,
   walls: Wall[],
   windows: WindowRect[],
+  stairOpenings: { x: number; y: number; width: number; height: number }[] = [LIVING_STAIR_OPENING],
 ): Phaser.GameObjects.Image | null {
   if (!canComposeWalls(scene)) return null;
 
@@ -62,6 +66,7 @@ export function createComposedWalls(
   const gh = Math.ceil(worldHeight / ART_SCALE);
   const solid = new Uint8Array(gw * gh);
   const win = new Int16Array(gw * gh).fill(-1); // index into windows[]
+  const stair = new Uint8Array(gw * gh);
 
   const rasterise = (r: { x: number; y: number; width: number; height: number }, fn: (i: number) => void) => {
     const x0 = Math.floor(r.x / ART_SCALE);
@@ -74,6 +79,12 @@ export function createComposedWalls(
   };
   walls.forEach((w) => rasterise(w, (i) => (solid[i] = 1)));
   windows.forEach((w, wi) => rasterise(w, (i) => { if (solid[i]) win[i] = wi; }));
+  stairOpenings.forEach((r) => rasterise(r, (i) => {
+    if (solid[i]) {
+      win[i] = -1;
+      stair[i] = 1;
+    }
+  }));
 
   const isSolid = (x: number, y: number) => x >= 0 && y >= 0 && x < gw && y < gh && solid[y * gw + x] === 1;
   const run = (x: number, y: number, dx: number, dy: number) => {
@@ -117,7 +128,9 @@ export function createComposedWalls(
       const thin = 6;
       let px: Px;
 
-      if (win[i] >= 0) {
+      if (stair[i]) {
+        px = stairWellPx;
+      } else if (win[i] >= 0) {
         const w = windows[win[i]];
         const wx0 = Math.floor(w.x / ART_SCALE);
         const wy0 = Math.floor(w.y / ART_SCALE);
