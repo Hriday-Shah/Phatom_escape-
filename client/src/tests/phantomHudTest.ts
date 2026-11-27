@@ -1,8 +1,10 @@
 /**
- * Phantom hiding menu: item list, selection flow, error strings.
+ * Phantom hiding menu: item list, selection flow, error strings, approved icon sprites.
  */
 import assert from 'node:assert/strict';
-import { hidePlacementErrorMessage, HIDING_MENU_KINDS } from '../ui/phantomHideItems';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { hidePlacementErrorMessage, HIDING_MENU_KINDS, itemIconSrc } from '../ui/phantomHideItems';
 import { BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR } from '../logic/bedroomHide';
 import { ITEM_INFO } from '../logic/items';
 
@@ -14,6 +16,9 @@ t(HIDING_MENU_KINDS.includes('battery'), 'menu includes hideable items');
 for (const kind of HIDING_MENU_KINDS) {
   const info = ITEM_INFO[kind];
   t(!!info.label && !!info.artKey, `icon metadata for ${kind}`);
+  const rel = itemIconSrc(info.artKey).replace(/^\//, '');
+  const disk = join(process.cwd(), 'public', rel);
+  t(existsSync(disk), `approved menu icon on disk for ${kind} (${rel})`);
 }
 
 t(hidePlacementErrorMessage('spot-taken').includes('already'), 'spot-taken message');
