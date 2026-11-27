@@ -326,6 +326,24 @@ test('a wall slide keeps the free axis and a hiding spot stays solid', () => {
   assert.equal(pointBlocked(through.x, through.y, movementBlockers()), false);
 });
 
+test('kitchen NE corner: under stove cabinets slides south instead of stalling', () => {
+  const h = room(1);
+  h.start('s0', 0);
+  const underCab = { x: 1028, y: 336 };
+  stand(h, 's0', underCab.x, underCab.y, 0);
+  assert.equal(pointBlocked(underCab.x, underCab.y, movementBlockers()), false);
+  let pose = { ...underCab };
+  let now = 0;
+  for (let i = 0; i < 8; i++) {
+    const sent = reportSlide(pose, 1, -1);
+    now += 1000 / 12;
+    pose = h.move('s0', { x: sent.x, y: sent.y, d: 2, m: 1 }, now)!;
+    assert.ok(Math.hypot(pose.x - sent.x, pose.y - sent.y) < 0.15, `tick ${i}: server agreed`);
+    assert.ok(pose.y > underCab.y + 4, `tick ${i} moves off the shelf, y=${pose.y}`);
+  }
+  assert.ok(pose.y > underCab.y + 60, `reaches open floor south of cabinets, y=${pose.y}`);
+});
+
 test('living north wall: NE and E slide south toward the foyer opening', () => {
   const h = room(1);
   h.start('s0', 0);

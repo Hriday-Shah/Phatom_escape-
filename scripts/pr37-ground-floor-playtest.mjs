@@ -225,6 +225,21 @@ try {
   if (!kit.ok) fail('kitchen interior', `stuck @ ${kit.after.x},${kit.after.y}`);
   else pass('kitchen interior', `${kit.after.x},${kit.after.y}`);
 
+  // Kitchen NE corner: walk north along the east wall into stove cabinets, then NE must slide south
+  for (const [page, who] of [[host, 'host'], [guest, 'guest']]) {
+    await page.click('canvas', { position: { x: 400, y: 400 } });
+    await hold(page, ['ArrowUp'], 3800);
+    const pinned = await state(page);
+  await hold(page, ['ArrowUp', 'ArrowRight'], 3000);
+    const afterCab = await state(page);
+    const unstick = afterCab.y - pinned.y;
+    const moved = Math.hypot(afterCab.x - pinned.x, afterCab.y - pinned.y);
+    if (pinned.y > 450 && unstick < 12 && moved < 15) {
+      fail(`${who} kitchen cabinet corner`, `stuck under cabinets @ ${afterCab.x},${afterCab.y}`);
+    } else pass(`${who} kitchen cabinet corner`, `pin ${pinned.x},${pinned.y} → ${afterCab.x},${afterCab.y}`);
+  }
+  await compareRemotes(host, guest, 'kitchen cabinet corner', 55);
+
   // Guest: south/east below the living north wall, then foyer mouth
   s0 = await state(guest);
   await guest.click('canvas', { position: { x: 400, y: 400 } });

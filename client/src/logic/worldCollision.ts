@@ -129,6 +129,46 @@ function carTableRect(): Rect | null {
   return houseLayout.furniture.find((f) => f.id === 'car_table') ?? null;
 }
 
+function stoveDrawerCabinet(): Rect | null {
+  return houseLayout.hidingSpots.find((s) => s.id === 'stove_drawers') ?? null;
+}
+
+/**
+ * NE kitchen: pushing into stove-side drawers / the east wall shelf should slide along
+ * the free face (south or west), not freeze under the cabinet art.
+ */
+function kitchenCabinetSlide(
+  from: Point, to: Point, blockers: Rect[], radius = PLAYER_BODY_RADIUS,
+): Point | null {
+  const cab = stoveDrawerCabinet();
+  if (!cab) return null;
+  const westShelf = cab.x - radius - 2;
+  if (from.x < westShelf - 48 || from.x > westShelf + 12) return null;
+  const bottomBand = cab.y + cab.height - radius;
+  if (from.y < cab.y - 16 || from.y > bottomBand + 24) return null;
+  const adx = to.x - from.x;
+  const ady = to.y - from.y;
+  const dist = Math.hypot(adx, ady);
+  if (dist < SLIDE_REACH_EPS) return null;
+  if (ady >= SLIDE_REACH_EPS && adx <= SLIDE_REACH_EPS) return null;
+  const trySlide = (fx: number, fy: number): Point | null => {
+    const c = clampMove(from, { x: fx, y: fy }, blockers, radius, SLIDE_SKIN);
+    if (!slideMoved(from, c) || pointBlocked(c.x, c.y, blockers, radius)) return null;
+    if (movementDeadEnd(c, blockers, radius)) return null;
+    return { x: c.x, y: c.y };
+  };
+  const southOffShelf = from.y > bottomBand;
+  if (southOffShelf || ady < -SLIDE_REACH_EPS || adx > SLIDE_REACH_EPS) {
+    const south = trySlide(from.x, from.y + dist);
+    if (south) return south;
+    if (!southOffShelf) {
+      const west = trySlide(from.x - dist, from.y);
+      if (west) return west;
+    }
+  }
+  return null;
+}
+
 /**
  * Diagonal into the car table should slide along its south face toward the living
  * opening, not climb the north-east corner into the entrance pinch.
@@ -258,6 +298,10 @@ export function slideMove(
     if (northAlong && (!slideMoved(from, best) || best.y <= from.y + SLIDE_REACH_EPS)) best = northAlong;
     const eastJamb = livingEastJambSlide(from, to, blockers, radius);
     if (eastJamb && (!slideMoved(from, best) || best.x <= from.x + SLIDE_REACH_EPS)) best = eastJamb;
+    const cabinetAlong = kitchenCabinetSlide(from, to, blockers, radius);
+    if (cabinetAlong && (!slideMoved(from, best) || (best.x <= from.x + SLIDE_REACH_EPS && best.y <= from.y + SLIDE_REACH_EPS))) {
+      best = cabinetAlong;
+    }
     const belowMouth = from.x <= 808 && from.y >= 290 && from.y <= 318 && to.x > from.x && to.y > from.y;
     if (belowMouth && best.y > from.y + SLIDE_REACH_EPS) {
       const north = clampMove(from, { x: from.x, y: to.y < from.y ? to.y : from.y - Math.hypot(to.x - from.x, to.y - from.y) }, blockers, radius, SLIDE_SKIN);
@@ -607,7 +651,9 @@ export function integrateSlide(
     }
   }
   const alongStick = (x - from.x) * ux + (y - from.y) * uy;
-  const remain = totalBudget - alongStick;
+  // Wall slides that move across the stick (e.g. south while holding NE) must not
+  // fund a tail back into the stick, which used to oscillate in the kitchen NE corner.
+  const remain = alongStick > SLIDE_REACH_EPS ? Math.max(0, totalBudget - alongStick) : 0;
   const tailTo = { x: x + ux * remain, y: y + uy * remain };
   if (remain > SLIDE_REACH_EPS && (doorwayAim({ x, y }, tailTo, blockers, radius).x !== tailTo.x
       || doorwayAim({ x, y }, tailTo, blockers, radius).y !== tailTo.y)) {
