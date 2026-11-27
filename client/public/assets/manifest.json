@@ -1475,7 +1475,8 @@
     32,
     32
    ],
-   "status": "pending review",
+   "status": "approved",
+   "approvedDate": "2026-11-27",
    "slots": [
     {
      "index": 1,
@@ -1564,7 +1565,8 @@
     32,
     32
    ],
-   "status": "pending review"
+   "status": "approved",
+   "approvedDate": "2026-11-27"
   },
   {
    "key": "item_stun_gun_loaded",
@@ -1576,7 +1578,8 @@
     32,
     32
    ],
-   "status": "pending review",
+   "status": "approved",
+   "approvedDate": "2026-11-27",
    "note": "gun + bullet held together"
   },
   {
@@ -1589,7 +1592,8 @@
     32,
     32
    ],
-   "status": "pending review",
+   "status": "approved",
+   "approvedDate": "2026-11-27",
    "note": "bold brass cartridge, copper tip"
   },
   {
@@ -1602,7 +1606,8 @@
     32,
     32
    ],
-   "status": "pending review",
+   "status": "approved",
+   "approvedDate": "2026-11-27",
    "note": "car table only"
   },
   {
@@ -1615,7 +1620,8 @@
     32,
     32
    ],
-   "status": "pending review",
+   "status": "approved",
+   "approvedDate": "2026-11-27",
    "note": "car table only"
   },
   {
@@ -1628,7 +1634,8 @@
     32,
     32
    ],
-   "status": "pending review",
+   "status": "approved",
+   "approvedDate": "2026-11-27",
    "note": "car table only"
   },
   {
@@ -1641,7 +1648,8 @@
     32,
     32
    ],
-   "status": "pending review",
+   "status": "approved",
+   "approvedDate": "2026-11-27",
    "note": "car table only"
   },
   {
@@ -1654,7 +1662,8 @@
     32,
     32
    ],
-   "status": "pending review",
+   "status": "approved",
+   "approvedDate": "2026-11-27",
    "note": "silver jaws, bold crimson handles"
   },
   {
@@ -1667,7 +1676,8 @@
     32,
     32
    ],
-   "status": "pending review"
+   "status": "approved",
+   "approvedDate": "2026-11-27"
   },
   {
    "key": "item_battery",
@@ -1679,7 +1689,8 @@
     32,
     32
    ],
-   "status": "pending review"
+   "status": "approved",
+   "approvedDate": "2026-11-27"
   },
   {
    "key": "item_game_controller",
@@ -2705,7 +2716,8 @@
     192,
     48
    ],
-   "status": "pending review",
+   "status": "approved",
+   "approvedDate": "2026-11-27",
    "spritesheet": {
     "frameWidth": 24,
     "frameHeight": 24,
