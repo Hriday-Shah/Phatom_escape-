@@ -10,6 +10,7 @@ import { MinigameId } from '../logic/minigames';
 import { CodeReveal, MinigameOverlay } from '../minigame/MinigameOverlay';
 import type { HidingSpotManager } from '../objects/HidingSpotManager';
 import type { GameLink } from '../net/ColyseusLobbyService';
+import type { EscapeCode } from '../logic/escapeCode';
 
 export interface ItemHost {
   registry: Phaser.Data.DataManager;
@@ -168,6 +169,11 @@ export class ItemDirector {
 
   holdsKind(kind: WorldItem['kind']): boolean {
     return this.round?.heldBy(this.selfId)?.kind === kind;
+  }
+
+  revealSharedCode(code: EscapeCode): void {
+    this.round?.setRevealedCode(code, this.selfId);
+    this.code.reveal(code, false);
   }
 
   onUse(): boolean {

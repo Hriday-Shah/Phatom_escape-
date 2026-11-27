@@ -53,6 +53,11 @@ export interface PhasePayload {
   roles: { id: string; role: RoundRole }[];
   result?: 'phantom-wins';
   entries?: { id: string; x: number; y: number; f: number }[];
+  untimedHiding?: boolean;
+  bedroomUnlocked?: boolean;
+  codePublic?: boolean;
+  codeSet?: boolean;
+  code?: [string, string, string, string];
 }
 
 /** Drawer opened in search or chase. Phones that are not Phantoms never receive this. */

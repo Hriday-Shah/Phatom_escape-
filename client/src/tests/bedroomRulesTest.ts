@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { canPassBedroomDoor } from '../logic/doorAccess';
+import { phantomButtonState } from '../logic/phantomControls';
 import {
   BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR, autoPlaceHiddenItems, bedroomHideError, bedroomItemCount, isBedroomSpot,
 } from '../logic/bedroomHide';
@@ -23,7 +24,7 @@ export function runBedroomRulesTest(): void {
 
   assert.equal(canPassBedroomDoor('phantom', false, false), true);
   assert.equal(canPassBedroomDoor('player', false, false), false);
-  assert.equal(canPassBedroomDoor('player', true, false), true);
+  assert.equal(canPassBedroomDoor('player', true, false), true, 'unlocked door is open to everyone');
   assert.equal(canPassBedroomDoor('player', false, true), true);
   assert.equal(canPassBedroomDoor(null, false, false), false);
 
@@ -61,6 +62,9 @@ export function runBedroomRulesTest(): void {
   assert.equal(lightRadiusScale('phantom', 'chase'), 0.55);
   assert.equal(Math.round(scaledLightRadius(200, 'phantom', 'chase')), 110);
   assert.equal(Math.round(scaledLightRadius(200, 'player', 'chase')), 164);
+
+  assert.deepEqual(phantomButtonState('hiding'), { place: true, drop: true, catch: false });
+  assert.deepEqual(phantomButtonState('chase'), { place: false, drop: false, catch: true });
 
   console.log('  ✓ bedroom hide rules, door pass, and light scales');
   console.log('\n✅ BEDROOM RULES TEST PASSED');

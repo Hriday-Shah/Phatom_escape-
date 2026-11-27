@@ -119,6 +119,25 @@ export class UIControls {
     return Math.min(60, Math.floor(scr.w * 0.2), Math.floor(scr.h * 0.2));
   }
 
+  public setEnabled(id: ButtonId, on: boolean): void {
+    const b = this.buttons.get(id);
+    if (!b) return;
+    b.enabled = on;
+    this.enabled[id] = on;
+    if (b.face.texture) b.face.setTexture(on ? 'btn_round' : 'btn_round_disabled');
+    if (id === 'shoot') b.icon.setTexture(on ? 'icon_shoot' : 'icon_shoot_disabled');
+  }
+
+  public setButtonVisible(id: ButtonId, on: boolean): void {
+    const b = this.buttons.get(id);
+    if (!b) return;
+    b.face.setVisible(on);
+    b.icon.setVisible(on);
+    b.zone.setVisible(on);
+    if (!on) b.zone.disableInteractive();
+    else b.zone.setInteractive();
+  }
+
   public destroy(): void {
     this.buttons.forEach((b) => { b.face.destroy(); b.icon.destroy(); b.zone.destroy(); });
     this.buttons.clear();

@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import { hideInstanceAlreadyPlaced, hideVariantRequired } from '../logic/hidePlacement';
 
 const t = (ok: boolean, msg: string) => { if (!ok) throw new Error(msg); };
@@ -8,7 +7,8 @@ t(!hideVariantRequired('bullet'), 'bullet is single instance');
 
 t(hideInstanceAlreadyPlaced('battery', '2', [{ kind: 'battery', variant: '2', spotId: 'x' }]), 'same battery slot');
 t(!hideInstanceAlreadyPlaced('battery', '3', [{ kind: 'battery', variant: '2', spotId: 'x' }]), 'other battery slot');
-t(hideInstanceAlreadyPlaced('paper_code', undefined, [{ kind: 'paper_code', spotId: 'x' }]), 'singleton kind');
+t(hideInstanceAlreadyPlaced('game_controller', undefined, [{ kind: 'game_controller', spotId: 'x' }]), 'singleton kind');
+t(!hideInstanceAlreadyPlaced('paper_code', undefined, [{ kind: 'paper_code', spotId: 'x' }]), 'paper code is not a hidden item');
 
 export function runHidePlacementTest(): void {
   console.log('✓ hidePlacement tests passed');

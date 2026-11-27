@@ -7,6 +7,7 @@ import { cssSize, gameDpr } from '../config/display';
 import { applyCssCamera, currentShellLayout, watchInsets } from '../ui/currentLayout';
 import { ShellLayout } from '../ui/shellLayout';
 import { RealDeadline } from '../logic/realTimer';
+import { phantomButtonState } from '../logic/phantomControls';
 
 /**
  * HUD scene, above the game and its darkness: the console's buttons and joystick knob
@@ -124,6 +125,31 @@ export class UIScene extends Phaser.Scene {
   /** Current shell layout (CSS px), for GameScene and tests. */
   public getLayout(): ShellLayout {
     return this.layout;
+  }
+
+  public applyPhantomButtons(isPhantom: boolean, phase: string | null): void {
+    if (!isPhantom) {
+      this.uiControls.setButtonVisible('interact', true);
+      this.uiControls.setButtonVisible('drop', true);
+      this.uiControls.setButtonVisible('sneak', true);
+      this.uiControls.setButtonVisible('shoot', true);
+      this.uiControls.setEnabled('interact', true);
+      this.uiControls.setEnabled('drop', true);
+      this.uiControls.setEnabled('sneak', true);
+      this.uiControls.setEnabled('shoot', false);
+      (this.scene.get('ShellScene') as any)?.setPhantomLabels?.(false);
+      return;
+    }
+    const st = phantomButtonState(phase === 'hiding' || phase === 'search' || phase === 'chase' || phase === 'ended' ? phase : null);
+    this.uiControls.setButtonVisible('interact', true);
+    this.uiControls.setButtonVisible('drop', true);
+    this.uiControls.setButtonVisible('sneak', true); // Catch
+    this.uiControls.setButtonVisible('shoot', false);
+    this.uiControls.setEnabled('interact', st.place);
+    this.uiControls.setEnabled('drop', st.drop);
+    this.uiControls.setEnabled('sneak', st.catch);
+    this.uiControls.setEnabled('shoot', false);
+    (this.scene.get('ShellScene') as any)?.setPhantomLabels?.(true);
   }
 
   public setHeldItem(key: string | null): void {

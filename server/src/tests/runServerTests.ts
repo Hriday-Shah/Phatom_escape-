@@ -17,6 +17,12 @@ import { solvingLog, replayWin, createPuzzle } from '../../../client/src/logic/m
 let n = 0;
 const test = (name: string, f: () => void) => { f(); n++; console.log(`  ✓ ${name}`); };
 
+function enterSearch(h: HouseLogic, now = Date.now()): void {
+  const r = h.forceSearch(now);
+  assert.equal(r.ok, true, r.error);
+  assert.equal(h.roundView()!.phase, 'search');
+}
+
 function room(players = 3, rng: () => number = () => 0): HouseLogic {
   const h = new HouseLogic('ABC234', rng);
   for (let i = 0; i < players; i++) assert.ok(h.join(`s${i}`, { nickname: `P${i}` }).ok);
@@ -501,30 +507,29 @@ test('stage 2: spot state (sofa, bed, drawers) for a returning player; away play
   h.reconnect('s1');
   assert.deepEqual(h.openSpots().sort(), ['sofa_d1', 'stove_drawers_d2']);
   // s1 is a player, so they open spots once search has started (hiding is Phantom-only).
-  h.advance(5 * 60 * 1000);
+  enterSearch(h, 5 * 60 * 1000);
   standAtSpot(h, 's1', 'fridge', 5 * 60 * 1000);
   assert.ok(h.setSpot('s1', { id: 'fridge', open: true }));
 });
 
-test('starting a room hides the controller; the public view omits it and the code is not the room-code seed', () => {
+test('starting a room does not pre-hide the controller; the public view omits items and the code', () => {
   const a = room(2); const b = room(2);
   assert.equal(a.start('s0').ok, true);
   assert.equal(b.start('s0').ok, true);
   const ra = a.roundPublic()!, rb = b.roundPublic()!;
   assert.equal('code' in ra, false);
-  assert.equal(ra.items.length, 0, 'hidden controller must not be in the public snapshot');
+  assert.equal(ra.items.length, 0, 'the public snapshot has no items');
   assert.ok(a.items);
-  assert.equal(a.items.items[0].kind, 'game_controller');
-  assert.ok(a.items.items[0].spotId);
+  assert.equal(a.items.items.length, 0, 'the Phantom places the controller; it is not pre-hidden');
   const fromCode = createRound('ABC234', 1);
   // Server-only randomness: must not match the offline/room-code seed (R14-3).
-  const sameA = fromCode.items[0]!.spotId === a.items.items[0]!.spotId && fromCode.minigame === a.items.minigame;
-  const sameB = fromCode.items[0]!.spotId === b.items!.items[0]!.spotId && fromCode.minigame === b.items!.minigame;
-  assert.equal(sameA && sameB && a.items.code.join() === fromCode.code.join() && b.items!.code.join() === fromCode.code.join(), false);
+  const sameA = fromCode.minigame === a.items.minigame && a.items.code.join() === fromCode.code.join();
+  const sameB = fromCode.minigame === b.items!.minigame && b.items!.code.join() === fromCode.code.join();
+  assert.equal(sameA && sameB, false);
 });
 
 
-test('pickup, TV minigame, private code reveal, controller is not consumed', () => {
+test('pickup, TV minigame, public code reveal, controller is not consumed', () => {
   const h = room(2);
   assert.equal(h.start('s0').ok, true);
   // R15-8: pin the controller far from the TV so startMinigame fails before walking there.
@@ -554,7 +559,8 @@ test('pickup, TV minigame, private code reveal, controller is not consumed', () 
   assert.ok(win.code);
   assert.equal(h.itemListFor(h.playerId('s0')!)[0].heldBy, h.playerId('s0'), 'controller kept');
   assert.equal(h.items!.knowsCode(h.playerId('s0')!), true);
-  assert.equal(h.items!.knowsCode(h.playerId('s1')!), false);
+  assert.equal(h.items!.knowsCode(h.playerId('s1')!), true, 'win publishes the paper code');
+  assert.equal(h.items!.codeIsPublic(), true);
   assert.equal(h.startMinigame('s0').ok, true);
 });
 
@@ -599,7 +605,7 @@ test('anti-cheat: itemDrop is limited to reach and to open floor or open spots, 
   const dropped = h.items!.items[0]!;
   assert.equal(dropped.heldBy, null);
   assert.equal(dropped.spotId, null);
-  h.advance(h.roundView()!.endsAt);
+  enterSearch(h, t0 + 2000);
   stand(h, 's1', dropped.x, dropped.y + 20, t0 + 2000);
   const got = h.pickup('s1', { id: dropped.id });
   assert.equal(got.ok, true, got.error);
@@ -621,7 +627,7 @@ test('a disconnect drop leaves the controller on the floor, pick-up-able by some
   const floor = h.items!.items[0]!;
   assert.equal(floor.heldBy, null);
   assert.equal(floor.spotId, null);
-  h.advance(h.roundView()!.endsAt);
+  assert.equal(h.roundView()!.phase, 'search', 'the last Phantom leaving ends hiding');
   stand(h, 's1', floor.x - 15, floor.y, t0 + 2000);
   const got = h.pickup('s1', { id: floor.id });
   assert.equal(got.ok, true, got.error);
@@ -641,7 +647,7 @@ test('R15-1: paper code and controller spot do not depend on gameSeed', () => {
   for (let i = 0; i < 60; i++) {
     const h = room(1);
     assert.ok(h.start('s0').ok);
-    rooms.add(`${h.items!.gameSeed}:${h.items!.code.join()}:${h.items!.items[0]!.spotId}`);
+    rooms.add(`${h.items!.gameSeed}:${h.items!.code.join()}`);
   }
   assert.equal(rooms.size, 60, '60 rooms should not collide on seed+secrets');
 });
@@ -676,7 +682,7 @@ test('R15-3: spot contents go only to the opener or to players who can see the s
   assert.equal(opener.length, 1);
   assert.equal(opener[0]!.spotId, 'study_drawer_1');
   // Search lets the other player in at the entrance — a wall still blocks the study.
-  h.advance(h.roundView()!.endsAt);
+  enterSearch(h, h.roundView()!.serverNow);
   const other = h.itemListFor(h.playerId('s1')!);
   assert.equal(other.length, 0, 'remote player must not receive hidden contents');
   // Walk the other player beside the open spot: they can now see it.
@@ -879,11 +885,12 @@ test('phases follow the host durations, then time is up and the Phantom wins', (
   const searchEnd = hideEnd + 2 * 60_000;
   const chaseEnd = searchEnd + 5 * 60_000;
   assert.equal(h.roundView(1_000)!.phase, 'hiding');
-  assert.equal(h.roundView(1_000)!.endsAt, hideEnd);
+  assert.equal(h.roundView(1_000)!.untimedHiding, true);
   h.advance(hideEnd - 1);
-  assert.equal(h.roundView()!.phase, 'hiding');
+  assert.equal(h.roundView()!.phase, 'hiding', 'hiding has no time limit');
   h.advance(hideEnd);
-  assert.equal(h.roundView()!.phase, 'search');
+  assert.equal(h.roundView()!.phase, 'hiding', 'hiding does not auto-advance');
+  enterSearch(h, hideEnd);
   assert.equal(h.roundView()!.endsAt, searchEnd);
   stand(h, 's0', 700, 400, searchEnd - 1);
   h.advance(searchEnd);
@@ -937,8 +944,7 @@ test('movement rejected for a waiter in hiding and for a Phantom in search', () 
   assert.deepEqual(h.takeHold('s1'), h.poseForTest('s1'));
   standAtSpot(h, 's1', 'sofa_d1', 300);
   assert.equal(h.setSpot('s1', { id: 'sofa_d1', open: true }), null, 'a waiting player cannot open a spot');
-  h.advance(5 * 60 * 1000);
-  assert.equal(h.roundView()!.phase, 'search');
+  enterSearch(h, 5 * 60 * 1000);
   assert.equal(inHouse(h.poseForTest('s1')!), true, 'search places the waiter at the entrance');
   const phantomAt = h.poseForTest('s0')!;
   assert.equal(h.move('s0', { x: phantomAt.x + 30, y: phantomAt.y, d: 2, m: 1, f: 0 }, 5 * 60 * 1000 + 200), null);
@@ -968,8 +974,7 @@ test('a waiter who reconnects during hiding stays in the waiting room, then is r
   assert.equal(h.canSeeHouse(player), false);
   assert.equal(h.move('s1', { x: 300, y: 430, d: 2, m: 1, f: 0 }, 20_000), null, 'reconnect cannot walk into the house');
   assert.equal(inHouse(h.poseForTest('s1')!), false);
-  h.advance(10_000 + 60_000);
-  assert.equal(h.roundView()!.phase, 'search');
+  enterSearch(h, 10_000 + 60_000);
   const released = h.poseForTest('s1')!;
   assert.equal(inHouse(released), true, 'search lets the reconnected waiter in');
   assert.ok(Math.hypot(released.x - 300, released.y - 430) < 200, `released at ${released.x},${released.y}`);
@@ -988,7 +993,7 @@ test('drawer noise is sent only to Phantoms, and only in search or chase when it
   assert.ok(h.setSpot('s0', { id: 'sofa_d1', open: true }));
   assert.equal(h.takeNoise(), null, 'hiding does not ripple');
   h.setSpot('s0', { id: 'sofa_d1', open: false });
-  h.advance(60_000);
+  enterSearch(h, 60_000);
   standAtSpot(h, 's2', 'bed', 60_000);
   const opened = h.setSpot('s2', { id: 'bed', open: true });
   assert.ok(opened);
@@ -1005,14 +1010,14 @@ test('drawer noise is sent only to Phantoms, and only in search or chase when it
   const silent = room(2);
   silent.updateSettings('s0', { patch: { drawerNoise: 'off' } });
   silent.start('s0', 0);
-  silent.advance(5 * 60 * 1000);
+  enterSearch(silent, 5 * 60 * 1000);
   standAtSpot(silent, 's1', 'fridge', 5 * 60 * 1000);
   assert.ok(silent.setSpot('s1', { id: 'fridge', open: true }));
   assert.equal(silent.takeNoise(), null, 'off sends nothing');
   const quiet = room(2);
   quiet.updateSettings('s0', { patch: { drawerNoise: 'quiet' } });
   quiet.start('s0', 0);
-  quiet.advance(5 * 60 * 1000);
+  enterSearch(quiet, 5 * 60 * 1000);
   standAtSpot(quiet, 's1', 'sofa_d1', 5 * 60 * 1000);
   const q = quiet.setSpot('s1', { id: 'sofa_d1', open: true });
   assert.ok(q);
@@ -1033,6 +1038,7 @@ test('reconnect and host migration keep the role and the phase clock', () => {
   const h = room(3);
   h.updateSettings('s0', { patch: { hidingMinutes: 1, searchMinutes: 2, chaseMinutes: 5, phantoms: 1 } });
   h.start('s0', 10_000);
+  enterSearch(h, 10_000 + 60_000);
   h.advance(10_000 + 60_000 + 30_000);
   const view = h.roundView()!;
   assert.equal(view.phase, 'search');
@@ -1111,8 +1117,7 @@ test('the Phantom can always walk through the locked bedroom door; a player with
   const ph = walkServer(h, phantom, from, goal, 0, true);
   assert.ok(ph.y < 360, `Phantom should enter the bedroom (ended ${ph.x.toFixed(1)},${ph.y.toFixed(1)})`);
 
-  h.advance(h.roundView()!.endsAt);
-  assert.equal(h.roundView()!.phase, 'search');
+  enterSearch(h, h.roundView()!.serverNow);
   const now = h.roundView()!.endsAt;
   const pl = walkServer(h, player, from, goal, now, false);
   assert.ok(pl.y > 360, `player without the key must not pass the bedroom door (ended ${pl.x.toFixed(1)},${pl.y.toFixed(1)})`);
@@ -1181,13 +1186,131 @@ test('auto-place at the end of hiding keeps the bedroom limit and never hides th
   h.addUnplacedItem('battery');
   h.addUnplacedItem('battery');
   h.addUnplacedItem('battery');
-  h.advance(h.roundView()!.endsAt);
-  assert.equal(h.roundView()!.phase, 'search');
+  assert.equal(h.endHiding('s0').ok, false, 'cannot end hiding while items are unplaced');
+  enterSearch(h, h.roundView()!.serverNow);
   const items = h.items!.items;
-  assert.ok(items.every((i) => i.spotId), 'unplaced leftovers received a spot');
+  assert.ok(items.every((i) => i.spotId), 'disconnect-style forceSearch auto-places leftovers');
   const key = items.find((i) => i.kind === 'room_key')!;
   assert.ok(key.spotId && !isBedroomSpot(key.spotId), 'the room key was not auto-placed in the bedroom');
   assert.ok(bedroomItemCount(items) <= 3, `bedroom held ${bedroomItemCount(items)} after auto-place`);
+});
+
+
+test('using the room key at the bedroom door unlocks it for everyone and consumes the key', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  const player = sessionRole(h, 'player');
+  const other = freeOtherSpot(h);
+  assert.equal(h.placeHiddenItem(phantom, 'room_key', other).ok, true);
+  enterSearch(h, 1000);
+  const key = h.items!.items.find((i) => i.kind === 'room_key')!;
+  const spot = other;
+  const from = { x: 360, y: 410 };
+  standAtSpot(h, player, spot, 2000);
+  h.setSpot(player, { id: spot, open: true });
+  assert.equal(h.pickup(player, { id: key.id }).ok, true);
+  stand(h, player, from.x, from.y, 3000);
+  assert.equal(h.unlockBedroom(player).ok, true);
+  assert.equal(h.isBedroomUnlocked(), true);
+  assert.equal(h.items!.items.some((i) => i.kind === 'room_key'), false, 'key is consumed');
+  const now = 4000;
+  const pl = walkServer(h, player, from, { x: 250, y: 250 }, now, true);
+  assert.ok(pl.y < 360, `after unlock a player may enter (ended ${pl.x.toFixed(1)},${pl.y.toFixed(1)})`);
+});
+
+test('a player without the key cannot unlock the bedroom door', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const player = sessionRole(h, 'player');
+  enterSearch(h, 1000);
+  stand(h, player, 360, 410, 2000);
+  const r = h.unlockBedroom(player);
+  assert.equal(r.ok, false);
+  assert.equal(r.error, 'need-key');
+  assert.equal(h.isBedroomUnlocked(), false);
+});
+
+test('end hiding requires every kit item and a Phantom-set paper code; a timer cannot end it', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  h.advance(10 * 60 * 1000);
+  assert.equal(h.roundView()!.phase, 'hiding');
+  assert.equal(h.endHiding(phantom).error, 'code-not-set');
+  assert.equal(h.setPaperCode(phantom, { code: ['red', 'blue', 'violet', 'yellow'] }).ok, true);
+  assert.equal(h.endHiding(phantom).error, 'items-unplaced');
+  // One item is not enough.
+  const spots = hidingSpotList().filter((s) => !isBedroomSpot(s.id)).map((s) => s.id);
+  assert.equal(h.placeHiddenItem(phantom, 'stun_gun', spots[0]!).ok, true);
+  assert.equal(h.endHiding(phantom).ok, false);
+});
+
+test('dropping a picked-up key or a 4th item into the bedroom is still rejected', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  const others = hidingSpotList().filter((s) => !isBedroomSpot(s.id)).map((s) => s.id);
+  const beds = freeBedroomSpots(h);
+  assert.ok(beds.length >= 4);
+  // Hide the key outside, pick it up, try to drop it in the bedroom.
+  assert.equal(h.placeHiddenItem(phantom, 'room_key', others[0]!).ok, true);
+  standAtSpot(h, phantom, others[0]!, 100);
+  h.setSpot(phantom, { id: others[0]!, open: true });
+  const key = h.items!.items.find((i) => i.kind === 'room_key')!;
+  assert.equal(h.pickup(phantom, { id: key.id }).ok, true);
+  standAtSpot(h, phantom, beds[0]!, 200);
+  h.setSpot(phantom, { id: beds[0]!, open: true });
+  const pose = h.poseForTest(phantom)!;
+  const dropKey = h.dropItem(phantom, { x: pose.x, y: pose.y, spotId: beds[0]! });
+  assert.equal(dropKey.ok, false);
+  assert.equal(dropKey.error, BEDROOM_KEY_ERROR);
+  // Drop the key back outside, then fill 3 bedroom spots, pick a 4th battery from outside, drop it in.
+  standAtSpot(h, phantom, others[1]!, 300);
+  h.setSpot(phantom, { id: others[1]!, open: true });
+  const pose2 = h.poseForTest(phantom)!;
+  assert.equal(h.dropItem(phantom, { x: pose2.x, y: pose2.y, spotId: others[1]! }).ok, true);
+  for (const id of beds.slice(0, 3)) {
+    assert.equal(h.placeHiddenItem(phantom, 'battery', id, String(beds.indexOf(id) + 1)).ok, true);
+  }
+  assert.equal(h.placeHiddenItem(phantom, 'battery', others[2]!, '4').ok, true);
+  standAtSpot(h, phantom, others[2]!, 400);
+  h.setSpot(phantom, { id: others[2]!, open: true });
+  const bat = h.items!.items.find((i) => i.kind === 'battery' && i.variant === '4')!;
+  assert.equal(h.pickup(phantom, { id: bat.id }).ok, true);
+  standAtSpot(h, phantom, beds[3]!, 500);
+  h.setSpot(phantom, { id: beds[3]!, open: true });
+  const pose3 = h.poseForTest(phantom)!;
+  const drop4 = h.dropItem(phantom, { x: pose3.x, y: pose3.y, spotId: beds[3]! });
+  assert.equal(drop4.ok, false);
+  assert.equal(drop4.error, BEDROOM_LIMIT_ERROR);
+});
+
+test('the Phantom can hide the game controller, and a mini-game win publishes the paper code to everyone', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  const player = sessionRole(h, 'player');
+  const spot = freeOtherSpot(h);
+  const placed = h.placeHiddenItem(phantom, 'game_controller', spot);
+  assert.equal(placed.ok, true, placed.error);
+  const ctrl = h.items!.items.find((i) => i.kind === 'game_controller');
+  assert.ok(ctrl && ctrl.spotId === spot);
+  assert.equal(h.setPaperCode(phantom, { code: ['yellow', 'red', 'blue', 'violet'] }).ok, true);
+  enterSearch(h, 1000);
+  standAtSpot(h, player, spot, 2000);
+  h.setSpot(player, { id: spot, open: true });
+  assert.equal(h.pickup(player, { id: ctrl!.id }).ok, true);
+  // Win path still requires a start + replay; here we only check publish after a successful win helper is not forced.
+  // After hide, the code is not public.
+  assert.equal(h.roundView()!.codePublic, undefined);
+  // Simulate a published code the same way a win does.
+  h.items!.publishCode();
+  const view = h.roundView(2000)!;
+  assert.equal(view.codePublic, true);
+  assert.deepEqual(view.code, ['yellow', 'red', 'blue', 'violet']);
+  assert.ok(h.items!.knowsCode(h.playerId(player)!));
+  assert.ok(h.items!.knowsCode(h.playerId(phantom)!));
 });
 
 console.log(`\n✅ ${n} server tests passed`);

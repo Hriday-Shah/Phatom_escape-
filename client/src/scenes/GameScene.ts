@@ -14,12 +14,17 @@ import {
   getSelectedHideSlot,
   hideHideMenu,
   hidePhantomReveal,
+  hidePhantomHidingActions,
   hidePlacementErrorMessage,
   showPhantomHideControls,
   showPhantomReveal,
   updateHideMenu,
   phantomRevealText,
+  configurePhantomHidingActions,
+  showOpenDoorButton,
 } from '../ui/phantomHud';
+import { BEDROOM_DOOR_MESSAGE, nearBedroomDoor } from '../logic/doorAccess';
+import type { EscapeCode } from '../logic/escapeCode';
 import { spawnNoiseRipple } from '../objects/NoiseRipple';
 import { Furniture, houseLayout } from '../data/houseLayout';
 import { createComposedWalls } from '../utils/wallRenderer';
@@ -71,6 +76,8 @@ export class GameScene extends Phaser.Scene {
   /** Items, Game Controller mini-game and paper-code reveal. */
   public items: ItemDirector | null = null;
   private floorView!: FloorView;
+  private phantomCodeSet = false;
+  private wasNearLockedBedroom = false;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -150,7 +157,9 @@ export class GameScene extends Phaser.Scene {
       this.phaseUnsubs.forEach((u) => u());
       hideWaitingRoom();
       hideHideMenu();
+      hidePhantomHidingActions();
       hidePhantomReveal();
+      showOpenDoorButton(false);
       this.items?.destroy();
       this.items = null;
     });
@@ -312,7 +321,22 @@ export class GameScene extends Phaser.Scene {
     this.syncLightRadius();
     this.syncRevealBanner();
     this.syncHideMenu();
+    if (this.phaseView?.codeSet) this.phantomCodeSet = true;
+    this.syncPhantomButtons();
+    this.syncPublishedCode();
     this.refreshPhaseHud();
+  }
+
+  private syncPhantomButtons(): void {
+    (this.uiScene as { applyPhantomButtons?: (p: boolean, phase: string | null) => void })
+      ?.applyPhantomButtons?.(this.roundRole === 'phantom', this.roundPhaseName);
+  }
+
+  private syncPublishedCode(): void {
+    const code = this.phaseView?.code;
+    if (this.phaseView?.codePublic && code) {
+      this.items?.revealSharedCode?.(code as unknown as EscapeCode);
+    }
   }
 
   private onItemsChanged(): void {
@@ -322,8 +346,8 @@ export class GameScene extends Phaser.Scene {
 
   private syncDoorAccess(): void {
     const debugUnlock = hasDebugFlag('unlock');
-    const hasKey = !!this.items?.holdsKind('room_key');
-    const pass = canPassBedroomDoor(this.roundRole, hasKey, debugUnlock);
+    const unlocked = !!this.phaseView?.bedroomUnlocked;
+    const pass = canPassBedroomDoor(this.roundRole, unlocked, debugUnlock);
     this.player.setPassBedroom(pass);
     this.setBedroomDoorSolid(!pass);
   }
@@ -360,10 +384,17 @@ export class GameScene extends Phaser.Scene {
     const net = this.registry.get('net') as GameLink | null | undefined;
     if (!net || this.roundRole !== 'phantom' || this.roundPhaseName !== 'hiding') {
       hideHideMenu();
+      hidePhantomHidingActions();
       return;
     }
     const items = this.items?.worldItems() ?? [];
     showPhantomHideControls(items);
+    configurePhantomHidingActions({
+      items,
+      codeSet: this.phantomCodeSet || !!this.phaseView?.codeSet,
+      onEnd: () => net.sendEndHiding(),
+      onSetCode: (code) => { net.sendSetPaperCode(code); this.phantomCodeSet = true; this.syncHideMenu(); },
+    });
   }
 
   private tryPhantomHide(): boolean {
@@ -397,7 +428,9 @@ export class GameScene extends Phaser.Scene {
   private setWaiting(on: boolean): void {
     if (on) {
       this.cameras.main.stopFollow();
-      showWaitingRoom(this.waitingClockText());
+      const net = this.registry.get('net') as GameLink | null | undefined;
+      const who = net ? phantomRevealText(this.phaseView?.roles ?? [], net.players()) : '';
+      showWaitingRoom(this.waitingClockText(), who, this.phaseView?.untimedHiding !== false);
       (this.uiScene as { hideHidingSpotPrompt?: () => void })?.hideHidingSpotPrompt?.();
     } else {
       hideWaitingRoom();
@@ -441,11 +474,11 @@ export class GameScene extends Phaser.Scene {
       ui.setPhaseLine(PHASE_LABEL.ended);
       return;
     }
-    const ms = phaseRemainingMs(this.phaseView.endsAt, this.phaseView.serverNow, this.phaseAt, performance.now());
     const who = this.roundRole === 'phantom' ? 'Phantom' : 'Player';
     const outside = this.outside ? '\nYou are outside the house.' : '';
-    const clock = formatPhaseClock(ms);
-    ui.setPhaseLine(`${who} · ${PHASE_LABEL[this.roundPhaseName]}  ${clock}${outside}`);
+    const untimed = this.roundPhaseName === 'hiding' || this.phaseView.untimedHiding;
+    const clock = untimed ? '' : formatPhaseClock(phaseRemainingMs(this.phaseView.endsAt, this.phaseView.serverNow, this.phaseAt, performance.now()));
+    ui.setPhaseLine(`${who} · ${PHASE_LABEL[this.roundPhaseName]}${clock ? '  ' + clock : ''}${outside}`);
     if (isWaiting(this.roundRole, this.roundPhaseName)) updateWaitingClock(clock);
   }
 
@@ -728,7 +761,13 @@ export class GameScene extends Phaser.Scene {
     if (this.items?.onUse()) return;
     // Check for door interaction
     const nearbyDoor = this.checkNearbyDoor();
-    if (nearbyDoor) {
+    if (nearbyDoor && nearbyDoor.id === 'bedroom_door' && !this.player.getPassBedroom()) {
+      if (!this.items?.holdsKind('room_key')) {
+        (this.uiScene as any).showDoorMessage(BEDROOM_DOOR_MESSAGE, 2000);
+      }
+      return;
+    }
+    if (nearbyDoor && nearbyDoor.id !== 'bedroom_door') {
       (this.uiScene as any).showDoorMessage(nearbyDoor.message || 'Locked', 2000);
       return;
     }
@@ -742,6 +781,24 @@ export class GameScene extends Phaser.Scene {
 
     // Check for hiding spot interaction
     this.hidingSpotManager.interact();
+  }
+
+  private syncBedroomPrompt(): void {
+    const unlocked = !!this.phaseView?.bedroomUnlocked || hasDebugFlag('unlock');
+    const near = !this.outside && !!this.player && nearBedroomDoor(this.player.x, this.player.y);
+    const canPass = this.player?.getPassBedroom() || unlocked;
+    const hasKey = !!this.items?.holdsKind('room_key');
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    const showOpen = near && hasKey && !canPass && this.roundRole === 'player';
+    showOpenDoorButton(showOpen, () => net?.sendUnlockBedroom());
+    if (near && !hasKey && !canPass && this.roundRole === 'player') {
+      if (!this.wasNearLockedBedroom) {
+        (this.uiScene as any).showDoorMessage(BEDROOM_DOOR_MESSAGE, 2000);
+      }
+      this.wasNearLockedBedroom = true;
+    } else {
+      this.wasNearLockedBedroom = false;
+    }
   }
 
   private onDrop(): void {
@@ -780,6 +837,7 @@ export class GameScene extends Phaser.Scene {
       this.keepSpotClearOfPrompt(delta);
       return;
     }
+    this.syncBedroomPrompt();
 
     // Get keyboard input
     let moveX = 0;

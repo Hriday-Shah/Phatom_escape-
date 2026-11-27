@@ -24,9 +24,8 @@ function singleSlot(kind: ItemKind): HideMenuSlot {
   return { slotId: kind, kind, label: info.label, artKey: info.artKey };
 }
 
-/** Menu order: singles, four cars, four batteries. Controller is not listed. */
+/** Menu order: hideable kit (13). Paper code is not hidden; the controller is. */
 export const HIDING_MENU_SLOTS: readonly HideMenuSlot[] = [
-  singleSlot('paper_code'),
   singleSlot('stun_gun'),
   singleSlot('bullet'),
   ...TOY_CAR_COLOURS.map((colour) => ({
@@ -45,10 +44,11 @@ export const HIDING_MENU_SLOTS: readonly HideMenuSlot[] = [
     label: `Battery ${n}`,
     artKey: ITEM_INFO.battery.artKey,
   })),
+  singleSlot('game_controller'),
 ];
 
 export function hideSlotTaken(slot: HideMenuSlot, items: readonly WorldItem[]): boolean {
-  const placed = items.filter((i) => i.spotId && i.kind !== 'game_controller');
+  const placed = items.filter((i) => i.spotId && i.kind !== 'paper_code');
   if (slot.kind === 'toy_car' || slot.kind === 'battery') {
     return placed.some((i) => i.kind === slot.kind && i.variant === slot.variant);
   }
@@ -61,4 +61,8 @@ export function remainingHideSlots(items: readonly WorldItem[]): HideMenuSlot[] 
 
 export function hideSlotById(slotId: string): HideMenuSlot | undefined {
   return HIDING_MENU_SLOTS.find((s) => s.slotId === slotId);
+}
+/** True when every hide-menu instance has a spot. */
+export function hidingComplete(items: readonly WorldItem[]): boolean {
+  return remainingHideSlots(items).length === 0;
 }

@@ -204,8 +204,9 @@
   <div id="pe-waiting" hidden>
     <section id="pe-waiting-panel" class="pe-screen" aria-labelledby="pe-waiting-title">
       <h2 id="pe-waiting-title" class="pe-view-title">Waiting for the Phantom</h2>
-      <p id="pe-waiting-copy">The Phantom is hiding items in the house. You will be let in when the search starts.</p>
-      <p id="pe-waiting-clock" aria-live="polite">0:00</p>
+      <p id="pe-waiting-copy">The Phantom is hiding items in the house. You will be let in when the search starts. There is no time limit.</p>
+      <p id="pe-waiting-phantom" aria-live="polite"></p>
+      <p id="pe-waiting-clock" aria-live="polite" hidden></p>
     </section>
   </div>
   <!--
@@ -214,6 +215,13 @@
   -->
   <p id="pe-reveal" role="status" aria-live="polite" hidden></p>
   <button id="pe-hide-open" type="button" hidden>Choose item</button>
+  <button id="pe-end-hiding" type="button" hidden disabled>End hiding</button>
+  <div id="pe-code-set" hidden>
+    <p id="pe-code-set-label">Set the paper code (car order)</p>
+    <div id="pe-code-set-slots"></div>
+    <button id="pe-code-set-confirm" type="button" class="pe-primary">Set code</button>
+  </div>
+  <button id="pe-open-door" type="button" hidden>Open door</button>
   <div id="pe-hide-backdrop" hidden>
     <aside id="pe-hide-menu" role="dialog" aria-labelledby="pe-hide-title" aria-modal="true">
       <h2 id="pe-hide-title">Choose an item to hide</h2>

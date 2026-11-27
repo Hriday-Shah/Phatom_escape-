@@ -2,13 +2,14 @@ import type { ItemKind } from './items';
 
 type PlacedLike = { kind: string; variant?: string; spotId?: string | null };
 
-/** True when this menu instance is already hidden (controller ignored). */
+/** True when this menu instance is already hidden (paper code is not a hidden item). */
 export function hideInstanceAlreadyPlaced(
   kind: ItemKind,
   variant: string | undefined,
   items: readonly PlacedLike[],
 ): boolean {
-  const placed = items.filter((i) => i.spotId && i.kind !== 'game_controller');
+  if (kind === 'paper_code') return false;
+  const placed = items.filter((i) => i.spotId && i.kind !== 'paper_code');
   if (kind === 'toy_car' || kind === 'battery') {
     return placed.some((i) => i.kind === kind && i.variant === variant);
   }

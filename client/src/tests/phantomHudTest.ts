@@ -1,7 +1,6 @@
 /**
  * Phantom hiding menu: 13 slots, cars/batteries expanded, error strings, icons on disk.
  */
-import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -19,7 +18,8 @@ const t = (ok: boolean, msg: string) => { if (!ok) throw new Error(msg); };
 t(HIDING_MENU_SLOTS.length === 13, '13 hideable menu slots');
 t(HIDING_MENU_SLOTS.filter((s) => s.kind === 'toy_car').length === 4, 'four toy cars');
 t(HIDING_MENU_SLOTS.filter((s) => s.kind === 'battery').length === 4, 'four batteries');
-t(!HIDING_MENU_SLOTS.some((s) => s.kind === 'game_controller'), 'no controller in menu');
+t(HIDING_MENU_SLOTS.some((s) => s.kind === 'game_controller'), 'controller is in the menu');
+t(!HIDING_MENU_SLOTS.some((s) => s.kind === 'paper_code'), 'paper code is not hidden');
 
 for (const slot of HIDING_MENU_SLOTS) {
   const disk = join(process.cwd(), 'public', 'assets', 'items', `${slot.artKey}.png`);

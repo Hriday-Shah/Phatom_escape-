@@ -140,6 +140,25 @@ export class HouseRoom extends Room {
       if (r.ok) this.sendItemsToAll();
       else client.send('rejected', { action: 'hideItem', error: r.error });
     });
+    this.onMessage('endHiding', (client) => {
+      if (!this.allow(client, 'act')) return;
+      const r = this.logic.endHiding(client.sessionId, Date.now());
+      if (r.ok) this.pushPhase();
+      else client.send('rejected', { action: 'endHiding', error: r.error });
+    });
+    this.onMessage('setPaperCode', (client, msg) => {
+      if (!this.allow(client, 'act')) return;
+      const r = this.logic.setPaperCode(client.sessionId, msg);
+      if (!r.ok) client.send('rejected', { action: 'setPaperCode', error: r.error });
+    });
+    this.onMessage('unlockBedroom', (client) => {
+      if (!this.allow(client, 'act')) return;
+      const r = this.logic.unlockBedroom(client.sessionId);
+      if (r.ok) {
+        this.sendItemsToAll();
+        this.pushPhase();
+      } else client.send('rejected', { action: 'unlockBedroom', error: r.error });
+    });
     this.onMessage('minigameStart', (client) => {
       if (!this.allow(client, 'act')) return;
       const r = this.logic.startMinigame(client.sessionId);
@@ -155,8 +174,8 @@ export class HouseRoom extends Room {
       if (!this.allow(client, 'act')) return;
       const log = msg && typeof msg === 'object' && 'log' in (msg as object) ? (msg as { log: unknown }).log : msg;
       const r = this.logic.winMinigame(client.sessionId, Date.now(), log);
-      // The paper code is sent only to the winner, never broadcast.
-      if (r.ok && r.code) client.send('codeReveal', { code: r.code });
+      // A mini-game win publishes the paper code to every player.
+      if (r.ok && r.code) this.broadcast('codeReveal', { code: r.code });
       else if (!r.ok) client.send('rejected', { action: 'minigameWin', error: r.error });
     });
     this.onMessage('minigameClose', (client) => {
@@ -313,6 +332,7 @@ export class HouseRoom extends Room {
       const round = this.logic.roundPublic();
       if (round && see) client.send('round', round);
       if (pid && see) client.send('items', { items: this.logic.itemListFor(pid) });
+      this.sendPublicCode(client);
       if (see) {
         const p = this.logic.allPoses().filter((row) => !pid || this.logic.canSeeActor(pid, row[0]));
         if (p.length) client.send('poses', { p });
@@ -321,6 +341,13 @@ export class HouseRoom extends Room {
   }
 
   onDispose(): void { ROOMS.delete(this.logic.code); }
+
+  private sendPublicCode(client?: Client): void {
+    const view = this.logic.roundView();
+    if (!view?.codePublic || !view.code) return;
+    if (client) client.send('codeReveal', { code: view.code });
+    else this.broadcast('codeReveal', { code: view.code });
+  }
 
   private broadcastLobby(): void { this.broadcast('lobby', this.logic.snapshot()); }
 }

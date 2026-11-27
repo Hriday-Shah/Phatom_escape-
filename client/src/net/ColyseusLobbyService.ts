@@ -58,6 +58,9 @@ export interface GameLink {
   sendItemPickup(id: string): void;
   sendItemDrop(x: number, y: number, spotId?: string | null): void;
   sendHideItem(kind: string, spotId: string, variant?: string): void;
+  sendEndHiding(): void;
+  sendSetPaperCode(code: string[]): void;
+  sendUnlockBedroom(): void;
   sendMinigameStart(): void;
   sendMinigameWin(log: LogEvent[]): void;
   sendMinigameClose(): void;
@@ -437,6 +440,9 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   sendHideItem(kind: string, spotId: string, variant?: string): void {
     if (!this.left) this.room.send('hideItem', { kind, spotId, ...(variant ? { variant } : {}) });
   }
+  sendEndHiding(): void { if (!this.left) this.room.send('endHiding', {}); }
+  sendSetPaperCode(code: string[]): void { if (!this.left) this.room.send('setPaperCode', { code }); }
+  sendUnlockBedroom(): void { if (!this.left) this.room.send('unlockBedroom', {}); }
   sendItemDrop(x: number, y: number, spotId?: string | null): void { if (!this.left) this.room.send('itemDrop', { x, y, spotId: spotId ?? null }); }
   sendMinigameStart(): void { if (!this.left) this.room.send('minigameStart', {}); }
   sendMinigameWin(log: LogEvent[]): void { if (!this.left) this.room.send('minigameWin', { log }); }

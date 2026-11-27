@@ -2,7 +2,7 @@
  * Phantom hide item picker (overlay) and the search-start reveal banner for non-Phantoms.
  */
 import './phantomHud.css';
-import type { WorldItem } from '../logic/items';
+import { type ToyCarColour, type WorldItem } from '../logic/items';
 import { hideInstanceAlreadyPlaced } from '../logic/hidePlacement';
 import {
   BEDROOM_HIDE_LIMIT, BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR, bedroomItemCount,
@@ -13,6 +13,7 @@ import {
   itemIconSrc,
   remainingHideSlots,
 } from './phantomHideItems';
+import { hidingComplete } from './phantomHideSlots';
 
 export { hidePlacementErrorMessage } from './phantomHideItems';
 
@@ -74,7 +75,7 @@ function setMenuOpen(open: boolean): void {
 }
 
 function syncSelectEnabled(): void {
-  const select = el('pe-hide-select');
+  const select = el<HTMLButtonElement>('pe-hide-select');
   if (select) select.disabled = menuPickId == null;
 }
 
@@ -200,3 +201,94 @@ export function hidePhantomHideControls(): void {
 
 /** @deprecated Use hidePhantomHideControls */
 export const hideHideMenu = hidePhantomHideControls;
+
+
+const DEFAULT_CODE: ToyCarColour[] = ['red', 'blue', 'violet', 'yellow'];
+let draftCode: ToyCarColour[] = [...DEFAULT_CODE];
+let codeConfirmed = false;
+let endHidingBound = false;
+let onEndHiding: (() => void) | null = null;
+let onSetCode: ((code: ToyCarColour[]) => void) | null = null;
+
+function bindEndHiding(): void {
+  if (endHidingBound) return;
+  const end = el('pe-end-hiding');
+  const confirm = el('pe-code-set-confirm');
+  const slots = el('pe-code-set-slots');
+  if (!end || !confirm || !slots) return;
+  endHidingBound = true;
+  if (!slots.childElementCount) {
+    for (let i = 0; i < 4; i++) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.index = String(i);
+      slots.appendChild(b);
+    }
+  }
+  slots.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement | null)?.closest('button[data-index]') as HTMLButtonElement | null;
+    if (!btn) return;
+    const i = Number(btn.dataset.index);
+    const j = (i + 1) % 4;
+    const tmp = draftCode[i]!;
+    draftCode[i] = draftCode[j]!;
+    draftCode[j] = tmp;
+    codeConfirmed = false;
+    paintCodeDraft();
+  });
+  confirm.addEventListener('click', () => {
+    if (new Set(draftCode).size !== 4) return;
+    codeConfirmed = true;
+    onSetCode?.(draftCode.slice() as ToyCarColour[]);
+    paintCodeDraft();
+  });
+  end.addEventListener('click', () => { if (!(end as HTMLButtonElement).disabled) onEndHiding?.(); });
+}
+
+function paintCodeDraft(): void {
+  const slots = el('pe-code-set-slots');
+  if (!slots) return;
+  [...slots.querySelectorAll('button')].forEach((b, i) => {
+    const c = draftCode[i];
+    b.textContent = (c ?? '?')[0]!.toUpperCase();
+    b.style.background = c === 'red' ? '#c13a3a' : c === 'blue' ? '#3a7bf2' : c === 'violet' ? '#9b6bff' : '#f2d13a';
+  });
+  const confirm = el('pe-code-set-confirm') as HTMLButtonElement | null;
+  if (confirm) confirm.textContent = codeConfirmed ? 'Code set' : 'Set code';
+}
+
+export function configurePhantomHidingActions(opts: {
+  items: readonly WorldItem[];
+  codeSet: boolean;
+  onEnd: () => void;
+  onSetCode: (code: ToyCarColour[]) => void;
+}): void {
+  bindEndHiding();
+  onEndHiding = opts.onEnd;
+  onSetCode = opts.onSetCode;
+  codeConfirmed = opts.codeSet;
+  const box = el('pe-code-set');
+  const end = el('pe-end-hiding') as HTMLButtonElement | null;
+  if (box) box.hidden = false;
+  paintCodeDraft();
+  if (end) {
+    end.hidden = false;
+    if (end) (end as HTMLButtonElement).disabled = !(opts.codeSet && hidingComplete(opts.items));
+  }
+}
+
+export function hidePhantomHidingActions(): void {
+  const box = el('pe-code-set');
+  const end = el('pe-end-hiding');
+  if (box) box.hidden = true;
+  if (end) end.hidden = true;
+  onEndHiding = null;
+  onSetCode = null;
+}
+
+export function showOpenDoorButton(on: boolean, click?: () => void): void {
+  const b = el('pe-open-door') as HTMLButtonElement | null;
+  if (!b) return;
+  b.hidden = !on;
+  b.onclick = on && click ? click : null;
+}

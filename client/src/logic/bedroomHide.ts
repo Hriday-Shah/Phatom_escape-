@@ -11,14 +11,19 @@ export const BEDROOM_HIDE_LIMIT = 3;
 export const BEDROOM_LIMIT_ERROR = 'At most 3 items can be hidden in the locked bedroom.';
 export const BEDROOM_KEY_ERROR = 'The room key cannot be hidden in the locked bedroom.';
 
+export function bedroomRoom() {
+  return houseLayout.rooms.find((r) => r.id === 'bedroom') ?? { x: 70, y: 140, width: 360, height: 240 };
+}
+
+export function isBedroomPoint(x: number, y: number): boolean {
+  const room = bedroomRoom();
+  return x >= room.x && x < room.x + room.width && y >= room.y && y < room.y + room.height;
+}
+
 export function isBedroomSpot(spotId: string): boolean {
   const spot = hidingSpotList().find((s) => s.id === spotId) ?? houseLayout.hidingSpots.find((s) => s.id === spotId);
   if (!spot) return false;
-  const room = houseLayout.rooms.find((r) => r.id === 'bedroom');
-  if (!room) return false;
-  const cx = spot.x + spot.width / 2;
-  const cy = spot.y + spot.height / 2;
-  return cx >= room.x && cx < room.x + room.width && cy >= room.y && cy < room.y + room.height;
+  return isBedroomPoint(spot.x + spot.width / 2, spot.y + spot.height / 2);
 }
 
 export function bedroomItemCount(items: readonly { spotId?: string | null }[]): number {
@@ -28,10 +33,12 @@ export function bedroomItemCount(items: readonly { spotId?: string | null }[]): 
 /** Reason a placement is illegal, or null if it is allowed. */
 export function bedroomHideError(
   kind: string,
-  spotId: string,
-  itemsAlreadyPlaced: readonly { spotId?: string | null; kind?: string }[],
+  spotId: string | null | undefined,
+  itemsAlreadyPlaced: readonly { spotId?: string | null; kind?: string; x?: number; y?: number }[],
+  at?: { x: number; y: number } | null,
 ): string | null {
-  if (!isBedroomSpot(spotId)) return null;
+  const inBedroom = (spotId && isBedroomSpot(spotId)) || (!spotId && at && isBedroomPoint(at.x, at.y));
+  if (!inBedroom) return null;
   if (kind === 'room_key') return BEDROOM_KEY_ERROR;
   if (bedroomItemCount(itemsAlreadyPlaced) >= BEDROOM_HIDE_LIMIT) return BEDROOM_LIMIT_ERROR;
   return null;
