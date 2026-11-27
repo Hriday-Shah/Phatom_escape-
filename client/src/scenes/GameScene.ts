@@ -195,8 +195,9 @@ export class GameScene extends Phaser.Scene {
     for (const child of [...this.children.list]) {
       if (!(child instanceof Phaser.GameObjects.GameObject)) continue;
       if (child === host || child === this.floorView.upper || child === this.floorView.stairsLayer) continue;
-      if ((child as { depth?: number }).depth != null && (child as { depth: number }).depth >= 9) continue;
-      if ((child as { depth?: number }).depth != null && (child as { depth: number }).depth <= -10) continue;
+      const depth = (child as unknown as { depth?: number }).depth;
+      if (depth != null && depth >= 9) continue;
+      if (depth != null && depth <= -10) continue;
       host.add(child);
     }
   }

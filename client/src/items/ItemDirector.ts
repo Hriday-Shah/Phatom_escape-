@@ -13,7 +13,7 @@ import type { GameLink } from '../net/ColyseusLobbyService';
 
 export interface ItemHost {
   registry: Phaser.Data.DataManager;
-  player: { x: number; y: number; getFacing(): { x: number; y: number } };
+  player: { x: number; y: number; getFacing(): { x: number; y: number }; getFloor?(): number };
   hidingSpotManager: HidingSpotManager;
   add: Phaser.Scene['add'];
   time: Phaser.Scene['time'];
@@ -266,7 +266,7 @@ export class ItemDirector {
     });
     net.onItems?.((items) => {
       if (!this.round) return;
-      this.round.items = items.map((i) => ({ ...i, kind: i.kind as WorldItem['kind'] }));
+      this.round.items = items.map((i) => ({ ...i, kind: i.kind as WorldItem['kind'], f: i.f ?? 0 }));
       this.syncHeld();
       this.syncSprites();
     });

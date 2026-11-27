@@ -123,7 +123,7 @@ export function itemReachableFrom(
   const pf = pose.f ?? 0;
   const itemF = item.f ?? 0;
   if (pf !== itemF) return false;
-  if (item.spotId) return canUseSpot(pose, item.spotId, reach);
+  if (item.spotId) return canUseSpot({ x: pose.x, y: pose.y, f: (pose.f ?? 0) as FloorId }, item.spotId, reach);
   return reachableWithLos(pose, { x: item.x, y: item.y }, reach, losBlockers(false, pf as FloorId));
 }
 
@@ -214,7 +214,7 @@ export class ItemRound {
     const open = openSpots instanceof Set ? openSpots : new Set(openSpots);
     if (item.spotId) {
       if (!open.has(item.spotId)) return { ok: false, error: 'closed' };
-      if (!canUseSpot(pose, item.spotId, NEAR_ITEM)) return { ok: false, error: 'too-far' };
+      if (!canUseSpot({ x: pose.x, y: pose.y, f: (pose.f ?? 0) as FloorId }, item.spotId, NEAR_ITEM)) return { ok: false, error: 'too-far' };
     } else if (!itemReachableFrom(pose, item, NEAR_ITEM)) {
       return { ok: false, error: 'too-far' };
     }
@@ -238,7 +238,7 @@ export class ItemRound {
       if (openSpots && !open.has(spotId)) return { ok: false, error: 'closed' };
       const spot = hidingSpotList().find((s) => s.id === spotId);
       if (!spot) return { ok: false, error: 'no-spot' };
-      if (!canUseSpot(origin, spotId, NEAR_ITEM)) return { ok: false, error: 'too-far' };
+      if (!canUseSpot({ x: origin.x, y: origin.y, f: (origin.f ?? 0) as FloorId }, spotId, NEAR_ITEM)) return { ok: false, error: 'too-far' };
       dx = spot.x + spot.width / 2;
       dy = spot.y + spot.height / 2;
     } else {

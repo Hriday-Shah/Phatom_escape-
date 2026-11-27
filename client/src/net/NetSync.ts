@@ -24,6 +24,7 @@ export interface NetPlayerSource {
   y: number;
   getMoveInput(): { x: number; y: number };
   getFloor(): FloorId;
+  setFloor(floor: FloorId, x?: number, y?: number): void;
   useSharedSlide(on: boolean): void;
   shift(dx: number, dy: number): void;
   /** Put the body on a pose the server already stored (reload / rejoin). */
