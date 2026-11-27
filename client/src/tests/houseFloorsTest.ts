@@ -90,6 +90,16 @@ export function runHouseFloorsTest(): void {
   assert.ok(footOnStairPad(STAIR_PAD_GROUND.x + 5, STAIR_PAD_GROUND.y + 5, FLOOR_GROUND));
   assert.ok(!pointBlocked(STAIR_LAND_UPPER.x, STAIR_LAND_UPPER.y, upperBlockers, PLAYER_BODY_RADIUS));
   assert.ok(poseInsideFloor(STAIR_LAND_UPPER.x, STAIR_LAND_UPPER.y, FLOOR_UPPER, PLAYER_BODY_RADIUS));
+  assert.ok(
+    poseInsideFloor(STAIR_PAD_UPPER.x + 55, STAIR_PAD_UPPER.y, FLOOR_UPPER, PLAYER_BODY_RADIUS),
+    'the north edge of the down stair pad is reachable with a 16px body',
+  );
+  const upperBlockersNow = movementBlockersForFloor(FLOOR_UPPER);
+  assert.equal(
+    pointBlocked(STAIR_PAD_UPPER.x + 55, STAIR_PAD_UPPER.y, upperBlockersNow, PLAYER_BODY_RADIUS),
+    false,
+    'the down pad is not blocked by the deck edge',
+  );
 
   console.log('  ✓ stair pads, anti-teleport, 36 spots, same-floor reach');
 }

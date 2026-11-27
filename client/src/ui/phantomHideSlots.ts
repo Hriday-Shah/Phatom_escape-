@@ -5,6 +5,7 @@ import {
   type ItemKind,
   type WorldItem,
 } from '../logic/items';
+import { hideInstances, isHiddenPlacement } from '../logic/hidePlacement';
 
 /** One row in the Phantom hiding menu (13 hideable items per stage 3 plan). */
 export interface HideMenuSlot {
@@ -48,11 +49,7 @@ export const HIDING_MENU_SLOTS: readonly HideMenuSlot[] = [
 ];
 
 export function hideSlotTaken(slot: HideMenuSlot, items: readonly WorldItem[]): boolean {
-  const placed = items.filter((i) => i.spotId && i.kind !== 'paper_code');
-  if (slot.kind === 'toy_car' || slot.kind === 'battery') {
-    return placed.some((i) => i.kind === slot.kind && i.variant === slot.variant);
-  }
-  return placed.some((i) => i.kind === slot.kind);
+  return hideInstances(slot.kind, slot.variant, items).length > 0;
 }
 
 export function remainingHideSlots(items: readonly WorldItem[]): HideMenuSlot[] {
@@ -62,7 +59,7 @@ export function remainingHideSlots(items: readonly WorldItem[]): HideMenuSlot[] 
 export function hideSlotById(slotId: string): HideMenuSlot | undefined {
   return HIDING_MENU_SLOTS.find((s) => s.slotId === slotId);
 }
-/** True when every hide-menu instance has a spot. */
+/** True when every hide-menu instance is in a spot or on the floor (not held). */
 export function hidingComplete(items: readonly WorldItem[]): boolean {
-  return remainingHideSlots(items).length === 0;
+  return HIDING_MENU_SLOTS.every((s) => hideInstances(s.kind, s.variant, items).some(isHiddenPlacement));
 }

@@ -34,6 +34,15 @@ export function runBedroomRulesTest(): void {
   const three = bedroom.slice(0, 3).map((s, i) => item('battery', s.id, `b${i}`));
   assert.equal(bedroomHideError('battery', bedroom[3]!.id, three), BEDROOM_LIMIT_ERROR);
   assert.equal(bedroomHideError('battery', bedroom[0]!.id, three.slice(0, 2)), null);
+  const onFloor = [
+    { kind: 'bullet', spotId: null, x: 250, y: 200 },
+    { kind: 'stun_gun', spotId: null, x: 280, y: 200 },
+    { kind: 'wire_cutter', spotId: null, x: 310, y: 200 },
+  ];
+  assert.equal(bedroomItemCount(onFloor), 3, 'floor drops count toward the cap');
+  assert.equal(bedroomHideError('battery', bedroom[0]!.id, onFloor), BEDROOM_LIMIT_ERROR);
+  assert.equal(bedroomHideError('battery', null, onFloor, { x: 250, y: 220 }), BEDROOM_LIMIT_ERROR);
+  assert.equal(bedroomItemCount([{ kind: 'bullet', spotId: null, x: 250, y: 200, heldBy: 'p' }]), 0, 'held items do not count');
 
   const pending: WorldItem[] = [
     item('room_key', null, 'key'),

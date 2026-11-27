@@ -12,6 +12,8 @@ import {
   type FloorId,
   STAIR_LAND_GROUND,
   STAIR_LAND_UPPER,
+  STAIR_PAD_GROUND,
+  STAIR_PAD_UPPER,
   normaliseFloor,
   upperFloorWalls,
 } from '../data/houseFloors';
@@ -19,8 +21,7 @@ import {
 export type FloorPose = { x: number; y: number; f: FloorId };
 
 /** Ground: step into this pad to ride up. Upper: step into this pad to ride down. */
-export const STAIR_PAD_GROUND: Rect = { x: 565, y: 118, width: 110, height: 28 };
-export const STAIR_PAD_UPPER: Rect = { x: 565, y: -28, width: 110, height: 36 };
+export { STAIR_PAD_GROUND, STAIR_PAD_UPPER };
 
 export function movementBlockersForFloor(floor: FloorId, debugUnlock = false, passBedroom = false): Rect[] {
   if (floor === FLOOR_UPPER) return [...upperFloorWalls()];

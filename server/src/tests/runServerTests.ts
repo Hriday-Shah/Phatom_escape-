@@ -23,6 +23,13 @@ function enterSearch(h: HouseLogic, now = Date.now()): void {
   assert.equal(h.roundView()!.phase, 'search');
 }
 
+function hideAt(
+  h: HouseLogic, session: string, kind: string, spotId: string, variant?: string, now = Date.now(),
+): { ok: boolean; error?: string } {
+  standAtSpot(h, session, spotId, now);
+  return h.placeHiddenItem(session, kind, spotId, variant);
+}
+
 function room(players = 3, rng: () => number = () => 0): HouseLogic {
   const h = new HouseLogic('ABC234', rng);
   for (let i = 0; i < players; i++) assert.ok(h.join(`s${i}`, { nickname: `P${i}` }).ok);
@@ -1133,16 +1140,16 @@ test('the Phantom may hide at most 3 items in the locked bedroom, and never the 
   const spots = freeBedroomSpots(h);
   assert.ok(spots.length >= 4, 'need four free bedroom spots for this check');
   for (let i = 0; i < 3; i++) {
-    const r = h.placeHiddenItem(phantom, 'battery', spots[i]!, String(i + 1));
+    const r = hideAt(h, phantom, 'battery', spots[i]!, String(i + 1), i + 1);
     assert.equal(r.ok, true, r.error);
   }
-  const fourth = h.placeHiddenItem(phantom, 'battery', spots[3]!, '4');
+  const fourth = hideAt(h, phantom, 'battery', spots[3]!, '4', 10);
   assert.equal(fourth.ok, false);
   assert.equal(fourth.error, BEDROOM_LIMIT_ERROR);
-  const keyBed = h.placeHiddenItem(phantom, 'room_key', spots[3]!);
+  const keyBed = hideAt(h, phantom, 'room_key', spots[3]!, undefined, 11);
   assert.equal(keyBed.ok, false);
   assert.equal(keyBed.error, BEDROOM_KEY_ERROR);
-  const keyOther = h.placeHiddenItem(phantom, 'room_key', freeOtherSpot(h));
+  const keyOther = hideAt(h, phantom, 'room_key', freeOtherSpot(h), undefined, 12);
   assert.equal(keyOther.ok, true, keyOther.error);
   const asPlayer = h.placeHiddenItem(player, 'battery', spots[3]!, '1');
   assert.equal(asPlayer.ok, false);
@@ -1160,7 +1167,9 @@ test('a Phantom in hiding sees items in open spots without the search opener rul
   assert.equal(list.find((i) => i.kind === 'bullet')?.spotId, 'study_drawer_1');
   standAtSpot(h, phantom, 'study_drawer_1', 2000);
   assert.ok(h.setSpot(phantom, { id: 'study_drawer_1', open: false }));
-  assert.equal(h.itemListFor(h.playerId(phantom)!).find((i) => i.kind === 'bullet'), undefined);
+  assert.equal(h.itemListFor(h.playerId(phantom)!).find((i) => i.kind === 'bullet')?.spotId, 'study_drawer_1', 'Phantom still sees items in closed spots during hiding');
+  const player = sessionRole(h, 'player');
+  assert.equal(h.itemListFor(h.playerId(player)!).length, 0, 'players do not receive the Phantom kit');
 });
 
 test('each menu instance can be hidden only once (battery variant and toy car colour)', () => {
@@ -1168,11 +1177,11 @@ test('each menu instance can be hidden only once (battery variant and toy car co
   h.start('s0', 0);
   const phantom = sessionRole(h, 'phantom');
   h.items!.placeControllerForTest('fridge');
-  assert.ok(h.placeHiddenItem(phantom, 'toy_car', 'study_drawer_1', 'red').ok);
+  assert.equal(hideAt(h, phantom, 'toy_car', 'study_drawer_1', 'red', 100).ok, true);
   const dup = h.placeHiddenItem(phantom, 'toy_car', 'sofa_d1', 'red');
   assert.equal(dup.ok, false);
   assert.equal(dup.error, 'already-hidden');
-  assert.ok(h.placeHiddenItem(phantom, 'toy_car', 'sofa_d1', 'blue').ok);
+  assert.equal(hideAt(h, phantom, 'toy_car', 'sofa_d1', 'blue', 200).ok, true);
   const noVar = h.placeHiddenItem(phantom, 'battery', 'study_drawer_2', undefined);
   assert.equal(noVar.ok, false);
   assert.equal(noVar.error, 'missing-variant');
@@ -1202,7 +1211,7 @@ test('using the room key at the bedroom door unlocks it for everyone and consume
   const phantom = sessionRole(h, 'phantom');
   const player = sessionRole(h, 'player');
   const other = freeOtherSpot(h);
-  assert.equal(h.placeHiddenItem(phantom, 'room_key', other).ok, true);
+  assert.equal(hideAt(h, phantom, 'room_key', other, undefined, 100).ok, true);
   enterSearch(h, 1000);
   const key = h.items!.items.find((i) => i.kind === 'room_key')!;
   const spot = other;
@@ -1242,7 +1251,7 @@ test('end hiding requires every kit item and a Phantom-set paper code; a timer c
   assert.equal(h.endHiding(phantom).error, 'items-unplaced');
   // One item is not enough.
   const spots = hidingSpotList().filter((s) => !isBedroomSpot(s.id)).map((s) => s.id);
-  assert.equal(h.placeHiddenItem(phantom, 'stun_gun', spots[0]!).ok, true);
+  assert.equal(hideAt(h, phantom, 'stun_gun', spots[0]!, undefined, 100).ok, true);
   assert.equal(h.endHiding(phantom).ok, false);
 });
 
@@ -1254,7 +1263,7 @@ test('dropping a picked-up key or a 4th item into the bedroom is still rejected'
   const beds = freeBedroomSpots(h);
   assert.ok(beds.length >= 4);
   // Hide the key outside, pick it up, try to drop it in the bedroom.
-  assert.equal(h.placeHiddenItem(phantom, 'room_key', others[0]!).ok, true);
+  assert.equal(hideAt(h, phantom, 'room_key', others[0]!, undefined, 50).ok, true);
   standAtSpot(h, phantom, others[0]!, 100);
   h.setSpot(phantom, { id: others[0]!, open: true });
   const key = h.items!.items.find((i) => i.kind === 'room_key')!;
@@ -1271,9 +1280,9 @@ test('dropping a picked-up key or a 4th item into the bedroom is still rejected'
   const pose2 = h.poseForTest(phantom)!;
   assert.equal(h.dropItem(phantom, { x: pose2.x, y: pose2.y, spotId: others[1]! }).ok, true);
   for (const id of beds.slice(0, 3)) {
-    assert.equal(h.placeHiddenItem(phantom, 'battery', id, String(beds.indexOf(id) + 1)).ok, true);
+    assert.equal(hideAt(h, phantom, 'battery', id, String(beds.indexOf(id) + 1), 350 + beds.indexOf(id)).ok, true);
   }
-  assert.equal(h.placeHiddenItem(phantom, 'battery', others[2]!, '4').ok, true);
+  assert.equal(hideAt(h, phantom, 'battery', others[2]!, '4', 380).ok, true);
   standAtSpot(h, phantom, others[2]!, 400);
   h.setSpot(phantom, { id: others[2]!, open: true });
   const bat = h.items!.items.find((i) => i.kind === 'battery' && i.variant === '4')!;
@@ -1292,7 +1301,7 @@ test('the Phantom can hide the game controller, and a mini-game win publishes th
   const phantom = sessionRole(h, 'phantom');
   const player = sessionRole(h, 'player');
   const spot = freeOtherSpot(h);
-  const placed = h.placeHiddenItem(phantom, 'game_controller', spot);
+  const placed = hideAt(h, phantom, 'game_controller', spot, undefined, 100);
   assert.equal(placed.ok, true, placed.error);
   const ctrl = h.items!.items.find((i) => i.kind === 'game_controller');
   assert.ok(ctrl && ctrl.spotId === spot);
@@ -1311,6 +1320,93 @@ test('the Phantom can hide the game controller, and a mini-game win publishes th
   assert.deepEqual(view.code, ['yellow', 'red', 'blue', 'violet']);
   assert.ok(h.items!.knowsCode(h.playerId(player)!));
   assert.ok(h.items!.knowsCode(h.playerId(phantom)!));
+});
+
+
+test('the Phantom keeps its kit after a spot closes; players never see that list', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  const player = sessionRole(h, 'player');
+  assert.equal(hideAt(h, phantom, 'stun_gun', 'sofa_d1', undefined, 100).ok, true);
+  standAtSpot(h, phantom, 'sofa_d1', 200);
+  assert.ok(h.setSpot(phantom, { id: 'sofa_d1', open: false }));
+  const list = h.itemListFor(h.playerId(phantom)!);
+  assert.equal(list.find((i) => i.kind === 'stun_gun')?.spotId, 'sofa_d1');
+  assert.equal(h.itemListFor(h.playerId(player)!).some((i) => i.kind === 'stun_gun'), false);
+});
+
+test('picking up a hidden item and placing it again moves the same instance', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  assert.equal(hideAt(h, phantom, 'stun_gun', 'sofa_d1', undefined, 100).ok, true);
+  standAtSpot(h, phantom, 'sofa_d1', 200);
+  h.setSpot(phantom, { id: 'sofa_d1', open: true });
+  const gun = h.items!.items.find((i) => i.kind === 'stun_gun')!;
+  assert.equal(h.pickup(phantom, { id: gun.id }).ok, true);
+  assert.equal(h.items!.items.filter((i) => i.kind === 'stun_gun').length, 1);
+  stand(h, phantom, 300, 430, 250);
+  assert.equal(h.placeHiddenItem(phantom, 'stun_gun', 'sofa_d2').error, 'too-far');
+  const moved = hideAt(h, phantom, 'stun_gun', 'sofa_d2', undefined, 300);
+  assert.equal(moved.ok, true, moved.error);
+  const guns = h.items!.items.filter((i) => i.kind === 'stun_gun');
+  assert.equal(guns.length, 1, 'no duplicate');
+  assert.equal(guns[0]!.id, gun.id);
+  assert.equal(guns[0]!.spotId, 'sofa_d2');
+  assert.equal(guns[0]!.heldBy, null);
+  const again = h.placeHiddenItem(phantom, 'stun_gun', 'fridge');
+  assert.equal(again.error, 'already-hidden');
+});
+
+test('bedroom floor drops count toward the 3-item cap', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  const others = hidingSpotList().filter((s) => !isBedroomSpot(s.id)).map((s) => s.id);
+  for (let i = 0; i < 3; i++) {
+    const kind = i === 0 ? 'bullet' : i === 1 ? 'wire_cutter' : 'stun_gun';
+    assert.equal(hideAt(h, phantom, kind, others[i]!, undefined, 100 + i).ok, true);
+    standAtSpot(h, phantom, others[i]!, 200 + i);
+    h.setSpot(phantom, { id: others[i]!, open: true });
+    const it = h.items!.items.find((x) => x.kind === kind)!;
+    assert.equal(h.pickup(phantom, { id: it.id }).ok, true);
+    const dropAt = { x: 220 + i * 30, y: 200 };
+    stand(h, phantom, dropAt.x, dropAt.y, 300 + i);
+    const dropped = h.dropItem(phantom, { x: dropAt.x, y: dropAt.y, spotId: null });
+    assert.equal(dropped.ok, true, dropped.error);
+  }
+  assert.equal(bedroomItemCount(h.items!.items), 3);
+  assert.equal(hideAt(h, phantom, 'battery', freeBedroomSpots(h)[0]!, '1', 400).error, BEDROOM_LIMIT_ERROR);
+  const fourthFloor = others[3]!;
+  assert.equal(hideAt(h, phantom, 'battery', fourthFloor, '1', 410).ok, true);
+  standAtSpot(h, phantom, fourthFloor, 420);
+  h.setSpot(phantom, { id: fourthFloor, open: true });
+  const bat = h.items!.items.find((i) => i.kind === 'battery')!;
+  assert.equal(h.pickup(phantom, { id: bat.id }).ok, true);
+  stand(h, phantom, 250, 220, 430);
+  const drop4 = h.dropItem(phantom, { x: 250, y: 220, spotId: null });
+  assert.equal(drop4.ok, false);
+  assert.equal(drop4.error, BEDROOM_LIMIT_ERROR);
+  assert.equal(bedroomItemCount(h.items!.items), 3);
+});
+
+test('walking south from the upper landing reaches the down stair pad', () => {
+  const h = room(1);
+  h.start('s0', 0);
+  h.setPoseForTest('s0', { x: STAIR_LAND_UPPER.x, y: STAIR_LAND_UPPER.y, d: 2, m: 1, f: FLOOR_UPPER }, 1000);
+  let now = 1000;
+  let pose = h.poseForTest('s0')!;
+  assert.equal(pose.f, FLOOR_UPPER);
+  for (let i = 0; i < 80; i++) {
+    now += 1000 / 12;
+    const got = h.move('s0', { x: pose.x, y: pose.y + 16, d: 2, m: 1, f: pose.f }, now);
+    assert.ok(got, 'move accepted while walking to the down pad');
+    pose = got;
+    if (pose.f === FLOOR_GROUND) break;
+  }
+  assert.equal(pose.f, FLOOR_GROUND, `should descend (ended ${pose.x.toFixed(1)},${pose.y.toFixed(1)} f=${pose.f})`);
+  assert.equal(pose.y, STAIR_LAND_GROUND.y);
 });
 
 console.log(`\n✅ ${n} server tests passed`);

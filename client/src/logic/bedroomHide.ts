@@ -26,8 +26,17 @@ export function isBedroomSpot(spotId: string): boolean {
   return isBedroomPoint(spot.x + spot.width / 2, spot.y + spot.height / 2);
 }
 
-export function bedroomItemCount(items: readonly { spotId?: string | null }[]): number {
-  return items.reduce((n, i) => n + (i.spotId && isBedroomSpot(i.spotId) ? 1 : 0), 0);
+type BedroomCountItem = { kind?: string; spotId?: string | null; heldBy?: string | null; x?: number; y?: number };
+
+/** An item currently in the bedroom: in a bedroom spot, or dropped on the bedroom floor. Held items do not count. */
+export function isBedroomItem(item: BedroomCountItem): boolean {
+  if (item.heldBy) return false;
+  if (item.spotId) return isBedroomSpot(item.spotId);
+  return item.x != null && item.y != null && isBedroomPoint(item.x, item.y);
+}
+
+export function bedroomItemCount(items: readonly BedroomCountItem[]): number {
+  return items.reduce((n, i) => n + (isBedroomItem(i) ? 1 : 0), 0);
 }
 
 /** Reason a placement is illegal, or null if it is allowed. */

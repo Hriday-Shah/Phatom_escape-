@@ -483,14 +483,20 @@ export class HouseLogic {
    */
   itemListFor(playerId: string): PublicItem[] {
     if (!this.items) return [];
+    const role = this.roles.get(playerId) ?? 'player';
+    const phase = this.round?.phase;
+    // During hiding the Phantom gets its full kit (open or closed spots, floor, held)
+    // so the hide menu, bedroom count, and End hiding stay accurate. Never sent to players.
+    if (role === 'phantom' && phase === 'hiding') {
+      if (!this.canSeeHouse(playerId)) return [];
+      return this.items.items.map((i) => ({ ...i }));
+    }
     if (!this.canSeeHouse(playerId)) return [];
     const pose = this.poseOf(playerId);
     if (!pose) return [];
     const open = new Set(this.openSpots());
     const pf = pose.f ?? FLOOR_GROUND;
     const blockers = losBlockers(false, pf);
-    const role = this.roles.get(playerId) ?? 'player';
-    const phase = this.round?.phase;
     const out: PublicItem[] = [];
     for (const item of this.items.items) {
       if ((item.f ?? 0) !== pf) continue;
@@ -823,8 +829,26 @@ export class HouseLogic {
     const spot = hidingSpotList().find((s) => s.id === spotId) ?? spotById(spotId);
     if (!spot) return { ok: false, error: 'no-spot' };
     if (!this.items) return { ok: false, error: 'not-started' };
-    if (hideInstanceAlreadyPlaced(itemKind, variant, this.items.items)) {
+    const held = this.items.items.find((i) =>
+      i.heldBy === by && i.kind === itemKind && (hideVariantRequired(itemKind) ? i.variant === variant : true),
+    );
+    if (!held && hideInstanceAlreadyPlaced(itemKind, variant, this.items.items)) {
       return { ok: false, error: 'already-hidden' };
+    }
+    const pose = this.poseOf(by);
+    if (!pose || pose.f !== FLOOR_GROUND || !canUseSpot(pose, spotId)) {
+      return { ok: false, error: 'too-far' };
+    }
+    if (held) {
+      if (this.items.items.some((i) => i !== held && i.spotId === spotId)) return { ok: false, error: 'spot-taken' };
+      const err = bedroomHideError(kind, spotId, this.items.items.filter((i) => i !== held));
+      if (err) return { ok: false, error: err };
+      held.spotId = spotId;
+      held.heldBy = null;
+      held.x = spot.x + spot.width / 2;
+      held.y = spot.y + spot.height / 2;
+      held.f = FLOOR_GROUND;
+      return { ok: true };
     }
     if (this.items.items.some((i) => i.spotId === spotId)) return { ok: false, error: 'spot-taken' };
     const err = bedroomHideError(kind, spotId, this.items.items);
