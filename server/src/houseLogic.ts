@@ -468,6 +468,8 @@ export class HouseLogic {
     const open = new Set(this.openSpots());
     const pf = pose.f ?? FLOOR_GROUND;
     const blockers = losBlockers(false, pf);
+    const role = this.roles.get(playerId) ?? 'player';
+    const phase = this.round?.phase;
     const out: PublicItem[] = [];
     for (const item of this.items.items) {
       if ((item.f ?? 0) !== pf) continue;
@@ -475,6 +477,10 @@ export class HouseLogic {
       if (item.spotId) {
         if (spotFloor(item.spotId) !== pf) continue;
         if (!open.has(item.spotId)) continue;
+        if (phase === 'hiding' && role === 'phantom') {
+          out.push({ ...item });
+          continue;
+        }
         const spot = spotById(item.spotId);
         if (!spot) continue;
         const opener = this.spotOpener.get(item.spotId);

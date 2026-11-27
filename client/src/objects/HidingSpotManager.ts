@@ -46,8 +46,11 @@ export class HidingSpotManager {
   private allItems: Interactable[];
   /** Label of an item hidden in this spot, or null. */
   public contentsLabel: ((id: string) => string | null) | null = null;
+  /** Approved texture key for an item in an open spot, or null. */
+  public contentsArtKey: ((id: string) => string | null) | null = null;
   /** Called when the player uses an open spot; return true if an item was picked up. */
   public tryPickup: ((id: string) => boolean) | null = null;
+  private readonly spotItemSprites = new Map<string, Phaser.GameObjects.Image>();
   private activeFloor: FloorId = FLOOR_GROUND;
 
   constructor(scene: Phaser.Scene, hidingSpots: HidingSpot[]) {
@@ -272,9 +275,10 @@ export class HidingSpotManager {
   }
 
   private promptText(spot: SpotState): string {
-    if (spot.isOpen) {
-      const item = this.contentsLabel?.(spot.data.id);
-      if (item) return item;
+    if (spot.isOpen && this.contentsArtKey?.(spot.data.id)) {
+      const isTouch = this.scene.sys.game.device.input.touch;
+      const hint = isTouch ? '' : '[E] ';
+      return `${hint}${spot.data.name}`;
     }
     // Show keyboard hint only on non-touch devices
     const isTouch = this.scene.sys.game.device.input.touch;
@@ -343,12 +347,14 @@ export class HidingSpotManager {
 
     if (spot.isOpen) {
       const label = this.contentsLabel?.(spot.data.id);
+      const hasArt = !!this.contentsArtKey?.(spot.data.id);
       if (label && this.tryPickup?.(spot.data.id)) {
         this.showMessage(`Picked up ${label}`, 2000);
+      } else if (hasArt) {
+        this.showPrompt(spot);
       } else if (label) {
         this.showMessage(label);
       } else {
-        // Only OPENING reveals the contents; the name comes back after 2 s.
         this.showMessage('Empty', 2000);
       }
     } else if (this.highlightedSpot === spot) {
@@ -371,6 +377,33 @@ export class HidingSpotManager {
     // Opened (or closed) art is never tinted.
     if (unit.sprite instanceof Phaser.GameObjects.Image) unit.sprite.clearTint();
     unit.overlays.forEach((o) => o.clearTint());
+    this.refreshSpotItemSprite(spot);
+  }
+
+  /** Draw or hide the item sprite for one open spot (16 px art at 2× world scale). */
+  private refreshSpotItemSprite(spot: SpotState): void {
+    const id = spot.data.id;
+    let spr = this.spotItemSprites.get(id);
+    const key = spot.isOpen ? (this.contentsArtKey?.(id) ?? null) : null;
+    if (!key || !this.scene.textures.exists(key)) {
+      spr?.setVisible(false);
+      return;
+    }
+    const cx = spot.data.x + spot.data.width / 2;
+    const cy = spot.data.y + spot.data.height / 2;
+    if (!spr) {
+      spr = this.scene.add.image(cx, cy, key).setScale(2).setDepth(3);
+      this.spotItemSprites.set(id, spr);
+    } else {
+      spr.setTexture(key).setPosition(cx, cy);
+    }
+    spr.setVisible(true);
+  }
+
+  /** Refresh every spot item sprite (after the item list or open state changes). */
+  public syncSpotItemSprites(artKeyForSpot: (spotId: string) => string | null): void {
+    this.contentsArtKey = artKeyForSpot;
+    for (const spot of this.spots) this.refreshSpotItemSprite(spot);
   }
 
   private showMessage(text: string, duration?: number): void {
@@ -411,6 +444,8 @@ export class HidingSpotManager {
     this.messageDeadline.clear();
     this.highlightTween?.stop();
     this.highlightGfx.destroy();
+    this.spotItemSprites.forEach((s) => s.destroy());
+    this.spotItemSprites.clear();
     this.units.forEach((u) => {
       u.sprite.destroy();
       u.overlays.forEach((o) => o.destroy());

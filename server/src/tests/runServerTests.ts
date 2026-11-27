@@ -1143,6 +1143,21 @@ test('the Phantom may hide at most 3 items in the locked bedroom, and never the 
   assert.equal(asPlayer.ok, false);
 });
 
+test('a Phantom in hiding sees items in open spots without the search opener rules', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  h.items!.placeControllerForTest('fridge');
+  standAtSpot(h, phantom, 'study_drawer_1', 1000);
+  assert.ok(h.placeHiddenItem(phantom, 'bullet', 'study_drawer_1'));
+  assert.ok(h.setSpot(phantom, { id: 'study_drawer_1', open: true })?.open);
+  const list = h.itemListFor(h.playerId(phantom)!);
+  assert.equal(list.find((i) => i.kind === 'bullet')?.spotId, 'study_drawer_1');
+  standAtSpot(h, phantom, 'study_drawer_1', 2000);
+  assert.ok(h.setSpot(phantom, { id: 'study_drawer_1', open: false }));
+  assert.equal(h.itemListFor(h.playerId(phantom)!).find((i) => i.kind === 'bullet'), undefined);
+});
+
 test('each menu instance can be hidden only once (battery variant and toy car colour)', () => {
   const h = room(2, () => 0);
   h.start('s0', 0);
