@@ -213,14 +213,21 @@
     net.css (#pe-net-*), theme from the :root variables in home.css. Ids are the hooks.
   -->
   <p id="pe-reveal" role="status" aria-live="polite" hidden></p>
-  <aside id="pe-hide-menu" hidden>
-    <h2 id="pe-hide-title">Hide items</h2>
-    <p id="pe-hide-rules"></p>
-    <p id="pe-hide-count">Bedroom used: 0/3</p>
-    <div id="pe-hide-kinds"></div>
-    <div id="pe-hide-spots"></div>
-    <p id="pe-hide-error" role="status" aria-live="polite"></p>
-  </aside>
+  <button id="pe-hide-open" type="button" hidden>Choose item</button>
+  <div id="pe-hide-backdrop" hidden>
+    <aside id="pe-hide-menu" role="dialog" aria-labelledby="pe-hide-title" aria-modal="true">
+      <h2 id="pe-hide-title">Choose an item to hide</h2>
+      <p id="pe-hide-rules"></p>
+      <p id="pe-hide-count">Bedroom used: 0/3</p>
+      <p id="pe-hide-picked" hidden></p>
+      <div id="pe-hide-kinds"></div>
+      <div id="pe-hide-actions">
+        <button id="pe-hide-select" type="button" class="pe-primary" disabled>Select</button>
+        <button id="pe-hide-cancel" type="button">Close</button>
+      </div>
+      <p id="pe-hide-error" role="status" aria-live="polite"></p>
+    </aside>
+  </div>
   <div id="pe-net-overlay" role="alertdialog" aria-modal="true" aria-labelledby="pe-net-title" hidden>
     <div id="pe-net-box">
       <p id="pe-net-title"></p>

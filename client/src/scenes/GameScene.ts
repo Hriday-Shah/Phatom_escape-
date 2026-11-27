@@ -9,7 +9,17 @@ import { canMove, canOpenSpot, canSeeInside, formatPhaseClock, isWaiting, PHASE_
 import { canPassBedroomDoor } from '../logic/doorAccess';
 import { scaledLightRadius } from '../config/lightConfig';
 import { hideWaitingRoom, showWaitingRoom, updateWaitingClock } from '../lobby/WaitingRoom';
-import { hideHideMenu, hidePhantomReveal, showHideMenu, showPhantomReveal, updateHideMenu, phantomRevealText } from '../ui/phantomHud';
+import { bedroomHideError } from '../logic/bedroomHide';
+import {
+  getSelectedHideKind,
+  hideHideMenu,
+  hidePhantomReveal,
+  hidePlacementErrorMessage,
+  showPhantomHideControls,
+  showPhantomReveal,
+  updateHideMenu,
+  phantomRevealText,
+} from '../ui/phantomHud';
 import { spawnNoiseRipple } from '../objects/NoiseRipple';
 import { Furniture, houseLayout } from '../data/houseLayout';
 import { createComposedWalls } from '../utils/wallRenderer';
@@ -157,6 +167,9 @@ export class GameScene extends Phaser.Scene {
       this.phaseUnsubs.push(net.onPhase(apply));
       this.phaseUnsubs.push(net.onNoise((n) => this.onDrawerNoise(n)));
       this.phaseUnsubs.push(net.onItems(() => this.onItemsChanged()));
+      this.phaseUnsubs.push(net.onHideRejected((err) => {
+        updateHideMenu(this.items?.worldItems() ?? [], hidePlacementErrorMessage(err));
+      }));
       const stored = net.phase();
       if (stored) apply(stored.view, stored.at);
       else this.setWaiting(true);
@@ -350,10 +363,35 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const items = this.items?.worldItems() ?? [];
-    showHideMenu(items, (kind, spotId) => {
-      net.sendHideItem(kind, spotId);
-    });
-    updateHideMenu(items);
+    showPhantomHideControls(items);
+  }
+
+  private tryPhantomHide(): boolean {
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    if (!net || this.roundRole !== 'phantom' || this.roundPhaseName !== 'hiding') return false;
+    const kind = getSelectedHideKind();
+    if (!kind) {
+      updateHideMenu(this.items?.worldItems() ?? [], 'Choose an item from the menu, then select a hiding spot.');
+      return false;
+    }
+    const spot = this.hidingSpotManager.highlighted();
+    if (!spot) {
+      updateHideMenu(this.items?.worldItems() ?? [], 'Stand at an empty hiding spot.');
+      return false;
+    }
+    const items = this.items?.worldItems() ?? [];
+    if (items.some((i) => i.spotId === spot.data.id)) {
+      updateHideMenu(items, 'This spot already holds an item.');
+      return false;
+    }
+    const bedroomErr = bedroomHideError(kind, spot.data.id, items);
+    if (bedroomErr) {
+      updateHideMenu(items, bedroomErr);
+      return false;
+    }
+    net.sendHideItem(kind, spot.data.id);
+    if (!spot.isOpen) this.hidingSpotManager.interact();
+    return true;
   }
 
   private setWaiting(on: boolean): void {
@@ -693,6 +731,13 @@ export class GameScene extends Phaser.Scene {
     if (nearbyDoor) {
       (this.uiScene as any).showDoorMessage(nearbyDoor.message || 'Locked', 2000);
       return;
+    }
+
+    if (this.roundRole === 'phantom' && this.roundPhaseName === 'hiding') {
+      if (getSelectedHideKind() && this.hidingSpotManager.highlighted()) {
+        this.tryPhantomHide();
+        return;
+      }
     }
 
     // Check for hiding spot interaction

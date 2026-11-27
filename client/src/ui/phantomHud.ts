@@ -1,15 +1,17 @@
 /**
- * Lean Phantom hide menu and the search-start reveal banner for non-Phantoms.
+ * Phantom hide item picker (overlay) and the search-start reveal banner for non-Phantoms.
  */
 import './phantomHud.css';
-import { ITEM_INFO, ITEM_KINDS, type ItemKind, type WorldItem } from '../logic/items';
+import { ITEM_INFO, type ItemKind, type WorldItem } from '../logic/items';
 import {
-  BEDROOM_HIDE_LIMIT, BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR, bedroomHideError, bedroomItemCount,
+  BEDROOM_HIDE_LIMIT, BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR, bedroomItemCount,
 } from '../logic/bedroomHide';
-import { hidingSpotList } from '../logic/itemRound';
+import { HIDING_MENU_KINDS, itemIconSrc } from './phantomHideItems';
 
-function el(id: string): HTMLElement | null {
-  return document.getElementById(id);
+export { hidePlacementErrorMessage } from './phantomHideItems';
+
+function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
+  return document.getElementById(id) as T | null;
 }
 
 export function phantomRevealText(
@@ -37,101 +39,146 @@ export function hidePhantomReveal(): void {
   if (root) root.hidden = true;
 }
 
-export type HidePlaceFn = (kind: ItemKind, spotId: string) => void;
-
-let selectedKind: ItemKind = 'battery';
-let onPlace: HidePlaceFn | null = null;
+let menuPick: ItemKind | null = null;
+let confirmedKind: ItemKind | null = null;
 let bound = false;
+let lastError: string | null = null;
+
+function syncOpenButton(): void {
+  const open = el('pe-hide-open');
+  const picked = el('pe-hide-picked');
+  if (!open) return;
+  if (confirmedKind) {
+    open.textContent = `Holding: ${ITEM_INFO[confirmedKind].label}`;
+    if (picked) {
+      picked.hidden = false;
+      picked.textContent = `Selected: ${ITEM_INFO[confirmedKind].label}. Use a hiding spot to place it.`;
+    }
+  } else {
+    open.textContent = 'Choose item';
+    if (picked) picked.hidden = true;
+  }
+}
+
+function setMenuOpen(open: boolean): void {
+  const backdrop = el('pe-hide-backdrop');
+  if (!backdrop) return;
+  backdrop.hidden = !open;
+  if (open) {
+    menuPick = menuPick ?? confirmedKind ?? HIDING_MENU_KINDS[0]!;
+    refreshKindButtons();
+    syncSelectEnabled();
+  }
+}
+
+function syncSelectEnabled(): void {
+  const select = el('pe-hide-select');
+  if (select) select.disabled = menuPick == null;
+}
+
+function refreshKindButtons(): void {
+  const kinds = el('pe-hide-kinds');
+  if (!kinds) return;
+  for (const btn of kinds.querySelectorAll<HTMLButtonElement>('button[data-kind]')) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.kind === menuPick));
+  }
+}
+
+function buildKindList(): void {
+  const kinds = el('pe-hide-kinds');
+  if (!kinds || kinds.childElementCount) return;
+  for (const kind of HIDING_MENU_KINDS) {
+    const info = ITEM_INFO[kind];
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pe-hide-item';
+    b.dataset.kind = kind;
+    const img = document.createElement('img');
+    img.src = itemIconSrc(info.artKey);
+    img.alt = '';
+    img.width = 32;
+    img.height = 32;
+    const label = document.createElement('span');
+    label.textContent = info.label;
+    b.append(img, label);
+    kinds.appendChild(b);
+  }
+}
 
 function bindHideMenu(): void {
   if (bound) return;
   const kinds = el('pe-hide-kinds');
-  const spots = el('pe-hide-spots');
-  if (!kinds || !spots) return;
+  const openBtn = el('pe-hide-open');
+  const backdrop = el('pe-hide-backdrop');
+  const select = el('pe-hide-select');
+  const cancel = el('pe-hide-cancel');
+  if (!kinds || !openBtn || !backdrop || !select || !cancel) return;
   bound = true;
+  buildKindList();
+
+  openBtn.addEventListener('click', () => {
+    lastError = null;
+    setMenuOpen(true);
+  });
+
+  cancel.addEventListener('click', () => setMenuOpen(false));
+
+  backdrop.addEventListener('click', (ev) => {
+    if (ev.target === backdrop) setMenuOpen(false);
+  });
+
   kinds.addEventListener('click', (ev) => {
     const btn = (ev.target as HTMLElement | null)?.closest('button[data-kind]') as HTMLButtonElement | null;
     if (!btn || btn.disabled) return;
-    selectedKind = btn.dataset.kind as ItemKind;
-    for (const b of kinds.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === btn));
-    refreshSpotButtons();
+    menuPick = btn.dataset.kind as ItemKind;
+    refreshKindButtons();
+    syncSelectEnabled();
   });
-  spots.addEventListener('click', (ev) => {
-    const btn = (ev.target as HTMLElement | null)?.closest('button[data-spot]') as HTMLButtonElement | null;
-    if (!btn || btn.disabled || !onPlace) return;
-    onPlace(selectedKind, btn.dataset.spot!);
+
+  select.addEventListener('click', () => {
+    if (!menuPick) return;
+    confirmedKind = menuPick;
+    syncOpenButton();
+    setMenuOpen(false);
+    const err = el('pe-hide-error');
+    if (err) err.textContent = '';
+    lastError = null;
   });
 }
 
-let lastItems: readonly WorldItem[] = [];
-
-function refreshSpotButtons(): void {
-  const spots = el('pe-hide-spots');
-  if (!spots) return;
-  const taken = new Set(lastItems.map((i) => i.spotId).filter(Boolean) as string[]);
-  for (const btn of spots.querySelectorAll('button')) {
-    const id = (btn as HTMLButtonElement).dataset.spot!;
-    if (taken.has(id)) {
-      btn.setAttribute('disabled', '');
-      (btn as HTMLButtonElement).title = 'This spot already holds an item.';
-      continue;
-    }
-    const err = bedroomHideError(selectedKind, id, lastItems);
-    if (err) {
-      btn.setAttribute('disabled', '');
-      (btn as HTMLButtonElement).title = err;
-    } else {
-      btn.removeAttribute('disabled');
-      (btn as HTMLButtonElement).title = '';
-    }
-  }
+export function getSelectedHideKind(): ItemKind | null {
+  return confirmedKind;
 }
 
-export function showHideMenu(items: readonly WorldItem[], place: HidePlaceFn): void {
+export function showPhantomHideControls(items: readonly WorldItem[]): void {
   bindHideMenu();
-  onPlace = place;
-  const root = el('pe-hide-menu');
-  const kinds = el('pe-hide-kinds');
-  const spots = el('pe-hide-spots');
+  const open = el('pe-hide-open');
   const rules = el('pe-hide-rules');
-  if (!root || !kinds || !spots) return;
-  if (rules) {
-    rules.textContent = `${BEDROOM_LIMIT_ERROR} ${BEDROOM_KEY_ERROR}`;
-  }
-  if (!kinds.childElementCount) {
-    for (const kind of ITEM_KINDS) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.dataset.kind = kind;
-      b.textContent = ITEM_INFO[kind].label;
-      b.setAttribute('aria-pressed', String(kind === selectedKind));
-      kinds.appendChild(b);
-    }
-  }
-  if (!spots.childElementCount) {
-    for (const s of hidingSpotList()) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.dataset.spot = s.id;
-      b.textContent = s.id.replace(/_/g, ' ');
-      spots.appendChild(b);
-    }
-  }
-  root.hidden = false;
+  if (!open) return;
+  if (rules) rules.textContent = `${BEDROOM_LIMIT_ERROR} ${BEDROOM_KEY_ERROR}`;
+  open.hidden = false;
   updateHideMenu(items);
+  syncOpenButton();
 }
 
 export function updateHideMenu(items: readonly WorldItem[], error?: string | null): void {
-  lastItems = items;
+  if (error !== undefined) lastError = error;
   const count = el('pe-hide-count');
   if (count) count.textContent = `Bedroom used: ${bedroomItemCount(items)}/${BEDROOM_HIDE_LIMIT}`;
   const err = el('pe-hide-error');
-  if (err) err.textContent = error ?? '';
-  refreshSpotButtons();
+  if (err) err.textContent = lastError ?? '';
+  syncOpenButton();
 }
 
-export function hideHideMenu(): void {
-  const root = el('pe-hide-menu');
-  if (root) root.hidden = true;
-  onPlace = null;
+export function hidePhantomHideControls(): void {
+  const open = el('pe-hide-open');
+  const backdrop = el('pe-hide-backdrop');
+  if (open) open.hidden = true;
+  if (backdrop) backdrop.hidden = true;
+  menuPick = null;
+  confirmedKind = null;
+  lastError = null;
 }
+
+/** @deprecated Use hidePhantomHideControls */
+export const hideHideMenu = hidePhantomHideControls;
