@@ -4,6 +4,9 @@ import { hoodieTint } from '../lobby/lobby';
 import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { NetSync } from '../net/NetSync';
 import type { GameLink } from '../net/ColyseusLobbyService';
+import type { NoisePayload, PhasePayload } from '../net/protocol';
+import { canMove, canOpenSpot, canSeeInside, formatPhaseClock, PHASE_LABEL, phaseRemainingMs, type RoundPhase, type RoundRole } from '../logic/roundPhase';
+import { spawnNoiseRipple } from '../objects/NoiseRipple';
 import { Furniture, houseLayout } from '../data/houseLayout';
 import { createComposedWalls } from '../utils/wallRenderer';
 import { wallBodyRects, isDoorLocked } from '../data/colliders';
@@ -40,6 +43,14 @@ export class GameScene extends Phaser.Scene {
   private lightLayer: LightLayer | null = null;
   /** Online only (QA reads netSync.remotePositions()). */
   public netSync: NetSync | null = null;
+  /** Online phase. Offline stays null so movement and drawers are unchanged. */
+  private roundRole: RoundRole | null = null;
+  private roundPhaseName: RoundPhase | null = null;
+  private phaseView: PhasePayload | null = null;
+  private phaseAt = 0;
+  private outside = false;
+  private blind!: Phaser.GameObjects.Rectangle;
+  private phaseUnsubs: (() => void)[] = [];
   /** Items, Game Controller mini-game and paper-code reveal. */
   public items: ItemDirector | null = null;
   private floorView!: FloorView;
@@ -98,6 +109,7 @@ export class GameScene extends Phaser.Scene {
     this.applyHouseFloor(this.player.getFloor());
     this.mountGroundFloorArt();
     this.floorView.drawLivingStairs();
+    this.blind = this.add.rectangle(0, 0, 4, 4, 0x07060a).setDepth(80).setVisible(false);
 
     // Limited vision (before NetSync so a reconnect pose on the upper floor does not leave
     // the light visible — applyHouseFloor toggles the layer when it already exists).
@@ -106,6 +118,7 @@ export class GameScene extends Phaser.Scene {
     // Targeting after Arcade has synced the sprite to this frame's body position (POST_UPDATE),
     // so the highlight never lags a frame behind the player (QA R7-1 at low frame rates).
     const target = () => {
+      if (this.outside) return;
       this.hidingSpotManager.update(this.player.getPosition(), this.player.getFacing());
       const override = this.items?.promptOverride();
       if (override) (this.uiScene as any)?.showHidingSpotPrompt?.(override);
@@ -117,6 +130,7 @@ export class GameScene extends Phaser.Scene {
     this.events.on(Phaser.Scenes.Events.POST_UPDATE, target);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(Phaser.Scenes.Events.POST_UPDATE, target);
+      this.phaseUnsubs.forEach((u) => u());
       this.items?.destroy();
       this.items = null;
     });
@@ -127,7 +141,14 @@ export class GameScene extends Phaser.Scene {
 
     // Online room: other players + spot sync. Offline (no 'net') is unchanged.
     const net = this.registry.get('net') as GameLink | null | undefined;
-    if (net) this.netSync = new NetSync(this, net, this.player, this.hidingSpotManager);
+    if (net) {
+      this.netSync = new NetSync(this, net, this.player, this.hidingSpotManager);
+      const apply = (view: PhasePayload, at: number) => this.applyPhase(view, at);
+      this.phaseUnsubs.push(net.onPhase(apply));
+      this.phaseUnsubs.push(net.onNoise((n) => this.onDrawerNoise(n)));
+      const stored = net.phase();
+      if (stored) apply(stored.view, stored.at);
+    }
 
     // Setup controls
     this.setupControls();
@@ -150,6 +171,8 @@ export class GameScene extends Phaser.Scene {
 
     // Reconcile floor-dependent layers (light, spots) after online snap poses.
     this.applyHouseFloor(this.player.getFloor());
+    if (this.outside) this.fitOutside();
+    this.refreshPhaseHud();
 
     // Reposition on safe area changes
     watchInsets(this, () => this.onResize());
@@ -217,6 +240,10 @@ export class GameScene extends Phaser.Scene {
     const scr = currentShellLayout(this).screen;
     const cam = this.cameras.main;
     cam.setViewport(Math.round(scr.x * dpr), Math.round(scr.y * dpr), Math.round(scr.w * dpr), Math.round(scr.h * dpr));
+    if (this.outside) {
+      this.fitOutside();
+      return;
+    }
     // Close-up camera: about 280 world units on the screen's short side (roughly one room),
     // snapped so every art pixel covers the same whole number of device pixels.
     cam.setZoom(snappedCameraZoom(Math.min(cam.width, cam.height)));
@@ -225,6 +252,64 @@ export class GameScene extends Phaser.Scene {
     if (this.player) {
       cam.centerOn(this.player.x, this.player.y);
     }
+  }
+
+  /** Phantom search: the whole ground floor, covered, so a drawer ripple can land anywhere. */
+  private fitOutside(): void {
+    const cam = this.cameras.main;
+    cam.setBounds(0, 0, houseLayout.width, houseLayout.height);
+    const zoom = Math.min(cam.width / houseLayout.width, cam.height / houseLayout.height) * 0.92;
+    cam.setZoom(Math.max(0.05, zoom));
+    cam.centerOn(houseLayout.width / 2, houseLayout.height / 2);
+    this.blind.setPosition(houseLayout.width / 2, houseLayout.height / 2);
+    this.blind.setSize(houseLayout.width + 80, houseLayout.height + 80);
+  }
+
+  private applyPhase(view: PhasePayload, at: number): void {
+    this.phaseView = view;
+    this.phaseAt = at;
+    const role = view.roles.find((r) => r.id === (this.registry.get('net') as GameLink).selfId)?.role ?? 'player';
+    this.roundRole = role;
+    this.roundPhaseName = view.phase;
+    const entry = view.entries?.find((e) => e.id === (this.registry.get('net') as GameLink).selfId);
+    if (entry) this.player.place(entry.x, entry.y, (entry.f ?? 0) as FloorId);
+    const blind = role === 'phantom' && !canSeeInside(role, view.phase);
+    this.setOutside(blind);
+    const open = !this.roundPhaseName || !this.roundRole || canOpenSpot(this.roundRole, this.roundPhaseName);
+    this.hidingSpotManager.setInputEnabled(!blind && open);
+    this.refreshPhaseHud();
+  }
+
+  private setOutside(on: boolean): void {
+    this.outside = on;
+    this.blind.setVisible(on);
+    if (on) {
+      this.cameras.main.stopFollow();
+      this.fitOutside();
+      (this.uiScene as { hideHidingSpotPrompt?: () => void })?.hideHidingSpotPrompt?.();
+    } else if (this.player) {
+      this.applyHouseFloor(this.player.getFloor());
+      this.updateCameraZoom();
+      this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    }
+  }
+
+  private onDrawerNoise(noise: NoisePayload): void {
+    if (this.roundRole !== 'phantom') return;
+    spawnNoiseRipple(this, noise);
+  }
+
+  private refreshPhaseHud(): void {
+    const ui = this.uiScene as { setPhaseLine?: (text: string) => void } | undefined;
+    if (!ui?.setPhaseLine || !this.phaseView || !this.roundRole || !this.roundPhaseName) return;
+    if (this.roundPhaseName === 'ended') {
+      ui.setPhaseLine(PHASE_LABEL.ended);
+      return;
+    }
+    const ms = phaseRemainingMs(this.phaseView.endsAt, this.phaseView.serverNow, this.phaseAt, performance.now());
+    const who = this.roundRole === 'phantom' ? 'Phantom' : 'Player';
+    const outside = this.outside ? '\nYou are outside the house.' : '';
+    ui.setPhaseLine(`${who} · ${PHASE_LABEL[this.roundPhaseName]}  ${formatPhaseClock(ms)}${outside}`);
   }
 
   private createRooms(): void {
@@ -501,6 +586,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onInteract(): void {
+    if (this.roundRole && this.roundPhaseName && !canOpenSpot(this.roundRole, this.roundPhaseName)) return;
+    if (this.outside) return;
     if (this.items?.onUse()) return;
     // Check for door interaction
     const nearbyDoor = this.checkNearbyDoor();
@@ -571,6 +658,12 @@ export class GameScene extends Phaser.Scene {
       moveX = joystickDir.x;
       moveY = joystickDir.y;
     }
+
+    if (this.roundRole && this.roundPhaseName && !canMove(this.roundRole, this.roundPhaseName)) {
+      moveX = 0;
+      moveY = 0;
+    }
+    this.refreshPhaseHud();
 
     // Update player movement
     this.player.setMovement(moveX, moveY);

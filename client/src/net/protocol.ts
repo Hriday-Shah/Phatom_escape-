@@ -43,6 +43,26 @@ export const WAKE_MAX_MS = 75000;
 /** Shown while waiting for it. */
 export const WAKING_TEXT = 'Waking up the game server… free hosting can take up to a minute.';
 
+import type { RoundPhase, RoundRole } from '../logic/roundPhase';
+
+/** Server phase clock. `endsAt` and `serverNow` are server epoch milliseconds. */
+export interface PhasePayload {
+  phase: RoundPhase;
+  endsAt: number;
+  serverNow: number;
+  roles: { id: string; role: RoundRole }[];
+  result?: 'phantom-wins';
+  entries?: { id: string; x: number; y: number; f: number }[];
+}
+
+/** Drawer opened in search or chase. Phones that are not Phantoms never receive this. */
+export interface NoisePayload {
+  id: string;
+  x: number;
+  y: number;
+  level: 'quiet' | 'normal' | 'loud';
+}
+
 /** Server-chosen mini-game and public item list for this round (no paper code). */
 export type ItemPayload = {
   id: string; kind: string; variant?: string;

@@ -14,6 +14,9 @@
  *                     | round {minigame, gameSeed, items} | items {items} (per-client, never every spot's contents)
  *                     | minigameStartOk {minigame, gameSeed, puzzle} | minigameReveal {index, face}
  *                     | codeReveal {code} (winner only)
+ *                     | phase {phase, endsAt, serverNow, roles, result?, entries?}
+ *                     | noise {id, x, y, level} (Phantom phones only, search/chase, drawer noise not off)
+ *                     | held {x, y, f} (this phone may not walk in this phase; stand here)
  *
  * Drops: a client that disconnects without leaving keeps its seat for RECONNECT_SECONDS
  * (Colyseus allowReconnection; shown as `away`); a deliberate leave removes it at once.
@@ -86,6 +89,7 @@ export class HouseRoom extends Room {
         const round = this.logic.roundPublic();
         if (round) this.broadcast('round', round); // items array is empty; contents go per-client
         this.sendItemsToAll();
+        this.pushPhase();
       }
       return r;
     });
@@ -96,15 +100,22 @@ export class HouseRoom extends Room {
         return;
       }
       this.pendingPos.delete(client.sessionId);
-      this.logic.move(client.sessionId, msg, Date.now());
+      this.applyPos(client, msg, Date.now());
     });
     this.onMessage('spot', (client, msg) => {
       if (!this.allow(client, 'act')) { this.rejectSpot(client, msg); return; }
       const d = this.logic.setSpot(client.sessionId, msg);
       if (d) {
-        this.broadcast('spot', { id: d.id, open: d.open, by: d.by }); // no contents
+        const noise = this.logic.takeNoise();
+        for (const other of this.clients) {
+          const id = this.logic.playerId(other.sessionId);
+          if (!id) continue;
+          if (this.logic.canSeeHouse(id)) other.send('spot', { id: d.id, open: d.open, by: d.by });
+          if (noise && noise.to.includes(id)) other.send('noise', { id: noise.id, x: noise.x, y: noise.y, level: noise.level });
+        }
         this.sendItemsToAll();
       } else this.rejectSpot(client, msg);
+      this.pushPhase();
     });
     // Heartbeat: the client's dead-connection check (and, on hosts that sleep when no inbound
     // traffic arrives, e.g. Render free, what keeps the service awake while anyone is connected).
@@ -148,15 +159,53 @@ export class HouseRoom extends Room {
     this.onMessage('*', () => {});
 
     this.clock.setInterval(() => {
+      this.pushPhase();
       this.flushPendingPoses();
-      // TODO(stage 3): per-player interest management for positions.
       const p = this.logic.takeDirtyPoses();
       if (p.length) {
-        this.broadcast('poses', { p });
+        this.sendPoses(p);
         // A player who just gained line of sight on an open spot receives its contents.
         this.sendItemsToAll();
       }
     }, 1000 / TICK_HZ);
+  }
+
+  /** Phase clock. On chase, Phantoms who were outside receive the house again. */
+  private pushPhase(): void {
+    const view = this.logic.takePhaseEvent(Date.now());
+    if (!view) return;
+    this.broadcast('phase', view);
+    if (view.phase === 'chase') this.resyncHouse();
+  }
+
+  /** Poses a phone is allowed to see. During search a Phantom is outside the house. */
+  private sendPoses(p: [string, number, number, number, number, number][]): void {
+    for (const c of this.clients) {
+      const id = this.logic.playerId(c.sessionId);
+      if (!id) continue;
+      const vis = p.filter((row) => this.logic.canSeeActor(id, row[0]));
+      if (vis.length) c.send('poses', { p: vis });
+    }
+  }
+
+  private resyncHouse(): void {
+    const open = this.logic.openSpots();
+    const poses = this.logic.allPoses();
+    for (const c of this.clients) {
+      const id = this.logic.playerId(c.sessionId);
+      if (!id || !this.logic.canSeeHouse(id)) continue;
+      c.send('spots', { open });
+      c.send('items', { items: this.logic.itemListFor(id) });
+      const vis = poses.filter((row) => this.logic.canSeeActor(id, row[0]));
+      if (vis.length) c.send('poses', { p: vis });
+    }
+  }
+
+  private applyPos(client: Client, msg: unknown, now: number): void {
+    this.logic.move(client.sessionId, msg, now);
+    const held = this.logic.takeHold(client.sessionId);
+    if (held) client.send('held', { x: held.x, y: held.y, f: held.f });
+    this.pushPhase();
   }
 
   /** The phone already flipped the art. Tell it the flag the room actually has. */
@@ -173,7 +222,9 @@ export class HouseRoom extends Room {
       const limits = this.limits.get(sid);
       if (!limits || !limits.pos.take(now)) continue;
       this.pendingPos.delete(sid);
-      this.logic.move(sid, msg, now);
+      const client = this.clients.getById(sid);
+      if (client) this.applyPos(client, msg, now);
+      else this.logic.move(sid, msg, now);
     }
   }
 
@@ -245,13 +296,19 @@ export class HouseRoom extends Room {
     client.send('welcome', { selfId: this.logic.playerId(client.sessionId) });
     client.send('lobby', this.logic.snapshot());
     if (this.logic.started) {
-      client.send('spots', { open: this.logic.openSpots() });
-      const round = this.logic.roundPublic();
-      if (round) client.send('round', round);
+      this.logic.advance(Date.now());
+      const view = this.logic.roundView();
+      if (view) client.send('phase', view);
       const pid = this.logic.playerId(client.sessionId);
-      if (pid) client.send('items', { items: this.logic.itemListFor(pid) });
-      const p = this.logic.allPoses();
-      if (p.length) client.send('poses', { p });
+      const see = !pid || this.logic.canSeeHouse(pid);
+      if (see) client.send('spots', { open: this.logic.openSpots() });
+      const round = this.logic.roundPublic();
+      if (round && see) client.send('round', round);
+      if (pid && see) client.send('items', { items: this.logic.itemListFor(pid) });
+      if (see) {
+        const p = this.logic.allPoses().filter((row) => !pid || this.logic.canSeeActor(pid, row[0]));
+        if (p.length) client.send('poses', { p });
+      }
     }
   }
 

@@ -19,6 +19,7 @@ export class UIScene extends Phaser.Scene {
   private uiControls!: UIControls;
   private hidingSpotPrompt!: Phaser.GameObjects.Text;
   private doorMessageText!: Phaser.GameObjects.Text;
+  private phaseText!: Phaser.GameObjects.Text;
   /** Auto-hide deadlines on real time, polled in update() (see realTimer.ts). */
   private promptDeadline = new RealDeadline();
   private doorDeadline = new RealDeadline();
@@ -56,6 +57,13 @@ export class UIScene extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setDepth(999)
       .setVisible(false);
+
+    // Phase name and time left (online). Real time, refreshed by GameScene.
+    this.phaseText = this.add.text(0, 0, '', {
+      ...textStyle(),
+      fontSize: '16px',
+      align: 'center',
+    }).setOrigin(0.5, 1).setDepth(1000).setVisible(false);
 
     // Handle screen resize
     this.scale.on('resize', this.onResize, this);
@@ -126,6 +134,13 @@ export class UIScene extends Phaser.Scene {
     return this.uiControls.getItemSlotBounds();
   }
 
+  /** Online phase line. Empty hides it. Offline never sets this. */
+  public setPhaseLine(text: string): void {
+    const show = text.length > 0;
+    this.phaseText.setText(text).setVisible(show);
+    if (show) this.placePhaseLine();
+  }
+
   public showDoorMessage(text: string, duration?: number): void {
     this.doorDeadline.clear();
     this.doorMessageText.setText(text).setVisible(true);
@@ -169,7 +184,7 @@ export class UIScene extends Phaser.Scene {
     const usable = scr.w - reserve * 2;
     const narrow = usable < 160;
     const fontPx = Math.min(width, height) >= 600 ? 24 : 18;
-    for (const t of [this.hidingSpotPrompt, this.doorMessageText]) {
+    for (const t of [this.hidingSpotPrompt, this.doorMessageText, this.phaseText]) {
       t.setFontSize(`${fontPx}px`);
       t.setResolution(dpr);
       // Too narrow beside the slot (small portrait screens): wrap under it instead.
@@ -179,5 +194,15 @@ export class UIScene extends Phaser.Scene {
     this.promptCenterX = snapToDevice(scr.x + scr.w / 2, dpr);
     this.hidingSpotPrompt.setPosition(this.promptCenterX, snapToDevice(top, dpr));
     this.stackDoorMessage();
+    this.placePhaseLine();
+  }
+
+  /** Bottom of the game screen, so it stays clear of the spot prompt. */
+  private placePhaseLine(): void {
+    if (!this.phaseText || !this.layout) return;
+    const scr = this.layout.screen;
+    const dpr = gameDpr(this);
+    this.phaseText.setX(snapToDevice(scr.x + scr.w / 2, dpr));
+    this.phaseText.setY(snapToDevice(scr.y + scr.h - 8, dpr));
   }
 }
