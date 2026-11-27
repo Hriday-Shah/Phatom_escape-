@@ -13,15 +13,18 @@ import {
 } from '../data/houseFloors';
 import { STAIR_PAD_GROUND, STAIR_PAD_UPPER } from '../logic/floorMovement';
 
+/** Above reparented tiles/walls (-2..0) in the ground container but under players (9+). */
+const LIVING_STAIRS_DEPTH = 3;
+
 export class FloorView {
   readonly ground: Phaser.GameObjects.Container;
   readonly upper: Phaser.GameObjects.Container;
   private floor: FloorId = FLOOR_GROUND;
+  private livingStairs: Phaser.GameObjects.GameObject[] = [];
 
   constructor(private scene: Phaser.Scene) {
     this.ground = scene.add.container(0, 0).setDepth(-3);
     this.upper = scene.add.container(0, 0).setDepth(-3).setVisible(false);
-    this.drawStairs();
     this.drawUpperPlaceholder();
   }
 
@@ -35,34 +38,47 @@ export class FloorView {
 
   showFloor(floor: FloorId): void {
     this.floor = floor;
-    this.ground.setVisible(floor === FLOOR_GROUND);
+    const groundOn = floor === FLOOR_GROUND;
+    this.ground.setVisible(groundOn);
     this.upper.setVisible(floor === FLOOR_UPPER);
+    for (const o of this.livingStairs) o.setVisible(groundOn);
+  }
+
+  /**
+   * Living-room stairs at the old window opening. Call after mountGroundFloorArt() so
+   * floor tiles and walls are not drawn on top of this placeholder.
+   */
+  drawLivingStairs(): void {
+    if (this.livingStairs.length) return;
+    const o = LIVING_STAIR_OPENING;
+    const g = this.scene.add.graphics().setDepth(LIVING_STAIRS_DEPTH);
+    g.fillStyle(0x5a4538, 1);
+    g.fillRect(o.x, o.y - 4, o.width, o.height + 44);
+    g.fillStyle(0x3d2e22, 1);
+    g.fillRect(o.x + 6, o.y + 2, o.width - 12, o.height + 34);
+    g.lineStyle(2, 0xc4a882, 0.95);
+    for (let i = 0; i < 6; i++) {
+      const y = o.y + 8 + i * 8;
+      g.lineBetween(o.x + 10, y, o.x + o.width - 10, y);
+    }
+    g.lineStyle(2, 0xffd9a0, 0.85);
+    g.strokeRect(STAIR_PAD_GROUND.x, STAIR_PAD_GROUND.y, STAIR_PAD_GROUND.width, STAIR_PAD_GROUND.height);
+    g.fillStyle(0x9a7048, 0.55);
+    g.fillRect(STAIR_PAD_GROUND.x, STAIR_PAD_GROUND.y, STAIR_PAD_GROUND.width, STAIR_PAD_GROUND.height);
+    const label = this.scene.add.text(o.x + o.width / 2, o.y + 52, 'STAIRS', {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '13px',
+      fontStyle: 'bold',
+      color: '#ffe8c8',
+      stroke: '#2a1a10',
+      strokeThickness: 3,
+      align: 'center',
+    }).setOrigin(0.5, 0).setDepth(LIVING_STAIRS_DEPTH);
+    this.livingStairs = [g, label];
   }
 
   cameraBounds(floor: FloorId = this.floor): { x: number; y: number; width: number; height: number } {
     return floorBounds(floor);
-  }
-
-  private drawStairs(): void {
-    const g = this.scene.add.graphics();
-    const o = LIVING_STAIR_OPENING;
-    // Temporary stair graphic at the old window opening.
-    g.fillStyle(0x4a3a2a, 1);
-    g.fillRect(o.x, o.y - 8, o.width, o.height + 36);
-    g.lineStyle(2, 0x8a6a4a, 1);
-    for (let i = 0; i < 5; i++) {
-      const y = o.y + 6 + i * 7;
-      g.lineBetween(o.x + 8, y, o.x + o.width - 8, y);
-    }
-  g.fillStyle(0x6a5040, 0.9);
-    g.fillRect(STAIR_PAD_GROUND.x, STAIR_PAD_GROUND.y, STAIR_PAD_GROUND.width, STAIR_PAD_GROUND.height);
-    const label = this.scene.add.text(o.x + o.width / 2, o.y + 44, 'STAIRS (placeholder)', {
-      fontFamily: 'system-ui, sans-serif',
-      fontSize: '11px',
-      color: '#c8b0a0',
-      align: 'center',
-    }).setOrigin(0.5, 0);
-    this.ground.add([g, label]);
   }
 
   private drawUpperPlaceholder(): void {

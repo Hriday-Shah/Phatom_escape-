@@ -97,6 +97,7 @@ export class GameScene extends Phaser.Scene {
     this.hidingSpotManager.setWallGroup(this.wallGroup);
     this.applyHouseFloor(this.player.getFloor());
     this.mountGroundFloorArt();
+    this.floorView.drawLivingStairs();
 
     // Limited vision (before NetSync so a reconnect pose on the upper floor does not leave
     // the light visible — applyHouseFloor toggles the layer when it already exists).
