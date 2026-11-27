@@ -6,7 +6,7 @@ import { PLAYER_SPEED } from '../../../client/src/config/physicsConfig';
 import { originAllowed, parseOrigins } from '../origins';
 import { randomBytes } from 'node:crypto';
 import { MIN_WIN_MS, createRound, createServerRoundFrom, hidingSpotList } from '../../../client/src/logic/itemRound';
-import { canUseSpot, clampDrop, integrateSlide, losBlockers, movementBlockers, PLAYER_BODY_RADIUS, pointBlocked, spotById } from '../../../client/src/logic/worldCollision';
+import { canUseSpot, clampDrop, integrateSlide, losBlockers, movementBlockers, moveHitsWall, PLAYER_BODY_RADIUS, pointBlocked, spotById } from '../../../client/src/logic/worldCollision';
 import { houseLayout } from '../../../client/src/data/houseLayout';
 import { FLOOR_GROUND, FLOOR_UPPER, STAIR_LAND_GROUND, STAIR_LAND_UPPER } from '../../../client/src/data/houseFloors';
 import { STAIR_PAD_GROUND, STAIR_PAD_UPPER } from '../../../client/src/logic/floorMovement';
@@ -714,6 +714,131 @@ test('stairs: server applies floor change on the stair pad and rejects teleport'
   const down = h.move('s0', { x: STAIR_LAND_GROUND.x, y: STAIR_LAND_GROUND.y, d: 2, m: 1, f: FLOOR_GROUND }, 4100)!;
   assert.equal(down.f, FLOOR_GROUND, 'descent from upper pad accepted when landing snap matches');
   assert.equal(down.y, STAIR_LAND_GROUND.y);
+});
+
+test('swept collision uses rounded corners, not a fat square', () => {
+  const block = [{ x: 0, y: 0, width: 10, height: 10 }];
+  // Corner at (10,10). A point 12px right and 12px down is inside a 16px square
+  // inflation (the old test) but outside the 16px circle (hypot 16.97).
+  assert.equal(pointBlocked(22, 22, block, 16), false, 'corner should be round');
+  assert.equal(moveHitsWall(22, 40, 22, 22, block, 16, 0.05), false, 'can walk past a rounded corner');
+  assert.equal(pointBlocked(10 + 8, 10 + 8, block, 16), true, 'still solid inside the circle');
+  assert.equal(moveHitsWall(40, 5, -10, 5, block, 16, 0), true, 'still cannot pass through a face');
+});
+
+function walkToward(
+  from: { x: number; y: number }, goal: { x: number; y: number }, maxFrames = 200,
+): { x: number; y: number; frames: number; stuck: boolean } {
+  const blockers = movementBlockers();
+  let p = { x: from.x, y: from.y };
+  assert.equal(pointBlocked(p.x, p.y, blockers), false, `start blocked ${p.x},${p.y}`);
+  for (let i = 0; i < maxFrames; i++) {
+    if (Math.hypot(goal.x - p.x, goal.y - p.y) <= 10) return { ...p, frames: i, stuck: false };
+    const n = integrateSlide(p, goal.x - p.x, goal.y - p.y, 1000 / 60, blockers);
+    assert.equal(pointBlocked(n.x, n.y, blockers), false, `walk entered a wall at ${n.x.toFixed(1)},${n.y.toFixed(1)}`);
+    if (Math.hypot(n.x - p.x, n.y - p.y) < 0.15) return { ...n, frames: i, stuck: true };
+    p = n;
+  }
+  return { ...p, frames: maxFrames, stuck: true };
+}
+
+/** A free standing point on one side of an opening, clear of nearby furniture. */
+function approachOf(
+  o: { x: number; y: number; width: number; height: number },
+  side: 1 | -1,
+  alongOff = 0,
+): { x: number; y: number } {
+  const blockers = movementBlockers();
+  const vertical = o.height >= o.width;
+  const midX = o.x + o.width / 2;
+  const midY = o.y + o.height / 2;
+  const reach = [48, 56, 64, 40, 72];
+  const along = [alongOff, 0, 8, -8, 16, -16, 24, -24, 32, -32, 40, -40];
+  const nudge = [0, 8, -8, 16, -16, 24, -24, 32, 40, -32, -40];
+  for (const r of reach) {
+    for (const a of along) {
+      for (const n of nudge) {
+        const p = vertical
+          ? { x: (side < 0 ? o.x : o.x + o.width) + side * r + n, y: midY + a }
+          : { x: midX + a + n, y: (side < 0 ? o.y : o.y + o.height) + side * r };
+        if (!pointBlocked(p.x, p.y, blockers)) return p;
+      }
+    }
+  }
+  throw new Error(`no approach for opening ${o.x},${o.y} side ${side} off ${alongOff}`);
+}
+
+test('a player can walk through every unlocked doorway from both sides and along the walls', () => {
+  const openings = houseLayout.openings.map((o) => ({
+    id: o.id ?? `opening ${o.x},${o.y}`,
+    ...o,
+  }));
+  assert.ok(openings.length >= 4, 'expected the four house openings');
+  for (const o of openings) {
+    const a = approachOf(o, -1);
+    const b = approachOf(o, 1);
+    const ab = walkToward(a, b);
+    assert.equal(ab.stuck, false, `${o.id} A->B stuck at ${ab.x.toFixed(1)},${ab.y.toFixed(1)} from ${a.x},${a.y} to ${b.x},${b.y}`);
+    const ba = walkToward(b, a);
+    assert.equal(ba.stuck, false, `${o.id} B->A stuck at ${ba.x.toFixed(1)},${ba.y.toFixed(1)} from ${b.x},${b.y} to ${a.x},${a.y}`);
+
+    for (const off of [20, -20]) {
+      let alongA: { x: number; y: number };
+      let alongB: { x: number; y: number };
+      try {
+        alongA = approachOf(o, -1, off);
+        alongB = approachOf(o, 1, off);
+      } catch {
+        continue;
+      }
+      const wallAb = walkToward(alongA, b);
+      assert.equal(wallAb.stuck, false, `${o.id} along-wall A->B off=${off} stuck at ${wallAb.x.toFixed(1)},${wallAb.y.toFixed(1)}`);
+      const wallBa = walkToward(alongB, a);
+      assert.equal(wallBa.stuck, false, `${o.id} along-wall B->A off=${off} stuck at ${wallBa.x.toFixed(1)},${wallBa.y.toFixed(1)}`);
+    }
+  }
+});
+
+test('locked doors stay closed, and a wall press does not drift or tunnel', () => {
+  const fromEntrance = { x: 360, y: 435 };
+  const walk = walkToward(fromEntrance, { x: 250, y: 250 }, 120);
+  assert.ok(walk.y > 360, `must not pass the locked bedroom door (ended ${walk.x.toFixed(1)},${walk.y.toFixed(1)})`);
+
+  // Off the stair pad (x 565-675) and clear of the sofa: straight into the living
+  // north wall stays put (no sideways funnel along the wall).
+  let p = { x: 530, y: 126 };
+  assert.equal(pointBlocked(p.x, p.y, movementBlockers()), false);
+  for (let i = 0; i < 12; i++) {
+    p = integrateSlide(p, 0, -1, 1000 / 60);
+    assert.equal(pointBlocked(p.x, p.y, movementBlockers()), false);
+  }
+  assert.ok(Math.abs(p.x - 530) < 0.2, `holding north drifted sideways to x=${p.x}`);
+  assert.ok(Math.abs(p.y - 126) < 1, `did not stay on the wall, y=${p.y}`);
+
+  const sofa = houseLayout.hidingSpots.find((s) => s.id === 'sofa')!;
+  const fromX = sofa.x + sofa.width + PLAYER_BODY_RADIUS + 20;
+  const y = sofa.y + sofa.height / 2;
+  const through = walkToward({ x: fromX, y }, { x: sofa.x - 40, y }, 80);
+  assert.ok(through.x >= sofa.x + sofa.width + PLAYER_BODY_RADIUS - 1, `walked through the sofa to x=${through.x}`);
+});
+
+test('phone and server stay together walking through the foyer-kitchen door', () => {
+  const h = room(1);
+  h.start('s0', 0);
+  const start = approachOf({ x: 830, y: 310, width: 60, height: 10 }, -1, 0);
+  const goal = approachOf({ x: 830, y: 310, width: 60, height: 10 }, 1, 20);
+  stand(h, 's0', start.x, start.y, 0);
+  let phone = { ...start };
+  let now = 0;
+  for (let i = 0; i < 80 && Math.hypot(goal.x - phone.x, goal.y - phone.y) > 10; i++) {
+    const sent = reportSlide(phone, goal.x - phone.x, goal.y - phone.y);
+    now += 1000 / 12;
+    const got = h.move('s0', { x: sent.x, y: sent.y, d: 0, m: 1, f: 0 }, now)!;
+    assert.ok(Math.hypot(got.x - sent.x, got.y - sent.y) < 1, `tick ${i}: server ${got.x},${got.y} vs phone ${sent.x},${sent.y}`);
+    assert.equal(pointBlocked(got.x, got.y, movementBlockers()), false);
+    phone = got;
+  }
+  assert.ok(phone.y > 340, `did not enter the kitchen, y=${phone.y}`);
 });
 
 console.log(`\n✅ ${n} server tests passed`);

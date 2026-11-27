@@ -12,7 +12,7 @@ import { FacingFilter } from '../logic/facingFilter';
 import { FLOOR_GROUND, type FloorId } from '../data/houseFloors';
 import type { FloorPose } from '../logic/floorMovement';
 import { movementBlockersForFloor, resolveStairAfterMove } from '../logic/floorMovement';
-import { integrateSlide } from '../logic/worldCollision';
+import { integrateSlide, wallDoorBlockers } from '../logic/worldCollision';
 import { DEFAULT_HOODIE_TINT } from '../lobby/lobby';
 
 // Re-exported so callers (and tests, via config/playerConfig) share one source of truth.
@@ -192,7 +192,7 @@ export class Player {
     let guard = 0;
     while (this.slideDebt >= step && guard++ < 8) {
       this.slideDebt -= step;
-      const next = integrateSlide({ x, y }, dirX, dirY, step, blockers);
+      const next = integrateSlide({ x, y }, dirX, dirY, step, blockers, this.speed, PLAYER_BODY_RADIUS, wallDoorBlockers(false, this.floorLevel));
       x = next.x;
       y = next.y;
     }

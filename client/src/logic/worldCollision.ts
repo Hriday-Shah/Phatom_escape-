@@ -5,12 +5,12 @@
  * growth), blocking furniture, and locked doors. Line of sight uses walls and
  * locked doors only; furniture never blocks sight.
  */
-import { getStaticColliders, type Rect } from '../data/colliders';
+import { type Rect } from '../data/colliders';
 import { PLAYER_BODY_RADIUS } from '../config/playerConfig';
 import { PLAYER_SPEED } from '../config/physicsConfig';
 import { hasLineOfSight, distanceToRect, centerOf, buildInteractables } from './spotTargeting';
 import { houseLayout } from '../data/houseLayout';
-import { FLOOR_GROUND, type FloorId, poseInsideFloor } from '../data/houseFloors';
+import { FLOOR_GROUND, type FloorId, normaliseFloor, poseInsideFloor } from '../data/houseFloors';
 import { losBlockersForFloor, movementBlockersForFloor, spotFloor } from './floorMovement';
 
 export const NEAR_ITEM = 90;
@@ -27,13 +27,18 @@ export type Point = { x: number; y: number };
  * Bodies the player cannot walk through. Matches the Arcade groups in GameScene:
  * wall bodies, blocking furniture, every hiding spot (those are solid too), and locked doors.
  */
-export function movementBlockers(debugUnlock = false, floor: FloorId = FLOOR_GROUND): Rect[] {
-  return movementBlockersForFloor(floor, debugUnlock);
+export function movementBlockers(debugUnlock = false, floor: FloorId | number = FLOOR_GROUND): Rect[] {
+  return movementBlockersForFloor(normaliseFloor(floor), debugUnlock);
 }
 
 /** Bodies that block sight (walls + locked doors; furniture never does). */
-export function losBlockers(debugUnlock = false, floor: FloorId = FLOOR_GROUND): Rect[] {
-  return losBlockersForFloor(floor, debugUnlock);
+export function losBlockers(debugUnlock = false, floor: FloorId | number = FLOOR_GROUND): Rect[] {
+  return losBlockersForFloor(normaliseFloor(floor), debugUnlock);
+}
+
+/** Walls and locked doors only — used so furniture corners are not treated as doorways. */
+export function wallDoorBlockers(debugUnlock = false, floor: FloorId | number = FLOOR_GROUND): Rect[] {
+  return losBlockersForFloor(normaliseFloor(floor), debugUnlock);
 }
 
 /** Axis-aligned rect inflated by a circle radius (conservative at corners). */
@@ -67,9 +72,11 @@ export function moveHitsWall(
   return false;
 }
 
-function segmentHitsInflated(x0: number, y0: number, x1: number, y1: number, r: Rect, radius: number, skin = 0): boolean {
-  const box = inflateRect(r, Math.max(0, radius - skin));
-  // Liang-Barsky; touching the inflated edge counts.
+/**
+ * Segment vs axis-aligned rect (Liang-Barsky). The boundary counts as a hit
+ * so a graze is rejected; callers shrink `rad` with `skin` to allow wall slides.
+ */
+function segmentHitsRect(x0: number, y0: number, x1: number, y1: number, box: Rect): boolean {
   let t0 = 0, t1 = 1;
   const dx = x1 - x0, dy = y1 - y0;
   const p = [-dx, dx, -dy, dy];
@@ -81,6 +88,34 @@ function segmentHitsInflated(x0: number, y0: number, x1: number, y1: number, r: 
     else { if (t < t0) return false; if (t < t1) t1 = t; }
   }
   return true;
+}
+
+function segmentHitsPoint(x0: number, y0: number, x1: number, y1: number, px: number, py: number, rad: number): boolean {
+  const dx = x1 - x0, dy = y1 - y0;
+  const len2 = dx * dx + dy * dy;
+  let t = 0;
+  if (len2 > 0) t = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / len2));
+  return Math.hypot(x0 + dx * t - px, y0 + dy * t - py) < rad;
+}
+
+/**
+ * Swept-circle vs AABB. The Minkowski sum is a rectangle with rounded corners,
+ * not a square-inflated box. Square inflation was ~0.4 r too fat at corners and
+ * froze legal poses next to door jambs (the circle was free, every step looked
+ * like a hit).
+ */
+function segmentHitsInflated(x0: number, y0: number, x1: number, y1: number, r: Rect, radius: number, skin = 0): boolean {
+  const rad = Math.max(0, radius - skin) - 0.01;
+  if (rad <= 0) return segmentHitsRect(x0, y0, x1, y1, r);
+  // Face pads: grow on one axis only, leaving the corner squares to the circles.
+  const padX = { x: r.x - rad, y: r.y, width: r.width + rad * 2, height: r.height };
+  const padY = { x: r.x, y: r.y - rad, width: r.width, height: r.height + rad * 2 };
+  if (segmentHitsRect(x0, y0, x1, y1, padX) || segmentHitsRect(x0, y0, x1, y1, padY)) return true;
+  const rx = r.x + r.width, ry = r.y + r.height;
+  return segmentHitsPoint(x0, y0, x1, y1, r.x, r.y, rad)
+    || segmentHitsPoint(x0, y0, x1, y1, rx, r.y, rad)
+    || segmentHitsPoint(x0, y0, x1, y1, r.x, ry, rad)
+    || segmentHitsPoint(x0, y0, x1, y1, rx, ry, rad);
 }
 
 /**
@@ -106,7 +141,7 @@ export function clampMove(
       lo = mid;
     }
   }
-  return { x: Math.round(best.x * 10) / 10, y: Math.round(best.y * 10) / 10, blocked: true };
+  return { x: best.x, y: best.y, blocked: true };
 }
 
 /**
@@ -252,6 +287,129 @@ export function resolveMove(
   return { x: free.x, y: free.y, blocked: true };
 }
 
+/** How far corner-assist may look along a wall for an opening. */
+const CORNER_LOOK = 64;
+/** Ignore a "funnel" that only opens after walking past a piece of furniture. */
+const FUNNEL_MAX = 40;
+const AXIS = [
+  { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
+] as const;
+
+function movedFar(a: Point, b: Point, eps = SLIDE_REACH_EPS): boolean {
+  return Math.hypot(b.x - a.x, b.y - a.y) > eps;
+}
+
+/**
+ * When the stick is blocked, try a short sideways shuffle. If walking that
+ * way soon lets the original direction through (a door a body-width to the
+ * side), slide that way this frame. If the body is in a corner and only one
+ * side is free, slide along that face so the sprite does not freeze.
+ */
+function cornerAssist(
+  from: Point, ux: number, uy: number, dist: number,
+  blockers: Rect[], radius: number, wallDoors: Rect[] = wallDoorBlockers(),
+): Point | null {
+  const open: { dir: { x: number; y: number }; detour: number; dot: number }[] = [];
+  const blocked: { x: number; y: number }[] = [];
+  const funnel: { dir: { x: number; y: number }; detour: number; progress: number }[] = [];
+  const pocket = Math.max(radius, dist);
+  for (const a of AXIS) {
+    const slid = clampMove(from, { x: from.x + a.x * CORNER_LOOK, y: from.y + a.y * CORNER_LOOK }, blockers, radius, SLIDE_SKIN);
+    const detour = Math.hypot(slid.x - from.x, slid.y - from.y);
+    const dot = a.x * ux + a.y * uy;
+    // A 5px pocket under a cabinet is not a free face for corner detection.
+    if (detour <= pocket) { blocked.push(a); if (detour <= SLIDE_REACH_EPS) continue; }
+    else open.push({ dir: a, detour, dot });
+    // Backing up always "opens" the original direction; only look sideways or forward.
+    // Probe along the path so a doorway mid-way is not missed after overshooting the jamb.
+    // Only funnel around wall/door gaps, not the near corner of a table the player is pushing into.
+    if (dot > -0.2 && detour > SLIDE_REACH_EPS
+        && moveHitsWall(from.x, from.y, from.x + ux * 4, from.y + uy * 4, wallDoors, radius, SLIDE_SKIN)) {
+      let bestProgress = 0;
+      let bestDetour = detour;
+      for (let t = Math.min(8, detour); t <= detour + 1e-6; t += 8) {
+        const mx = from.x + a.x * t;
+        const my = from.y + a.y * t;
+        const mid = clampMove(from, { x: mx, y: my }, blockers, radius, SLIDE_SKIN);
+        if (pointBlocked(mid.x, mid.y, blockers, radius)) break;
+        const ahead = clampMove(mid, { x: mid.x + ux * dist, y: mid.y + uy * dist }, blockers, radius, SLIDE_SKIN);
+        const progress = (ahead.x - from.x) * ux + (ahead.y - from.y) * uy;
+        if (progress > bestProgress) { bestProgress = progress; bestDetour = Math.hypot(mid.x - from.x, mid.y - from.y); }
+      }
+      if (bestProgress > SLIDE_REACH_EPS && bestDetour <= FUNNEL_MAX) funnel.push({ dir: a, detour: bestDetour, progress: bestProgress });
+    }
+  }
+  // Prefer a short shuffle that opens the original direction (a doorway to the side).
+  // If the stick is nearly cardinal into a corner, slide along the one free side
+  // so the sprite does not freeze. Diagonals are left alone to avoid oscillating
+  // between the two faces.
+  const inCorner = blocked.some((a, i) => blocked.some((b, j) => j > i && a.x * b.x + a.y * b.y === 0));
+  const cardinal = Math.min(Math.abs(ux), Math.abs(uy)) < 0.25;
+  const sides = inCorner && cardinal ? open.filter((o) => Math.abs(o.dot) < 0.25) : [];
+  const pick = funnel.length
+    ? funnel.sort((a, b) => a.detour - b.detour || b.progress - a.progress)[0]
+    : (sides.length === 1 ? sides[0] : null);
+  if (!pick) return null;
+  const next = clampMove(
+    from,
+    { x: from.x + pick.dir.x * dist, y: from.y + pick.dir.y * dist },
+    blockers, radius, SLIDE_SKIN,
+  );
+  return movedFar(from, next) && !pointBlocked(next.x, next.y, blockers, radius) ? next : null;
+}
+
+/**
+ * One 60 Hz step: walk toward the stick, then spend leftover speed sliding
+ * along a wall at full step length (not the tiny projected tangent). A player
+ * who aims mostly through a door but is a few pixels off the opening then
+ * slides into it instead of creeping.
+ */
+function stepSlide(
+  from: Point, ux: number, uy: number, dist: number,
+  blockers: Rect[], radius: number, wallDoors: Rect[] = wallDoorBlockers(),
+): Point {
+  const to = { x: from.x + ux * dist, y: from.y + uy * dist };
+  const direct = clampMove(from, to, blockers, radius, SLIDE_SKIN);
+  let best: Point = direct;
+  const remain = dist - Math.hypot(direct.x - from.x, direct.y - from.y);
+  if (remain > SLIDE_REACH_EPS) {
+    const sx = Math.sign(ux), sy = Math.sign(uy);
+    const alongX = clampMove(direct, { x: direct.x + sx * remain, y: direct.y }, blockers, radius, SLIDE_SKIN);
+    const xy = clampMove(alongX, { x: alongX.x, y: alongX.y + sy * remain }, blockers, radius, SLIDE_SKIN);
+    const alongY = clampMove(direct, { x: direct.x, y: direct.y + sy * remain }, blockers, radius, SLIDE_SKIN);
+    const yx = clampMove(alongY, { x: alongY.x + sx * remain, y: alongY.y }, blockers, radius, SLIDE_SKIN);
+    const leftX = Math.hypot(to.x - xy.x, to.y - xy.y);
+    const leftY = Math.hypot(to.x - yx.x, to.y - yx.y);
+    best = leftX <= leftY ? xy : yx;
+  }
+  const travelled = Math.hypot(best.x - from.x, best.y - from.y);
+  if (travelled < dist * 0.5) {
+    const assisted = cornerAssist(from, ux, uy, dist, blockers, radius, wallDoors);
+    if (assisted && Math.hypot(assisted.x - from.x, assisted.y - from.y) >= travelled) {
+      best = assisted;
+    }
+  }
+  if (pointBlocked(best.x, best.y, blockers, radius)) return from;
+  return best;
+}
+
+
+function snapFreeTenth(x: number, y: number, blockers: Rect[], radius: number): Point {
+  const rx = roundTenth(x), ry = roundTenth(y);
+  if (!pointBlocked(rx, ry, blockers, radius)) return { x: rx, y: ry };
+  for (let s = 1; s <= 8; s++) {
+    for (let dx = -s; dx <= s; dx++) {
+      for (let dy = -s; dy <= s; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== s) continue;
+        const p = { x: roundTenth(rx + dx / 10), y: roundTenth(ry + dy / 10) };
+        if (!pointBlocked(p.x, p.y, blockers, radius)) return p;
+      }
+    }
+  }
+  if (!pointBlocked(x, y, blockers, radius)) return { x, y };
+  return nearestFree({ x, y }, blockers, radius);
+}
+
 /**
  * Advance one phone step: fixed 60 Hz slides, the same steps between two pose sends.
  * `dtMs` is capped at 100 so a hitch cannot tunnel through a table in one segment.
@@ -264,6 +422,7 @@ export function integrateSlide(
   blockers: Rect[] = movementBlockers(),
   speed = PLAYER_SPEED,
   radius = PLAYER_BODY_RADIUS,
+  wallDoors: Rect[] = wallDoorBlockers(),
 ): Point {
   const len = Math.hypot(dirX, dirY);
   if (len === 0 || !(dtMs > 0)) return { x: from.x, y: from.y };
@@ -272,16 +431,23 @@ export function integrateSlide(
   let left = Math.min(dtMs, 100);
   let x = from.x;
   let y = from.y;
+  if (pointBlocked(x, y, blockers, radius)) {
+    const free = nearestFree({ x, y }, blockers, radius);
+    x = free.x;
+    y = free.y;
+  }
   const frame = 1000 / 60;
   for (let i = 0; i < 8 && left > 1e-4; i++) {
     const dt = Math.min(frame, left);
     left -= dt;
     const dist = speed * dt / 1000;
-    const next = slideMove({ x, y }, { x: x + ux * dist, y: y + uy * dist }, blockers, radius);
+    const next = stepSlide({ x, y }, ux, uy, dist, blockers, radius, wallDoors);
     x = next.x;
     y = next.y;
   }
-  return { x, y };
+  // Tenths are what the phone sends; pick a free tenth so rounding cannot
+  // push a legal pose into a corner and desync the server.
+  return snapFreeTenth(x, y, blockers, radius);
 }
 
 /**
@@ -327,20 +493,19 @@ export function spotById(id: string): { id: string; x: number; y: number; width:
 }
 
 export function canUseSpot(
-  pose: Point & { f?: FloorId },
+  pose: Point & { f?: number },
   spotId: string,
   reach = NEAR_ITEM,
 ): boolean {
   const spot = spotById(spotId);
   if (!spot) return false;
-  const f = pose.f ?? FLOOR_GROUND;
+  const f = normaliseFloor(pose.f);
   if (f !== spotFloor(spotId)) return false;
   return reachableWithLos(pose, spot, reach, losBlockers(false, f));
 }
 
-export function poseOnFloor(pose: Point & { f?: FloorId }, radius = PLAYER_BODY_RADIUS): boolean {
-  const f = pose.f ?? FLOOR_GROUND;
-  return poseInsideFloor(pose.x, pose.y, f, radius);
+export function poseOnFloor(pose: Point & { f?: number }, radius = PLAYER_BODY_RADIUS): boolean {
+  return poseInsideFloor(pose.x, pose.y, normaliseFloor(pose.f), radius);
 }
 
 export { poseInsideFloor };

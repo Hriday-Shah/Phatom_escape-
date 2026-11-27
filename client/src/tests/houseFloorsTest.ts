@@ -5,6 +5,7 @@ import {
   composeWindowRects,
   FLOOR_GROUND,
   FLOOR_UPPER,
+  type FloorId,
   LIVING_STAIR_OPENING,
   poseInsideFloor,
   STAIR_LAND_GROUND,
@@ -63,8 +64,8 @@ export function runHouseFloorsTest(): void {
   assert.equal(cheated.f, FLOOR_GROUND, 'teleport upstairs without the stair pad is rejected');
 
   const sofa = spots.find((s) => s.id === 'sofa_d1') ?? spots[0]!;
-  const nearSofa = { x: sofa.x + sofa.width / 2, y: sofa.y + sofa.height + 40, f: FLOOR_GROUND };
-  const upstairs = { x: nearSofa.x, y: nearSofa.y, f: FLOOR_UPPER };
+  const nearSofa = { x: sofa.x + sofa.width / 2, y: sofa.y + sofa.height + 40, f: FLOOR_GROUND as FloorId };
+  const upstairs = { x: nearSofa.x, y: nearSofa.y, f: FLOOR_UPPER as FloorId };
   assert.ok(canUseSpot(nearSofa, sofa.id), 'same-floor reach at sofa');
   assert.equal(canUseSpot(upstairs, sofa.id), false, 'upstairs cannot open ground spots');
 
