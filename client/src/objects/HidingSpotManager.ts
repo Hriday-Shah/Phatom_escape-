@@ -277,14 +277,9 @@ export class HidingSpotManager {
   }
 
   private promptText(spot: SpotState): string {
-    if (spot.isOpen && this.contentsArtKey?.(spot.data.id)) {
-      const isTouch = this.scene.sys.game.device.input.touch;
-      const hint = isTouch ? '' : '[E] ';
-      return `${hint}${spot.data.name}`;
-    }
-    // Show keyboard hint only on non-touch devices
     const isTouch = this.scene.sys.game.device.input.touch;
     const hint = isTouch ? '' : '[E] ';
+    if (!this.autoPickup && spot.isOpen) return `${hint}Close ${spot.data.name}`;
     return `${hint}${spot.data.name}`;
   }
 
@@ -307,13 +302,22 @@ export class HidingSpotManager {
     if (!on) this.clearHighlight();
   }
 
+  /** When false (Phantom hiding), Interact opens/closes only — it does not take the item. */
+  public autoPickup = true;
+
   public interact(): void {
     if (!this.inputEnabled) return;
     if (this.activeFloor !== FLOOR_GROUND) return;
     if (!this.highlightedSpot) return;
-    if (this.highlightedSpot.isOpen && this.tryPickup?.(this.highlightedSpot.data.id)) return;
+    if (this.autoPickup && this.highlightedSpot.isOpen && this.tryPickup?.(this.highlightedSpot.data.id)) return;
     this.toggleSpot(this.highlightedSpot);
   }
+
+  public takeHighlighted(): boolean {
+    if (!this.inputEnabled || !this.highlightedSpot?.isOpen) return false;
+    return !!this.tryPickup?.(this.highlightedSpot.data.id);
+  }
+
 
   /** Online: told about every open / close this player makes (net/NetSync.ts). */
   private localToggle: ((id: string, open: boolean) => void) | null = null;
@@ -350,7 +354,7 @@ export class HidingSpotManager {
     if (spot.isOpen) {
       const label = this.contentsLabel?.(spot.data.id);
       const hasArt = !!this.contentsArtKey?.(spot.data.id);
-      if (label && this.tryPickup?.(spot.data.id)) {
+      if (this.autoPickup && label && this.tryPickup?.(spot.data.id)) {
         this.showMessage(`Picked up ${label}`, 2000);
       } else if (hasArt) {
         this.showPrompt(spot);

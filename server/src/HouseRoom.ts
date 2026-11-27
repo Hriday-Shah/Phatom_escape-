@@ -137,8 +137,10 @@ export class HouseRoom extends Room {
       const spotId = typeof body.spotId === 'string' ? body.spotId : '';
       const variant = typeof body.variant === 'string' && body.variant.length > 0 ? body.variant : undefined;
       const r = this.logic.placeHiddenItem(client.sessionId, kind, spotId, variant);
-      if (r.ok) this.sendItemsToAll();
-      else client.send('rejected', { action: 'hideItem', error: r.error });
+      if (r.ok) {
+        this.sendItemsToAll();
+        this.broadcastSpots();
+      } else client.send('rejected', { action: 'hideItem', error: r.error });
     });
     this.onMessage('endHiding', (client) => {
       if (!this.allow(client, 'act')) return;
@@ -307,6 +309,16 @@ export class HouseRoom extends Room {
     if (id) this.broadcast('left', { id });
     if (this.logic.started) this.sendItemsToAll();
     this.broadcastLobby();
+  }
+
+  /** Open-spot list for everyone who can see the house (others get an empty list). */
+  private broadcastSpots(): void {
+    const open = this.logic.openSpots();
+    for (const c of this.clients) {
+      const id = this.logic.playerId(c.sessionId);
+      if (!id) continue;
+      c.send('spots', { open: this.logic.canSeeHouse(id) ? open : [] });
+    }
   }
 
   /** Send each client only the items they are allowed to see (R15-3). */

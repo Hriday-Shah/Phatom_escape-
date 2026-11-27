@@ -1329,7 +1329,9 @@ test('the Phantom keeps its kit after a spot closes; players never see that list
   const phantom = sessionRole(h, 'phantom');
   const player = sessionRole(h, 'player');
   assert.equal(hideAt(h, phantom, 'stun_gun', 'sofa_d1', undefined, 100).ok, true);
+  assert.equal(h.isSpotOpen('sofa_d1'), false, 'placed spots start closed');
   standAtSpot(h, phantom, 'sofa_d1', 200);
+  assert.ok(h.setSpot(phantom, { id: 'sofa_d1', open: true })?.open);
   assert.ok(h.setSpot(phantom, { id: 'sofa_d1', open: false }));
   const list = h.itemListFor(h.playerId(phantom)!);
   assert.equal(list.find((i) => i.kind === 'stun_gun')?.spotId, 'sofa_d1');
@@ -1525,6 +1527,47 @@ test('a 16px body can sweep the upper deck in 8 directions without freezing', ()
   assert.ok(back);
   assert.equal(back!.f, FLOOR_UPPER, 'reconnect on floor 2 keeps the upper pose');
   assert.ok(Math.hypot(back!.x - up.x, back!.y - up.y) < 2);
+});
+
+
+test('the Phantom can close a spot during hiding, and placing leaves it closed', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  const player = sessionRole(h, 'player');
+  standAtSpot(h, phantom, 'sofa_d1', 100);
+  assert.ok(h.setSpot(phantom, { id: 'sofa_d1', open: true })?.open);
+  assert.equal(h.isSpotOpen('sofa_d1'), true);
+  assert.ok(h.setSpot(phantom, { id: 'sofa_d1', open: false }));
+  assert.equal(h.isSpotOpen('sofa_d1'), false);
+
+  standAtSpot(h, phantom, 'sofa_d1', 200);
+  assert.ok(h.setSpot(phantom, { id: 'sofa_d1', open: true })?.open);
+  assert.equal(hideAt(h, phantom, 'stun_gun', 'sofa_d1', undefined, 300).ok, true);
+  assert.equal(h.isSpotOpen('sofa_d1'), false, 'placing an item closes the spot');
+  assert.equal(h.openSpots().includes('sofa_d1'), false);
+
+  enterSearch(h, 400);
+  const pid = h.playerId(player)!;
+  assert.equal(h.itemListFor(pid).some((i) => i.kind === 'stun_gun'), false, 'players do not see an item in a closed spot');
+  assert.equal(h.setSpot(phantom, { id: 'sofa_d1', open: true }), null, 'the Phantom cannot open spots after hiding');
+});
+
+test('the Phantom can change the paper code during hiding, not after', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  const first = h.setPaperCode(phantom, { code: ['red', 'blue', 'violet', 'yellow'] });
+  assert.equal(first.ok, true, first.error);
+  assert.deepEqual(h.items!.code, ['red', 'blue', 'violet', 'yellow']);
+  const again = h.setPaperCode(phantom, { code: ['yellow', 'violet', 'blue', 'red'] });
+  assert.equal(again.ok, true, again.error);
+  assert.deepEqual(h.items!.code, ['yellow', 'violet', 'blue', 'red']);
+  enterSearch(h, 1000);
+  const late = h.setPaperCode(phantom, { code: ['red', 'blue', 'violet', 'yellow'] });
+  assert.equal(late.ok, false);
+  assert.equal(late.error, 'not-allowed');
+  assert.deepEqual(h.items!.code, ['yellow', 'violet', 'blue', 'red'], 'the last hiding-phase code is kept');
 });
 
 console.log(`\n✅ ${n} server tests passed`);

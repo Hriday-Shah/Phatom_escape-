@@ -22,6 +22,7 @@ import {
   phantomRevealText,
   configurePhantomHidingActions,
   showOpenDoorButton,
+  showTakeItemButton,
 } from '../ui/phantomHud';
 import { BEDROOM_DOOR_MESSAGE, nearBedroomDoor } from '../logic/doorAccess';
 import type { EscapeCode } from '../logic/escapeCode';
@@ -160,6 +161,7 @@ export class GameScene extends Phaser.Scene {
       hidePhantomHidingActions();
       hidePhantomReveal();
       showOpenDoorButton(false);
+      showTakeItemButton(false);
       this.items?.destroy();
       this.items = null;
     });
@@ -317,6 +319,7 @@ export class GameScene extends Phaser.Scene {
     this.setOutside(blind);
     const open = !waiting && (!this.roundPhaseName || !this.roundRole || canOpenSpot(this.roundRole, this.roundPhaseName));
     this.hidingSpotManager.setInputEnabled(!blind && !waiting && open);
+    this.hidingSpotManager.autoPickup = !(role === 'phantom' && view.phase === 'hiding');
     this.syncDoorAccess();
     this.syncLightRadius();
     this.syncRevealBanner();
@@ -421,7 +424,7 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
     net.sendHideItem(slot.kind, spot.data.id, slot.variant);
-    if (!spot.isOpen) this.hidingSpotManager.interact();
+    if (spot.isOpen) this.hidingSpotManager.setOpen(spot.data.id, false);
     return true;
   }
 
@@ -783,6 +786,13 @@ export class GameScene extends Phaser.Scene {
     this.hidingSpotManager.interact();
   }
 
+  private syncTakeItemButton(): void {
+    const hiding = this.roundRole === 'phantom' && this.roundPhaseName === 'hiding';
+    const spot = this.hidingSpotManager.highlighted();
+    const hasItem = !!spot?.isOpen && !!this.items?.worldItems().some((i) => i.spotId === spot.data.id && !i.heldBy);
+    showTakeItemButton(hiding && hasItem, () => this.hidingSpotManager.takeHighlighted());
+  }
+
   private syncBedroomPrompt(): void {
     const unlocked = !!this.phaseView?.bedroomUnlocked || hasDebugFlag('unlock');
     const near = !this.outside && !!this.player && nearBedroomDoor(this.player.x, this.player.y);
@@ -838,6 +848,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.syncBedroomPrompt();
+    this.syncTakeItemButton();
 
     // Get keyboard input
     let moveX = 0;

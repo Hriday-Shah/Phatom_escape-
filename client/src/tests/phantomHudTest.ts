@@ -12,6 +12,7 @@ import {
 } from '../ui/phantomHideItems';
 import { BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR } from '../logic/bedroomHide';
 import type { WorldItem } from '../logic/items';
+import { cycleCodeSlot } from '../logic/escapeCode';
 
 const t = (ok: boolean, msg: string) => { if (!ok) throw new Error(msg); };
 
@@ -37,6 +38,10 @@ t(remainingHideSlots([placedCar]).length === 12, 'one car hidden removes one row
 t(hidePlacementErrorMessage('already-hidden').includes('already'), 'already-hidden message');
 t(hidePlacementErrorMessage(BEDROOM_LIMIT_ERROR) === BEDROOM_LIMIT_ERROR, 'bedroom limit passthrough');
 t(hidePlacementErrorMessage(BEDROOM_KEY_ERROR) === BEDROOM_KEY_ERROR, 'bedroom key passthrough');
+
+const cycled = cycleCodeSlot(['red', 'blue', 'violet', 'yellow'], 0);
+t(cycled[0] === 'blue' && cycled[1] === 'red', 'tap slot 0 swaps in the next colour');
+t(new Set(cycled).size === 4, 'cycled code stays a permutation');
 
 export function runPhantomHudTest(): void {
   console.log('✓ phantomHud tests passed');

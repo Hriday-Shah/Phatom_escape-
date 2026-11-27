@@ -808,6 +808,13 @@ export class HouseLogic {
 
   isBedroomUnlocked(): boolean { return this.bedroomUnlocked; }
 
+  /** After a hide, the spot is closed so its item is not left visible. */
+  private closeHideSpot(spotId: string): void {
+    this.spots.set(spotId, false);
+    this.spotOpener.delete(spotId);
+  }
+
+
   /** Phantom hiding: put one item in an empty spot. Rejects a 4th bedroom item and a key in the bedroom. */
   placeHiddenItem(
     session: string,
@@ -848,6 +855,7 @@ export class HouseLogic {
       held.x = spot.x + spot.width / 2;
       held.y = spot.y + spot.height / 2;
       held.f = FLOOR_GROUND;
+      this.closeHideSpot(spotId);
       return { ok: true };
     }
     if (this.items.items.some((i) => i.spotId === spotId)) return { ok: false, error: 'spot-taken' };
@@ -864,6 +872,7 @@ export class HouseLogic {
       heldBy: null,
     };
     this.items.items.push(item);
+    this.closeHideSpot(spotId);
     return { ok: true };
   }
 

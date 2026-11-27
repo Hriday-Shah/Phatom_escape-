@@ -215,11 +215,19 @@
   -->
   <p id="pe-reveal" role="status" aria-live="polite" hidden></p>
   <button id="pe-hide-open" type="button" hidden>Choose item</button>
+  <button id="pe-code-open" type="button" hidden>Code</button>
   <button id="pe-end-hiding" type="button" hidden disabled>End hiding</button>
-  <div id="pe-code-set" hidden>
-    <p id="pe-code-set-label">Set the paper code (car order)</p>
-    <div id="pe-code-set-slots"></div>
-    <button id="pe-code-set-confirm" type="button" class="pe-primary">Set code</button>
+  <button id="pe-spot-take" type="button" hidden>Take item</button>
+  <div id="pe-code-backdrop" hidden>
+    <aside id="pe-code-panel" role="dialog" aria-labelledby="pe-code-title" aria-modal="true">
+      <h2 id="pe-code-title">Set the paper code</h2>
+      <p id="pe-code-copy">The order of the four cars is the escape code. Tap a car to cycle its colour.</p>
+      <div id="pe-code-set-slots"></div>
+      <div id="pe-code-actions">
+        <button id="pe-code-set-confirm" type="button" class="pe-primary">Confirm</button>
+        <button id="pe-code-cancel" type="button">Cancel</button>
+      </div>
+    </aside>
   </div>
   <button id="pe-open-door" type="button" hidden>Open door</button>
   <div id="pe-hide-backdrop" hidden>

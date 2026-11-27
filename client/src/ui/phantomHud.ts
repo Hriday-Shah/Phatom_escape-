@@ -2,7 +2,8 @@
  * Phantom hide item picker (overlay) and the search-start reveal banner for non-Phantoms.
  */
 import './phantomHud.css';
-import { type ToyCarColour, type WorldItem } from '../logic/items';
+import { toyCarArtKey, type ToyCarColour, type WorldItem } from '../logic/items';
+import { CODE_CSS, CODE_GLYPH, cycleCodeSlot } from '../logic/escapeCode';
 import { hideInstanceAlreadyPlaced } from '../logic/hidePlacement';
 import {
   BEDROOM_HIDE_LIMIT, BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR, bedroomItemCount,
@@ -205,43 +206,70 @@ export const hideHideMenu = hidePhantomHideControls;
 
 const DEFAULT_CODE: ToyCarColour[] = ['red', 'blue', 'violet', 'yellow'];
 let draftCode: ToyCarColour[] = [...DEFAULT_CODE];
+let committedCode: ToyCarColour[] | null = null;
 let codeConfirmed = false;
-let endHidingBound = false;
+let hidingActionsBound = false;
 let onEndHiding: (() => void) | null = null;
 let onSetCode: ((code: ToyCarColour[]) => void) | null = null;
 
-function bindEndHiding(): void {
-  if (endHidingBound) return;
+function setCodePanelOpen(open: boolean): void {
+  const backdrop = el('pe-code-backdrop');
+  if (backdrop) backdrop.hidden = !open;
+  if (open) {
+    if (committedCode) draftCode = [...committedCode];
+    paintCodeDraft();
+  }
+}
+
+function bindHidingActions(): void {
+  if (hidingActionsBound) return;
   const end = el('pe-end-hiding');
   const confirm = el('pe-code-set-confirm');
   const slots = el('pe-code-set-slots');
+  const cancel = el('pe-code-cancel');
+  const open = el('pe-code-open');
+  const backdrop = el('pe-code-backdrop');
   if (!end || !confirm || !slots) return;
-  endHidingBound = true;
+  hidingActionsBound = true;
   if (!slots.childElementCount) {
     for (let i = 0; i < 4; i++) {
       const b = document.createElement('button');
       b.type = 'button';
       b.dataset.index = String(i);
+      const img = document.createElement('img');
+      img.alt = '';
+      const label = document.createElement('span');
+      b.append(img, label);
       slots.appendChild(b);
     }
   }
   slots.addEventListener('click', (ev) => {
     const btn = (ev.target as HTMLElement | null)?.closest('button[data-index]') as HTMLButtonElement | null;
     if (!btn) return;
-    const i = Number(btn.dataset.index);
-    const j = (i + 1) % 4;
-    const tmp = draftCode[i]!;
-    draftCode[i] = draftCode[j]!;
-    draftCode[j] = tmp;
-    codeConfirmed = false;
+    draftCode = cycleCodeSlot(draftCode, Number(btn.dataset.index));
     paintCodeDraft();
   });
   confirm.addEventListener('click', () => {
     if (new Set(draftCode).size !== 4) return;
+    committedCode = draftCode.slice() as ToyCarColour[];
     codeConfirmed = true;
     onSetCode?.(draftCode.slice() as ToyCarColour[]);
     paintCodeDraft();
+    setCodePanelOpen(false);
   });
+  cancel?.addEventListener('click', () => {
+    draftCode = committedCode ? [...committedCode] : [...DEFAULT_CODE];
+    paintCodeDraft();
+    setCodePanelOpen(false);
+  });
+  backdrop?.addEventListener('click', (ev) => {
+    if (ev.target === backdrop) {
+      draftCode = committedCode ? [...committedCode] : [...DEFAULT_CODE];
+      paintCodeDraft();
+      setCodePanelOpen(false);
+    }
+  });
+  open?.addEventListener('click', () => setCodePanelOpen(true));
   end.addEventListener('click', () => { if (!(end as HTMLButtonElement).disabled) onEndHiding?.(); });
 }
 
@@ -250,11 +278,19 @@ function paintCodeDraft(): void {
   if (!slots) return;
   [...slots.querySelectorAll('button')].forEach((b, i) => {
     const c = draftCode[i];
-    b.textContent = (c ?? '?')[0]!.toUpperCase();
-    b.style.background = c === 'red' ? '#c13a3a' : c === 'blue' ? '#3a7bf2' : c === 'violet' ? '#9b6bff' : '#f2d13a';
+    const img = b.querySelector('img');
+    const label = b.querySelector('span');
+    if (c) {
+      b.style.background = CODE_CSS[c];
+      if (img) {
+        img.src = itemIconSrc(toyCarArtKey(c));
+        img.alt = c;
+      }
+      if (label) label.textContent = `${i + 1} · ${CODE_GLYPH[c]}`;
+    }
   });
   const confirm = el('pe-code-set-confirm') as HTMLButtonElement | null;
-  if (confirm) confirm.textContent = codeConfirmed ? 'Code set' : 'Set code';
+  if (confirm) confirm.textContent = codeConfirmed && committedCode?.join() === draftCode.join() ? 'Update code' : 'Confirm';
 }
 
 export function configurePhantomHidingActions(opts: {
@@ -263,27 +299,38 @@ export function configurePhantomHidingActions(opts: {
   onEnd: () => void;
   onSetCode: (code: ToyCarColour[]) => void;
 }): void {
-  bindEndHiding();
+  bindHidingActions();
   onEndHiding = opts.onEnd;
   onSetCode = opts.onSetCode;
   codeConfirmed = opts.codeSet;
-  const box = el('pe-code-set');
+  if (opts.codeSet && !committedCode) committedCode = draftCode.slice() as ToyCarColour[];
   const end = el('pe-end-hiding') as HTMLButtonElement | null;
-  if (box) box.hidden = false;
+  const open = el('pe-code-open');
+  if (open) open.hidden = false;
   paintCodeDraft();
   if (end) {
     end.hidden = false;
-    if (end) (end as HTMLButtonElement).disabled = !(opts.codeSet && hidingComplete(opts.items));
+    end.disabled = !(opts.codeSet && hidingComplete(opts.items));
   }
 }
 
 export function hidePhantomHidingActions(): void {
-  const box = el('pe-code-set');
   const end = el('pe-end-hiding');
-  if (box) box.hidden = true;
+  const open = el('pe-code-open');
+  const take = el('pe-spot-take');
   if (end) end.hidden = true;
+  if (open) open.hidden = true;
+  if (take) take.hidden = true;
+  setCodePanelOpen(false);
   onEndHiding = null;
   onSetCode = null;
+}
+
+export function showTakeItemButton(on: boolean, click?: () => void): void {
+  const b = el('pe-spot-take') as HTMLButtonElement | null;
+  if (!b) return;
+  b.hidden = !on;
+  b.onclick = on && click ? click : null;
 }
 
 export function showOpenDoorButton(on: boolean, click?: () => void): void {
