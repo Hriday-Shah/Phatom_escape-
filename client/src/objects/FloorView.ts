@@ -13,18 +13,21 @@ import {
 } from '../data/houseFloors';
 import { STAIR_PAD_GROUND, STAIR_PAD_UPPER } from '../logic/floorMovement';
 
-/** Above reparented tiles/walls (-2..0) in the ground container but under players (9+). */
-const LIVING_STAIRS_DEPTH = 3;
+/** Above mounted furniture in the ground container; below players (9+). Never reparented. */
+const LIVING_STAIRS_DEPTH = 6;
 
 export class FloorView {
   readonly ground: Phaser.GameObjects.Container;
   readonly upper: Phaser.GameObjects.Container;
+  /** Scene-root layer so mountGroundFloorArt never buries the stairs. */
+  readonly stairsLayer: Phaser.GameObjects.Container;
   private floor: FloorId = FLOOR_GROUND;
   private livingStairs: Phaser.GameObjects.GameObject[] = [];
 
   constructor(private scene: Phaser.Scene) {
     this.ground = scene.add.container(0, 0).setDepth(-3);
     this.upper = scene.add.container(0, 0).setDepth(-3).setVisible(false);
+    this.stairsLayer = scene.add.container(0, 0).setDepth(LIVING_STAIRS_DEPTH);
     this.drawUpperPlaceholder();
   }
 
@@ -41,7 +44,7 @@ export class FloorView {
     const groundOn = floor === FLOOR_GROUND;
     this.ground.setVisible(groundOn);
     this.upper.setVisible(floor === FLOOR_UPPER);
-    for (const o of this.livingStairs) o.setVisible(groundOn);
+    this.stairsLayer.setVisible(groundOn);
   }
 
   /**
@@ -51,29 +54,31 @@ export class FloorView {
   drawLivingStairs(): void {
     if (this.livingStairs.length) return;
     const o = LIVING_STAIR_OPENING;
-    const g = this.scene.add.graphics().setDepth(LIVING_STAIRS_DEPTH);
+    const host = this.stairsLayer;
+    const g = this.scene.add.graphics();
     g.fillStyle(0x5a4538, 1);
-    g.fillRect(o.x, o.y - 4, o.width, o.height + 44);
+    g.fillRect(o.x, o.y - 4, o.width, o.height + 52);
     g.fillStyle(0x3d2e22, 1);
-    g.fillRect(o.x + 6, o.y + 2, o.width - 12, o.height + 34);
+    g.fillRect(o.x + 6, o.y + 2, o.width - 12, o.height + 42);
     g.lineStyle(2, 0xc4a882, 0.95);
-    for (let i = 0; i < 6; i++) {
-      const y = o.y + 8 + i * 8;
+    for (let i = 0; i < 7; i++) {
+      const y = o.y + 6 + i * 9;
       g.lineBetween(o.x + 10, y, o.x + o.width - 10, y);
     }
-    g.lineStyle(2, 0xffd9a0, 0.85);
+    g.lineStyle(3, 0xffd080, 1);
     g.strokeRect(STAIR_PAD_GROUND.x, STAIR_PAD_GROUND.y, STAIR_PAD_GROUND.width, STAIR_PAD_GROUND.height);
-    g.fillStyle(0x9a7048, 0.55);
+    g.fillStyle(0xc08040, 0.75);
     g.fillRect(STAIR_PAD_GROUND.x, STAIR_PAD_GROUND.y, STAIR_PAD_GROUND.width, STAIR_PAD_GROUND.height);
-    const label = this.scene.add.text(o.x + o.width / 2, o.y + 52, 'STAIRS', {
+    const label = this.scene.add.text(o.x + o.width / 2, o.y + 56, 'STAIRS', {
       fontFamily: 'system-ui, sans-serif',
-      fontSize: '13px',
+      fontSize: '16px',
       fontStyle: 'bold',
-      color: '#ffe8c8',
-      stroke: '#2a1a10',
-      strokeThickness: 3,
+      color: '#fff0d0',
+      stroke: '#201008',
+      strokeThickness: 4,
       align: 'center',
-    }).setOrigin(0.5, 0).setDepth(LIVING_STAIRS_DEPTH);
+    }).setOrigin(0.5, 0);
+    host.add([g, label]);
     this.livingStairs = [g, label];
   }
 

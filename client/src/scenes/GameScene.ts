@@ -16,7 +16,7 @@ import { snappedCameraZoom } from '../logic/cameraZoom';
 import { onlineStartPoint } from '../logic/onlineSpawn';
 import { ItemDirector } from '../items/ItemDirector';
 import { FloorView } from '../objects/FloorView';
-import { FLOOR_GROUND, worldPixelBounds } from '../data/houseFloors';
+import { composeWindowRects, FLOOR_GROUND, worldPixelBounds } from '../data/houseFloors';
 import type { FloorId } from '../data/houseFloors';
 
 export { snappedCameraZoom };
@@ -194,7 +194,7 @@ export class GameScene extends Phaser.Scene {
     const host = this.floorView.host();
     for (const child of [...this.children.list]) {
       if (!(child instanceof Phaser.GameObjects.GameObject)) continue;
-      if (child === host || child === this.floorView.upper) continue;
+      if (child === host || child === this.floorView.upper || child === this.floorView.stairsLayer) continue;
       if ((child as { depth?: number }).depth != null && (child as { depth: number }).depth >= 9) continue;
       if ((child as { depth?: number }).depth != null && (child as { depth: number }).depth <= -10) continue;
       host.add(child);
@@ -261,7 +261,7 @@ export class GameScene extends Phaser.Scene {
       houseLayout.width,
       houseLayout.height,
       houseLayout.walls,
-      houseLayout.windows,
+      composeWindowRects(houseLayout.windows),
     );
 
     // Physics + line of sight: invisible bodies per layout wall rect. Exterior sides (whole or

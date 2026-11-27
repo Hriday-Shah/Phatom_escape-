@@ -4,7 +4,7 @@
  * upstairs rooms, furniture, or hiding spots yet.
  */
 import type { Rect } from './colliders';
-import { houseLayout } from './houseLayout';
+import { houseLayout, type WindowRect } from './houseLayout';
 
 export const FLOOR_GROUND = 0;
 export const FLOOR_UPPER = 1;
@@ -12,6 +12,12 @@ export type FloorId = typeof FLOOR_GROUND | typeof FLOOR_UPPER;
 
 /** Former living-room window opening (now stairs art, not a window tile). */
 export const LIVING_STAIR_OPENING = { x: 540, y: 100, width: 160, height: 10 };
+
+/** Keep living-room stairs out of composed window tiles (even if windows[] was stale). */
+export function composeWindowRects(windows: readonly WindowRect[]): WindowRect[] {
+  const o = LIVING_STAIR_OPENING;
+  return windows.filter((w) => !(w.x < o.x + o.width && w.x + w.width > o.x && w.y < o.y + o.height && w.y + w.height > o.y));
+}
 
 /**
  * Placeholder upper deck centred on the window. Sits in negative Y above the house

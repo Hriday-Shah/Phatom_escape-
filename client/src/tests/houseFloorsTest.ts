@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { houseLayout } from '../data/houseLayout';
 import { buildInteractables } from '../logic/spotTargeting';
 import {
+  composeWindowRects,
   FLOOR_GROUND,
   FLOOR_UPPER,
+  LIVING_STAIR_OPENING,
   poseInsideFloor,
   STAIR_LAND_GROUND,
   STAIR_LAND_UPPER,
@@ -25,6 +27,18 @@ export function runHouseFloorsTest(): void {
 
   const spots = buildInteractables(houseLayout.hidingSpots);
   assert.equal(spots.length, 36, 'ground floor still has 36 hiding/search sections');
+
+  const livingWin = { x: 540, y: 100, width: 160, height: 10 };
+  assert.ok(
+    composeWindowRects([...houseLayout.windows, livingWin]).every((w) => w.x !== livingWin.x || w.y !== livingWin.y),
+    'composed walls must not paint a living-room window over the stairs',
+  );
+  assert.equal(
+    composeWindowRects(houseLayout.windows).some((w) =>
+      w.x < LIVING_STAIR_OPENING.x + LIVING_STAIR_OPENING.width &&
+      w.x + w.width > LIVING_STAIR_OPENING.x),
+    false,
+  );
 
   const up = applyStairTransition({ x: STAIR_PAD_GROUND.x + 20, y: STAIR_PAD_GROUND.y + 10, f: FLOOR_GROUND });
   assert.ok(up);
