@@ -5,15 +5,16 @@
  * walk/idle flag are the stick, so both phones show the same row. Mirrors every hiding /
  * search spot both ways, rolls a refused drawer back, applies the full spot state after a
  * reconnection, and posts short notices (left, reconnecting, new host). Other players stay
- * drawn; the light circle is what hides someone standing in the dark. No Phantom, no timers
- * yet. Created by GameScene only for an online room (registry 'net'); offline play never
- * touches this.
+ * drawn; the light circle is what hides someone standing in the dark. Roles and the
+ * phase clock come from the server. Created by GameScene only for an online room
+ * (registry 'net'); offline play never touches this.
  */
 import Phaser from 'phaser';
 import type { GameLink, NetPlayer } from './ColyseusLobbyService';
 import { RemotePlayer } from '../objects/RemotePlayer';
 import { FLOOR_GROUND, type FloorId } from '../data/houseFloors';
-import { SEND_HZ } from './protocol';
+import { SEND_HZ, type PhasePayload } from './protocol';
+import { canMove, canSeeInside, type RoundRole } from '../logic/roundPhase';
 import { poseIntent } from './dirOf';
 import type { PoseTuple } from './protocol';
 import { reconcilePose, type SentPose } from './reconcile';
@@ -50,6 +51,10 @@ export class NetSync {
   private sent: SentPose[] = [];
   private known = new Map<string, NetPlayer>();
   private hostId: string;
+  private mayMove = true;
+  private role: RoundRole = 'player';
+  private phase: PhasePayload['phase'] | null = null;
+  private roles = new Map<string, RoundRole>();
 
   constructor(private scene: Phaser.Scene, private link: GameLink, private me: NetPlayerSource, spots: NetSpots) {
     this.me.useSharedSlide(true);
@@ -66,7 +71,11 @@ export class NetSync {
       link.onStatus((s) => { if (s === 'connected') this.resend = true; }),
       link.onPlayerLeft((id) => { this.remotes.get(id)?.destroy(); this.remotes.delete(id); }),
       link.onChange((s) => this.onLobby(s.players, s.hostId)),
+      link.onPhase((view) => this.onPhase(view)),
+      link.onHeld((p) => this.snapHeld(p)),
     );
+    const already = link.phase();
+    if (already) this.onPhase(already.view);
     // The rejoin burst was stored before this scene existed. Draw it now; later
     // broadcasts arrive through onPoses.
     this.applyPoses(link.knownPoses(), performance.now());
@@ -126,8 +135,46 @@ export class NetSync {
       r = new RemotePlayer(this.scene, id, p.nickname, p.colour, x, y);
       if (p.away) r.setInfo(p.nickname, p.colour, true);
       this.remotes.set(id, r);
+      this.applyRoleVisibility();
     }
     return r;
+  }
+
+  private onPhase(view: PhasePayload): void {
+    this.phase = view.phase;
+    this.roles = new Map(view.roles.map((r) => [r.id, r.role]));
+    this.role = this.roles.get(this.link.selfId) ?? 'player';
+    this.mayMove = canMove(this.role, view.phase);
+    const entry = view.entries?.find((e) => e.id === this.link.selfId);
+    if (entry) {
+      this.me.place(entry.x, entry.y, (entry.f ?? FLOOR_GROUND) as FloorId);
+      this.sent = [];
+      this.sentOnce = true;
+      this.lastSent = { x: entry.x, y: entry.y, d: 0, m: 0, f: entry.f ?? 0, at: performance.now() };
+    } else if (view.phase === 'chase' && this.role === 'phantom') {
+      // Let in while this phone was away: the next pose snapshot is the entrance, not a slide.
+      this.sent = [];
+      this.sentOnce = false;
+    }
+    this.applyRoleVisibility();
+  }
+
+  /** A refused walk: stand on the server pose and drop the predictions that caused it. */
+  private snapHeld(p: { x: number; y: number; f: number }): void {
+    const f = (p.f ?? FLOOR_GROUND) as FloorId;
+    this.me.place(p.x, p.y, f);
+    this.sent = [];
+    this.sentOnce = true;
+    this.lastSent = { x: p.x, y: p.y, d: this.lastSent.d, m: 0, f: p.f ?? 0, at: performance.now() };
+  }
+
+  private applyRoleVisibility(): void {
+    const search = this.phase === 'search';
+    const meBlind = search && !canSeeInside(this.role, 'search');
+    for (const [id, r] of this.remotes) {
+      const them = this.roles.get(id) ?? 'player';
+      r.setRoleVisible(!search || (!meBlind && them !== 'phantom'));
+    }
   }
 
   private tick(): void {
@@ -137,7 +184,9 @@ export class NetSync {
     // was also zeroing the sprite, so a player still standing in the light vanished
     // at a doorway jamb.
     for (const r of list) r.update(now);
+    this.applyRoleVisibility();
     staggerLabels(list);
+    if (!this.mayMove) return;
     if (now < this.nextSend) return;
     this.nextSend = now + 1000 / SEND_HZ;
     const x = Math.round(this.me.x * 10) / 10, y = Math.round(this.me.y * 10) / 10;

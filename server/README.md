@@ -4,8 +4,9 @@ Authoritative [Colyseus](https://colyseus.io) 0.16 server for online rooms: lobb
 colours, ready, host-only settings / kick / start, host migration, max 8), in-game sync of player
 positions and every hiding spot (drawers, sofa, bed, … incl. late state for a rejoiner), and
 disconnect / rejoin (a dropped player's seat, colour and host role are kept for
-`RECONNECT_SECONDS`, default 30; a deliberate leave removes the player at once). No Phantom
-gameplay or timers yet. Hosting: see [docs/DEPLOY-SERVER.md](../docs/DEPLOY-SERVER.md).
+`RECONNECT_SECONDS`, default 30; a deliberate leave removes the player at once). On Start the
+server picks the Phantom seats from the host's settings and runs hiding, search, then chase
+on those timers. Hosting: see [docs/DEPLOY-SERVER.md](../docs/DEPLOY-SERVER.md).
 
 ```
 npm install            # at the repo root (npm workspaces)

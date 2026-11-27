@@ -1,6 +1,7 @@
 /** Server room-logic unit tests (npm test -w server). */
 import assert from 'node:assert/strict';
 import { HouseLogic, MAX_ELAPSED_MS, RateLimiter, SPEED_JITTER_PX, SPEED_SLACK, parse } from '../houseLogic';
+import { formatPhaseClock, phaseRemainingMs, pickPhantoms, rippleFor } from '../../../client/src/logic/roundPhase';
 import { DEFAULT_SETTINGS, MAX_PLAYERS, maxPhantoms, PLAYER_COLOURS, SETTING_LIMITS } from '../../../client/src/lobby/lobby';
 import { PLAYER_SPEED } from '../../../client/src/config/physicsConfig';
 import { originAllowed, parseOrigins } from '../origins';
@@ -15,8 +16,8 @@ import { solvingLog, replayWin, createPuzzle } from '../../../client/src/logic/m
 let n = 0;
 const test = (name: string, f: () => void) => { f(); n++; console.log(`  ✓ ${name}`); };
 
-function room(players = 3): HouseLogic {
-  const h = new HouseLogic('ABC234');
+function room(players = 3, rng: () => number = () => 0): HouseLogic {
+  const h = new HouseLogic('ABC234', rng);
   for (let i = 0; i < players; i++) assert.ok(h.join(`s${i}`, { nickname: `P${i}` }).ok);
   return h;
 }
@@ -173,23 +174,23 @@ test('movement: only after start, validated, speed-sane, official spawn', () => 
   const h = room(2);
   assert.equal(h.move('s1', { x: 10, y: 10 }, 0), null); // lobby: dropped
   h.start('s0', 0);
-  const spawn = h.poseForTest('s1');
+  const spawn = h.poseForTest('s0');
   assert.ok(spawn, 'start() assigns an official spawn');
   assert.ok(Math.hypot(spawn!.x - 300, spawn!.y - 430) < 200, `spawn ${spawn!.x},${spawn!.y}`);
-  for (const bad of [{ x: 'a', y: 1 }, { x: 1 }, { x: NaN, y: 0 }, { x: 1e9, y: 0 }, null, [1, 2]]) assert.equal(h.move('s1', bad, 0), null);
-  const jump = h.move('s1', { x: 100, y: 100, d: 2, m: 1 }, 50);
+  for (const bad of [{ x: 'a', y: 1 }, { x: 1 }, { x: NaN, y: 0 }, { x: 1e9, y: 0 }, null, [1, 2]]) assert.equal(h.move('s0', bad, 0), null);
+  const jump = h.move('s0', { x: 100, y: 100, d: 2, m: 1 }, 50);
   assert.ok(jump);
   assert.ok(Math.hypot(jump!.x - 100, jump!.y - 100) > 20, 'must not teleport to (100,100) in 50 ms');
-  stand(h, 's1', 360, 435, 1000);
+  stand(h, 's0', 360, 435, 1000);
   const step = PLAYER_SPEED * 0.1;
-  const mid = h.move('s1', { x: 360 + step, y: 435, d: 9, m: 'x' }, 1100)!;
+  const mid = h.move('s0', { x: 360 + step, y: 435, d: 9, m: 'x' }, 1100)!;
   assert.ok(Math.abs(mid.x - (360 + step)) < 1, `x=${mid.x}`);
-  assert.equal(h.move('s1', { x: mid.x, y: 435, d: 9 }, 1150)!.d, 0);
-  const p = h.move('s1', { x: 5000, y: 435 }, 1250)!;
+  assert.equal(h.move('s0', { x: mid.x, y: 435, d: 9 }, 1150)!.d, 0);
+  const p = h.move('s0', { x: 5000, y: 435 }, 1250)!;
   const allowed = PLAYER_SPEED * 0.1 * SPEED_SLACK + SPEED_JITTER_PX;
   assert.ok(p.x - mid.x <= allowed + 0.2, `teleport x=${p.x} from ${mid.x}`);
   assert.ok(h.corrections >= 1);
-  const q = h.move('s1', { x: -5000, y: 435 }, 60_000)!;
+  const q = h.move('s0', { x: -5000, y: 435 }, 60_000)!;
   assert.ok(p.x - q.x <= PLAYER_SPEED * MAX_ELAPSED_MS / 1000 * SPEED_SLACK + SPEED_JITTER_PX + 0.2);
   const dirty = h.takeDirtyPoses();
   assert.ok(dirty.length >= 1);
@@ -498,7 +499,9 @@ test('stage 2: spot state (sofa, bed, drawers) for a returning player; away play
   h.setSpot('s0', { id: 'bed', open: false });
   h.reconnect('s1');
   assert.deepEqual(h.openSpots().sort(), ['sofa_d1', 'stove_drawers_d2']);
-  standAtSpot(h, 's1', 'fridge', 6000);
+  // s1 is a player, so they open spots once search has started (hiding is Phantom-only).
+  h.advance(5 * 60 * 1000);
+  standAtSpot(h, 's1', 'fridge', 5 * 60 * 1000);
   assert.ok(h.setSpot('s1', { id: 'fridge', open: true }));
 });
 
@@ -716,6 +719,7 @@ test('stairs: server applies floor change on the stair pad and rejects teleport'
   assert.equal(down.y, STAIR_LAND_GROUND.y);
 });
 
+
 test('swept collision uses rounded corners, not a fat square', () => {
   const block = [{ x: 0, y: 0, width: 10, height: 10 }];
   // Corner at (10,10). A point 12px right and 12px down is inside a 16px square
@@ -839,6 +843,171 @@ test('phone and server stay together walking through the foyer-kitchen door', ()
     phone = got;
   }
   assert.ok(phone.y > 340, `did not enter the kitchen, y=${phone.y}`);
+
+test('roles: the host setting picks that many Phantoms at random', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+  assert.deepEqual(pickPhantoms(ids, 2, () => 0), ['a', 'b']);
+  assert.deepEqual(pickPhantoms(ids, 1, () => 0.99), ['d']);
+  assert.equal(pickPhantoms(ids, 0, () => 0).length, 0);
+  const seen = new Set<string>();
+  for (let i = 0; i < 40; i++) {
+    const h = room(4, () => Math.random());
+    h.updateSettings('s0', { patch: { phantoms: 2 } });
+    assert.equal(h.start('s0', 0).ok, true);
+    const view = h.roundView(0)!;
+    const phantoms = view.roles.filter((r) => r.role === 'phantom').map((r) => r.id);
+    const players = view.roles.filter((r) => r.role === 'player').map((r) => r.id);
+    assert.equal(phantoms.length, 2);
+    assert.equal(players.length, 2);
+    assert.equal(new Set([...phantoms, ...players]).size, 4);
+    for (const id of phantoms) seen.add(id);
+    assert.equal(h.roundView(0)!.phase, 'hiding');
+  }
+  assert.ok(seen.size >= 3, 'random assignment is not stuck on one seat');
 });
+
+test('phases follow the host durations, then time is up and the Phantom wins', () => {
+  const h = room(3);
+  h.updateSettings('s0', { patch: { hidingMinutes: 1, searchMinutes: 2, chaseMinutes: 5, phantoms: 1 } });
+  assert.equal(h.start('s0', 1_000).ok, true);
+  const hideEnd = 1_000 + 60_000;
+  const searchEnd = hideEnd + 2 * 60_000;
+  const chaseEnd = searchEnd + 5 * 60_000;
+  assert.equal(h.roundView(1_000)!.phase, 'hiding');
+  assert.equal(h.roundView(1_000)!.endsAt, hideEnd);
+  h.advance(hideEnd - 1);
+  assert.equal(h.roundView()!.phase, 'hiding');
+  h.advance(hideEnd);
+  assert.equal(h.roundView()!.phase, 'search');
+  assert.equal(h.roundView()!.endsAt, searchEnd);
+  stand(h, 's0', 700, 400, searchEnd - 1);
+  h.advance(searchEnd);
+  const chase = h.roundView()!;
+  assert.equal(chase.phase, 'chase');
+  assert.equal(chase.endsAt, chaseEnd);
+  const phantom = h.playerId('s0')!;
+  const pose = h.poseForTest('s0')!;
+  assert.equal(pose.f, FLOOR_GROUND);
+  assert.ok(Math.hypot(pose.x - 700, pose.y - 400) > 50, 'chase moves the Phantom off the hiding spot');
+  assert.ok(Math.hypot(pose.x - 300, pose.y - 430) < 200, 'chase lets the Phantom in at the entrance');
+  const walked = h.move('s0', { x: pose.x + 12, y: pose.y, d: 2, m: 1, f: 0 }, searchEnd + 400);
+  assert.ok(walked, 'a Phantom may walk once chase has started');
+  h.advance(chaseEnd - 1);
+  assert.equal(h.roundView()!.phase, 'chase');
+  h.advance(chaseEnd);
+  const ended = h.roundView()!;
+  assert.equal(ended.phase, 'ended');
+  assert.equal(ended.result, 'phantom-wins');
+  assert.equal(ended.endsAt, chaseEnd);
+  assert.equal(h.move('s0', { x: pose.x + 20, y: pose.y, d: 2, m: 1, f: 0 }, chaseEnd + 500), null);
+  assert.equal(h.roleOf(phantom), 'phantom');
+  // The clock is server time. A phone maps it onto performance.now.
+  const left = phaseRemainingMs(searchEnd, hideEnd, 500, 500);
+  assert.equal(left, 2 * 60_000);
+  assert.equal(phaseRemainingMs(searchEnd, hideEnd, 500, 1_500), 2 * 60_000 - 1_000);
+  assert.equal(formatPhaseClock(60_000), '1:00');
+  assert.equal(formatPhaseClock(1_500), '0:02');
+  assert.equal(formatPhaseClock(0), '0:00');
+});
+
+test('movement rejected for a waiter in hiding and for a Phantom in search', () => {
+  const h = room(2);
+  h.start('s0', 0);
+  assert.equal(h.roleOf(h.playerId('s0')!), 'phantom');
+  assert.equal(h.roleOf(h.playerId('s1')!), 'player');
+  const waiter = h.poseForTest('s1')!;
+  assert.equal(h.move('s1', { x: waiter.x + 40, y: waiter.y, d: 2, m: 1, f: 0 }, 200), null);
+  assert.equal(h.poseForTest('s1')!.x, waiter.x);
+  assert.deepEqual(h.takeHold('s1'), h.poseForTest('s1'));
+  standAtSpot(h, 's1', 'sofa_d1', 300);
+  assert.equal(h.setSpot('s1', { id: 'sofa_d1', open: true }), null, 'a waiting player cannot open a spot');
+  h.advance(5 * 60 * 1000);
+  assert.equal(h.roundView()!.phase, 'search');
+  const phantomAt = h.poseForTest('s0')!;
+  assert.equal(h.move('s0', { x: phantomAt.x + 30, y: phantomAt.y, d: 2, m: 1, f: 0 }, 5 * 60 * 1000 + 200), null);
+  assert.equal(h.poseForTest('s0')!.x, phantomAt.x);
+  assert.equal(h.setSpot('s0', { id: 'sofa_d1', open: true }), null, 'a Phantom in search cannot open a spot');
+  assert.equal(h.itemListFor(h.playerId('s0')!).length, 0, 'a Phantom in search cannot see inside');
+  standAtSpot(h, 's1', 'sofa_d1', 5 * 60 * 1000 + 300);
+  assert.equal(h.setSpot('s1', { id: 'sofa_d1', open: true })?.open, true);
+  const step = h.move('s1', { x: h.poseForTest('s1')!.x + 10, y: h.poseForTest('s1')!.y, d: 2, m: 1, f: 0 }, 5 * 60 * 1000 + 500);
+  assert.ok(step, 'a player may walk during search');
+});
+
+test('drawer noise is sent only to Phantoms, and only in search or chase when it is not off', () => {
+  const h = room(3);
+  h.updateSettings('s0', { patch: { phantoms: 2, drawerNoise: 'loud', hidingMinutes: 1, searchMinutes: 1, chaseMinutes: 5 } });
+  h.start('s0', 0);
+  const phantoms = [h.playerId('s0')!, h.playerId('s1')!];
+  const player = h.playerId('s2')!;
+  standAtSpot(h, 's0', 'sofa_d1', 1000);
+  assert.ok(h.setSpot('s0', { id: 'sofa_d1', open: true }));
+  assert.equal(h.takeNoise(), null, 'hiding does not ripple');
+  h.setSpot('s0', { id: 'sofa_d1', open: false });
+  h.advance(60_000);
+  standAtSpot(h, 's2', 'bed', 60_000);
+  const opened = h.setSpot('s2', { id: 'bed', open: true });
+  assert.ok(opened);
+  const noise = h.takeNoise();
+  assert.ok(noise);
+  assert.equal(noise!.level, 'loud');
+  assert.equal(noise!.id, 'bed');
+  assert.deepEqual(noise!.to.slice().sort(), phantoms.slice().sort());
+  assert.equal(noise!.to.includes(player), false);
+  assert.ok(rippleFor('loud').radius > rippleFor('normal').radius);
+  assert.ok(rippleFor('normal').radius > rippleFor('quiet').radius);
+  h.setSpot('s2', { id: 'bed', open: false });
+  assert.equal(h.takeNoise(), null, 'closing is silent');
+  const silent = room(2);
+  silent.updateSettings('s0', { patch: { drawerNoise: 'off' } });
+  silent.start('s0', 0);
+  silent.advance(5 * 60 * 1000);
+  standAtSpot(silent, 's1', 'fridge', 5 * 60 * 1000);
+  assert.ok(silent.setSpot('s1', { id: 'fridge', open: true }));
+  assert.equal(silent.takeNoise(), null, 'off sends nothing');
+  const quiet = room(2);
+  quiet.updateSettings('s0', { patch: { drawerNoise: 'quiet' } });
+  quiet.start('s0', 0);
+  quiet.advance(5 * 60 * 1000);
+  standAtSpot(quiet, 's1', 'sofa_d1', 5 * 60 * 1000);
+  const q = quiet.setSpot('s1', { id: 'sofa_d1', open: true });
+  assert.ok(q);
+  const qn = quiet.takeNoise();
+  assert.equal(qn!.level, 'quiet');
+  assert.deepEqual(qn!.to, [quiet.playerId('s0')]);
+  quiet.advance(10 * 60 * 1000);
+  assert.equal(quiet.roundView()!.phase, 'chase');
+  standAtSpot(quiet, 's1', 'stove_drawers_d2', 10 * 60 * 1000);
+  assert.ok(quiet.setSpot('s1', { id: 'stove_drawers_d2', open: true }));
+  const chaseNoise = quiet.takeNoise();
+  assert.equal(chaseNoise!.level, 'quiet');
+  assert.deepEqual(chaseNoise!.to, [quiet.playerId('s0')]);
+  assert.equal(chaseNoise!.to.includes(quiet.playerId('s1')!), false);
+});
+
+test('reconnect and host migration keep the role and the phase clock', () => {
+  const h = room(3);
+  h.updateSettings('s0', { patch: { hidingMinutes: 1, searchMinutes: 2, chaseMinutes: 5, phantoms: 1 } });
+  h.start('s0', 10_000);
+  h.advance(10_000 + 60_000 + 30_000);
+  const view = h.roundView()!;
+  assert.equal(view.phase, 'search');
+  const endsAt = view.endsAt;
+  const phantom = h.playerId('s0')!;
+  const player = h.playerId('s1')!;
+  h.drop('s0');
+  assert.equal(h.reconnect('s0'), true);
+  assert.equal(h.roleOf(phantom), 'phantom');
+  assert.equal(h.roundView()!.phase, 'search');
+  assert.equal(h.roundView()!.endsAt, endsAt, 'reconnect does not restart the clock');
+  h.leave('s1'); // quit
+  assert.equal(h.roleOf(player), null);
+  assert.equal(h.roleOf(phantom), 'phantom');
+  assert.equal(h.roundView()!.endsAt, endsAt);
+  h.leave('s0'); // host quits; migration
+  assert.equal(h.snapshot().hostId, h.playerId('s2'));
+  assert.equal(h.roleOf(h.playerId('s2')!), 'player');
+  assert.equal(h.roundView()!.phase, 'search');
+  assert.equal(h.roundView()!.endsAt, endsAt, 'the new host keeps the same clock');
 
 console.log(`\n✅ ${n} server tests passed`);

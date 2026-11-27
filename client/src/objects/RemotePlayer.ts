@@ -24,6 +24,8 @@ export class RemotePlayer {
   private labelLift = 0;
   private floorLevel: FloorId = FLOOR_GROUND;
   private sameFloorVisible = true;
+  /** Search hides Phantoms from the house, and hides the house from a Phantom. */
+  private roleVisible = true;
 
   constructor(private scene: Phaser.Scene, readonly id: string, nickname: string, colour: string, x: number, y: number) {
     const art = scene.textures.exists('player') && scene.textures.exists('player_tint');
@@ -58,7 +60,7 @@ export class RemotePlayer {
   }
 
   setVisible(v: boolean): void {
-    const show = v && this.sameFloorVisible;
+    const show = v && this.sameFloorVisible && this.roleVisible;
     this.body.setVisible(show); this.tint?.setVisible(show); this.label.setVisible(show);
   }
 
@@ -72,6 +74,11 @@ export class RemotePlayer {
 
   setSameFloorVisible(v: boolean): void {
     this.sameFloorVisible = v;
+  }
+
+  setRoleVisible(v: boolean): void {
+    this.roleVisible = v;
+    if (!v) this.setVisible(false);
   }
 
   get isAway(): boolean { return this.away; }
