@@ -36,7 +36,22 @@ export function canOpenSpot(role: RoundRole, phase: RoundPhase): boolean {
 
 /** Search: the Phantom is outside and must not see the house. */
 export function canSeeInside(role: RoundRole, phase: RoundPhase): boolean {
-  return !(phase === 'search' && role === 'phantom');
+  if (phase === 'hiding') return role === 'phantom';
+  if (phase === 'search') return role === 'player';
+  return true; // chase, and the time-up screen, keep the house on screen
+}
+
+/** Non-Phantoms sit in the waiting room until hiding ends. */
+export function isWaiting(role: RoundRole, phase: RoundPhase): boolean {
+  return phase === 'hiding' && role === 'player';
+}
+
+export function bodyTextureKey(role: RoundRole): 'player' | 'phantom' {
+  return role === 'phantom' ? 'phantom' : 'player';
+}
+
+export function walkAnimKey(role: RoundRole, dir: string): string {
+  return role === 'phantom' ? `phantom_walk_${dir}` : `walk_${dir}`;
 }
 
 /**

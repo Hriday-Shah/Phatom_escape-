@@ -11,7 +11,7 @@ import {
   ColourId, DrawerNoise, LobbyPlayer, LobbyResult, LobbyRoom, LobbySettings, MAX_PLAYERS, PLAYER_COLOURS, maxPhantoms, validSettings,
 } from '../../client/src/lobby/lobby';
 import {
-  RoundPhase, RoundRole, canMove, canOpenSpot, canSeeInside, minutesToMs, pickPhantoms,
+  RoundPhase, RoundRole, canMove, canOpenSpot, canSeeInside, isWaiting, minutesToMs, pickPhantoms,
 } from '../../client/src/logic/roundPhase';
 import { displayNickname } from '../../client/src/home/settings';
 import { randomBytes, randomInt } from 'node:crypto';
@@ -49,6 +49,8 @@ export interface Pose { x: number; y: number; d: number; m: number; f: number }
 export interface RoundRoleRow { id: string; role: RoundRole }
 /** Where a Phantom is put when chase starts (the entrance). Sent once, with that phase change. */
 export interface RoundEntry { id: string; x: number; y: number; f: number }
+/** Non-Phantoms wait here during hiding — outside the house, so they cannot appear inside. */
+export const WAITING_ROOM_POSE: Pose = { x: -400, y: -400, d: 0, m: 0, f: FLOOR_GROUND };
 export interface RoundView {
   phase: RoundPhase;
   /** Server epoch ms when this phase ends. On `ended`, the moment chase ran out. */
@@ -289,14 +291,20 @@ export class HouseLogic {
       const gameSeed = randomInt(0, 0x1_0000_0000);
       const secretHex = randomBytes(16).toString('hex');
       this.items = new ItemRound(createServerRoundFrom(gameSeed, secretHex, 1));
-      // Official walkable spawns around the entrance — the first pos is not a free teleport.
+      // Only Phantoms spawn in the house during hiding. Everyone else waits outside it.
       const players = this.lobby?.state.players ?? [];
-      const slots = onlineSpawnSlots({ x: 300, y: 430 }, Math.max(players.length, 1));
-      players.forEach((p, i) => {
+      this.assignRoles(players.map((p) => p.id));
+      const inHouse = players.filter((p) => this.roles.get(p.id) === 'phantom');
+      const slots = onlineSpawnSlots({ x: 300, y: 430 }, Math.max(inHouse.length, 1));
+      inHouse.forEach((p, i) => {
         const s = slots[i % slots.length]!;
         this.poses.set(p.id, { pose: { x: s.x, y: s.y, d: 0, m: 0, f: FLOOR_GROUND }, at: now, dirty: true, creditMs: 0 });
       });
-      this.assignRoles(players.map((p) => p.id));
+      for (const p of players) {
+        if (this.roles.get(p.id) === 'player') {
+          this.poses.set(p.id, { pose: { ...WAITING_ROOM_POSE }, at: now, dirty: true, creditMs: 0 });
+        }
+      }
       const settings = this.lobby?.state.settings;
       const hidingMs = minutesToMs(settings?.hidingMinutes ?? 5);
       this.round = {
@@ -348,6 +356,7 @@ export class HouseLogic {
     if (r.phase === 'hiding') {
       r.phase = 'search';
       r.endsAt = boundary + r.searchMs;
+      this.queuedEntries = this.letPlayersIn(boundary);
     } else if (r.phase === 'search') {
       r.phase = 'chase';
       r.endsAt = boundary + r.chaseMs;
@@ -362,18 +371,31 @@ export class HouseLogic {
 
   /** Chase: Phantoms are let in at the entrance. They do not walk there themselves. */
   private letPhantomsIn(at: number): RoundEntry[] {
-    const ids = [...this.roles.entries()].filter(([, role]) => role === 'phantom').map(([id]) => id);
+    return this.placeRoleAtEntrance('phantom', at);
+  }
+
+  /** Search: waiting players are released into the house at the entrance. */
+  private letPlayersIn(at: number): RoundEntry[] {
+    return this.placeRoleAtEntrance('player', at);
+  }
+
+  private placeRoleAtEntrance(role: RoundRole, at: number): RoundEntry[] {
+    const ids = [...this.roles.entries()].filter(([, r]) => r === role).map(([id]) => id);
     if (!ids.length) return [];
     const slots = onlineSpawnSlots({ x: 300, y: 430 }, Math.max(ids.length, 1));
     const entries: RoundEntry[] = [];
     ids.forEach((id, i) => {
       const s = slots[i % slots.length]!;
+      const pose = { x: s.x, y: s.y, d: 0, m: 0, f: FLOOR_GROUND };
       const prev = this.poses.get(id);
-      if (!prev) return;
-      prev.pose = { x: s.x, y: s.y, d: 0, m: 0, f: FLOOR_GROUND };
-      prev.at = at;
-      prev.dirty = true;
-      prev.creditMs = 0;
+      if (prev) {
+        prev.pose = pose;
+        prev.at = at;
+        prev.dirty = true;
+        prev.creditMs = 0;
+      } else {
+        this.poses.set(id, { pose: { ...pose }, at, dirty: true, creditMs: 0 });
+      }
       entries.push({ id, x: s.x, y: s.y, f: FLOOR_GROUND });
     });
     return entries;
@@ -408,11 +430,13 @@ export class HouseLogic {
     return view;
   }
 
-  /** Search: a Phantom is outside, so they see nobody and nobody sees them. */
+  /** Hide anyone who is not in the house from anyone who is, and the reverse. */
   canSeeActor(viewerId: string, subjectId: string): boolean {
-    if (this.round?.phase !== 'search') return true;
-    if (this.roles.get(viewerId) === 'phantom') return false;
-    if (this.roles.get(subjectId) === 'phantom') return false;
+    const phase = this.round?.phase ?? 'ended';
+    const viewer = this.roles.get(viewerId) ?? 'player';
+    const subject = this.roles.get(subjectId) ?? 'player';
+    if (isWaiting(viewer, phase) || isWaiting(subject, phase)) return false;
+    if (phase === 'search' && (viewer === 'phantom' || subject === 'phantom')) return false;
     return true;
   }
 

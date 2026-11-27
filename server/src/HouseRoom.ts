@@ -85,10 +85,8 @@ export class HouseRoom extends Room {
       const r = this.logic.start(c.sessionId);
       if (r.ok) {
         void this.lock();
-        this.broadcast('spots', { open: this.logic.openSpots() });
-        const round = this.logic.roundPublic();
-        if (round) this.broadcast('round', round); // items array is empty; contents go per-client
-        this.sendItemsToAll();
+        // House state goes only to clients who can see inside (Phantoms, during hiding).
+        this.resyncHouse();
         this.pushPhase();
       }
       return r;
@@ -175,7 +173,7 @@ export class HouseRoom extends Room {
     const view = this.logic.takePhaseEvent(Date.now());
     if (!view) return;
     this.broadcast('phase', view);
-    if (view.phase === 'chase') this.resyncHouse();
+    if (view.phase === 'search' || view.phase === 'chase') this.resyncHouse();
   }
 
   /** Poses a phone is allowed to see. During search a Phantom is outside the house. */

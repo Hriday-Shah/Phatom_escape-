@@ -199,6 +199,16 @@
     </section>
   </div>
   <!--
+    Lobby-style waiting room for non-Phantoms during hiding (restyle via src/lobby/waiting.css).
+  -->
+  <div id="pe-waiting" hidden>
+    <section id="pe-waiting-panel" class="pe-screen" aria-labelledby="pe-waiting-title">
+      <h2 id="pe-waiting-title" class="pe-view-title">Waiting for the Phantom</h2>
+      <p id="pe-waiting-copy">The Phantom is hiding items in the house. You will be let in when the search starts.</p>
+      <p id="pe-waiting-clock" aria-live="polite">0:00</p>
+    </section>
+  </div>
+  <!--
     Online (stage 2) connection UI, over the lobby and the game. Placeholder: restyle via
     net.css (#pe-net-*), theme from the :root variables in home.css. Ids are the hooks.
   -->

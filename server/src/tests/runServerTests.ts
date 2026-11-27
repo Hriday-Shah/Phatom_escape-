@@ -1,6 +1,6 @@
 /** Server room-logic unit tests (npm test -w server). */
 import assert from 'node:assert/strict';
-import { HouseLogic, MAX_ELAPSED_MS, RateLimiter, SPEED_JITTER_PX, SPEED_SLACK, parse } from '../houseLogic';
+import { HouseLogic, MAX_ELAPSED_MS, RateLimiter, SPEED_JITTER_PX, SPEED_SLACK, WAITING_ROOM_POSE, parse } from '../houseLogic';
 import { formatPhaseClock, phaseRemainingMs, pickPhantoms, rippleFor } from '../../../client/src/logic/roundPhase';
 import { DEFAULT_SETTINGS, MAX_PLAYERS, maxPhantoms, PLAYER_COLOURS, SETTING_LIMITS } from '../../../client/src/lobby/lobby';
 import { PLAYER_SPEED } from '../../../client/src/config/physicsConfig';
@@ -598,6 +598,7 @@ test('anti-cheat: itemDrop is limited to reach and to open floor or open spots, 
   const dropped = h.items!.items[0]!;
   assert.equal(dropped.heldBy, null);
   assert.equal(dropped.spotId, null);
+  h.advance(h.roundView()!.endsAt);
   stand(h, 's1', dropped.x, dropped.y + 20, t0 + 2000);
   const got = h.pickup('s1', { id: dropped.id });
   assert.equal(got.ok, true, got.error);
@@ -619,6 +620,7 @@ test('a disconnect drop leaves the controller on the floor, pick-up-able by some
   const floor = h.items!.items[0]!;
   assert.equal(floor.heldBy, null);
   assert.equal(floor.spotId, null);
+  h.advance(h.roundView()!.endsAt);
   stand(h, 's1', floor.x - 15, floor.y, t0 + 2000);
   const got = h.pickup('s1', { id: floor.id });
   assert.equal(got.ok, true, got.error);
@@ -672,11 +674,12 @@ test('R15-3: spot contents go only to the opener or to players who can see the s
   const opener = h.itemListFor(h.playerId('s0')!);
   assert.equal(opener.length, 1);
   assert.equal(opener[0]!.spotId, 'study_drawer_1');
-  // Other player stays at the entrance spawn — a wall blocks the study.
+  // Search lets the other player in at the entrance — a wall still blocks the study.
+  h.advance(h.roundView()!.endsAt);
   const other = h.itemListFor(h.playerId('s1')!);
   assert.equal(other.length, 0, 'remote player must not receive hidden contents');
   // Walk the other player beside the open spot: they can now see it.
-  standAtSpot(h, 's1', 'study_drawer_1', 2000);
+  standAtSpot(h, 's1', 'study_drawer_1', h.roundView()!.endsAt);
   assert.equal(h.itemListFor(h.playerId('s1')!).length, 1);
 });
 
@@ -843,6 +846,7 @@ test('phone and server stay together walking through the foyer-kitchen door', ()
     phone = got;
   }
   assert.ok(phone.y > 340, `did not enter the kitchen, y=${phone.y}`);
+});
 
 test('roles: the host setting picks that many Phantoms at random', () => {
   const ids = ['a', 'b', 'c', 'd'];
@@ -910,12 +914,23 @@ test('phases follow the host durations, then time is up and the Phantom wins', (
   assert.equal(formatPhaseClock(0), '0:00');
 });
 
+function inHouse(p: { x: number; y: number }): boolean {
+  return p.x >= 0 && p.y >= 0 && p.x <= houseLayout.width && p.y <= houseLayout.height;
+}
+
 test('movement rejected for a waiter in hiding and for a Phantom in search', () => {
   const h = room(2);
   h.start('s0', 0);
   assert.equal(h.roleOf(h.playerId('s0')!), 'phantom');
   assert.equal(h.roleOf(h.playerId('s1')!), 'player');
   const waiter = h.poseForTest('s1')!;
+  assert.equal(waiter.x, WAITING_ROOM_POSE.x);
+  assert.equal(waiter.y, WAITING_ROOM_POSE.y);
+  assert.equal(inHouse(waiter), false, 'a waiter must not stand in the house during hiding');
+  assert.equal(inHouse(h.poseForTest('s0')!), true, 'the Phantom is in the house during hiding');
+  assert.equal(h.canSeeHouse(h.playerId('s1')!), false);
+  assert.equal(h.canSeeHouse(h.playerId('s0')!), true);
+  assert.equal(h.canSeeActor(h.playerId('s0')!, h.playerId('s1')!), false);
   assert.equal(h.move('s1', { x: waiter.x + 40, y: waiter.y, d: 2, m: 1, f: 0 }, 200), null);
   assert.equal(h.poseForTest('s1')!.x, waiter.x);
   assert.deepEqual(h.takeHold('s1'), h.poseForTest('s1'));
@@ -923,6 +938,7 @@ test('movement rejected for a waiter in hiding and for a Phantom in search', () 
   assert.equal(h.setSpot('s1', { id: 'sofa_d1', open: true }), null, 'a waiting player cannot open a spot');
   h.advance(5 * 60 * 1000);
   assert.equal(h.roundView()!.phase, 'search');
+  assert.equal(inHouse(h.poseForTest('s1')!), true, 'search places the waiter at the entrance');
   const phantomAt = h.poseForTest('s0')!;
   assert.equal(h.move('s0', { x: phantomAt.x + 30, y: phantomAt.y, d: 2, m: 1, f: 0 }, 5 * 60 * 1000 + 200), null);
   assert.equal(h.poseForTest('s0')!.x, phantomAt.x);
@@ -930,8 +946,35 @@ test('movement rejected for a waiter in hiding and for a Phantom in search', () 
   assert.equal(h.itemListFor(h.playerId('s0')!).length, 0, 'a Phantom in search cannot see inside');
   standAtSpot(h, 's1', 'sofa_d1', 5 * 60 * 1000 + 300);
   assert.equal(h.setSpot('s1', { id: 'sofa_d1', open: true })?.open, true);
+  assert.equal(inHouse(h.poseForTest('s1')!), true, 'search releases the waiter into the house');
   const step = h.move('s1', { x: h.poseForTest('s1')!.x + 10, y: h.poseForTest('s1')!.y, d: 2, m: 1, f: 0 }, 5 * 60 * 1000 + 500);
   assert.ok(step, 'a player may walk during search');
+});
+
+test('a waiter who reconnects during hiding stays in the waiting room, then is released', () => {
+  const h = room(2);
+  h.updateSettings('s0', { patch: { hidingMinutes: 1, searchMinutes: 1, chaseMinutes: 5, phantoms: 1 } });
+  h.start('s0', 10_000);
+  const phantom = h.playerId('s0')!;
+  const player = h.playerId('s1')!;
+  assert.equal(h.roleOf(player), 'player');
+  assert.equal(inHouse(h.poseForTest('s1')!), false);
+  h.drop('s1');
+  assert.equal(h.reconnect('s1'), true);
+  assert.equal(h.roleOf(player), 'player');
+  assert.equal(h.roundView()!.phase, 'hiding');
+  assert.equal(inHouse(h.poseForTest('s1')!), false, 'reconnect does not drop a waiter into the house');
+  assert.equal(h.canSeeHouse(player), false);
+  assert.equal(h.move('s1', { x: 300, y: 430, d: 2, m: 1, f: 0 }, 20_000), null, 'reconnect cannot walk into the house');
+  assert.equal(inHouse(h.poseForTest('s1')!), false);
+  h.advance(10_000 + 60_000);
+  assert.equal(h.roundView()!.phase, 'search');
+  const released = h.poseForTest('s1')!;
+  assert.equal(inHouse(released), true, 'search lets the reconnected waiter in');
+  assert.ok(Math.hypot(released.x - 300, released.y - 430) < 200, `released at ${released.x},${released.y}`);
+  assert.equal(h.canSeeHouse(player), true);
+  assert.ok(h.move('s1', { x: released.x + 10, y: released.y, d: 2, m: 1, f: 0 }, 10_000 + 60_000 + 400));
+  assert.equal(h.roleOf(phantom), 'phantom');
 });
 
 test('drawer noise is sent only to Phantoms, and only in search or chase when it is not off', () => {
@@ -1009,5 +1052,6 @@ test('reconnect and host migration keep the role and the phase clock', () => {
   assert.equal(h.roleOf(h.playerId('s2')!), 'player');
   assert.equal(h.roundView()!.phase, 'search');
   assert.equal(h.roundView()!.endsAt, endsAt, 'the new host keeps the same clock');
+});
 
 console.log(`\n✅ ${n} server tests passed`);

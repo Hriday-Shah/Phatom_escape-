@@ -14,7 +14,7 @@ import type { GameLink, NetPlayer } from './ColyseusLobbyService';
 import { RemotePlayer } from '../objects/RemotePlayer';
 import { FLOOR_GROUND, type FloorId } from '../data/houseFloors';
 import { SEND_HZ, type PhasePayload } from './protocol';
-import { canMove, canSeeInside, type RoundRole } from '../logic/roundPhase';
+import { canMove, canSeeInside, isWaiting, type RoundRole } from '../logic/roundPhase';
 import { poseIntent } from './dirOf';
 import type { PoseTuple } from './protocol';
 import { reconcilePose, type SentPose } from './reconcile';
@@ -30,6 +30,7 @@ export interface NetPlayerSource {
   shift(dx: number, dy: number): void;
   /** Put the body on a pose the server already stored (reload / rejoin). */
   place(x: number, y: number, floor?: FloorId): void;
+  setRole(role: RoundRole): void;
 }
 export interface NetSpots {
   setOpen(id: string, open: boolean): void;
@@ -145,13 +146,14 @@ export class NetSync {
     this.roles = new Map(view.roles.map((r) => [r.id, r.role]));
     this.role = this.roles.get(this.link.selfId) ?? 'player';
     this.mayMove = canMove(this.role, view.phase);
+    this.me.setRole(this.role);
     const entry = view.entries?.find((e) => e.id === this.link.selfId);
     if (entry) {
       this.me.place(entry.x, entry.y, (entry.f ?? FLOOR_GROUND) as FloorId);
       this.sent = [];
       this.sentOnce = true;
       this.lastSent = { x: entry.x, y: entry.y, d: 0, m: 0, f: entry.f ?? 0, at: performance.now() };
-    } else if (view.phase === 'chase' && this.role === 'phantom') {
+    } else if ((view.phase === 'chase' && this.role === 'phantom') || (view.phase === 'search' && this.role === 'player')) {
       // Let in while this phone was away: the next pose snapshot is the entrance, not a slide.
       this.sent = [];
       this.sentOnce = false;
@@ -169,11 +171,12 @@ export class NetSync {
   }
 
   private applyRoleVisibility(): void {
-    const search = this.phase === 'search';
-    const meBlind = search && !canSeeInside(this.role, 'search');
+    const phase = this.phase ?? 'ended';
+    const ICanSee = canSeeInside(this.role, phase);
     for (const [id, r] of this.remotes) {
       const them = this.roles.get(id) ?? 'player';
-      r.setRoleVisible(!search || (!meBlind && them !== 'phantom'));
+      r.setRole(them);
+      r.setRoleVisible(ICanSee && !isWaiting(them, phase));
     }
   }
 

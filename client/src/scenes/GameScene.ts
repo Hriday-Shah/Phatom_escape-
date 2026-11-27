@@ -5,7 +5,8 @@ import { HidingSpotManager } from '../objects/HidingSpotManager';
 import { NetSync } from '../net/NetSync';
 import type { GameLink } from '../net/ColyseusLobbyService';
 import type { NoisePayload, PhasePayload } from '../net/protocol';
-import { canMove, canOpenSpot, canSeeInside, formatPhaseClock, PHASE_LABEL, phaseRemainingMs, type RoundPhase, type RoundRole } from '../logic/roundPhase';
+import { canMove, canOpenSpot, canSeeInside, formatPhaseClock, isWaiting, PHASE_LABEL, phaseRemainingMs, type RoundPhase, type RoundRole } from '../logic/roundPhase';
+import { hideWaitingRoom, showWaitingRoom, updateWaitingClock } from '../lobby/WaitingRoom';
 import { spawnNoiseRipple } from '../objects/NoiseRipple';
 import { Furniture, houseLayout } from '../data/houseLayout';
 import { createComposedWalls } from '../utils/wallRenderer';
@@ -131,6 +132,7 @@ export class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(Phaser.Scenes.Events.POST_UPDATE, target);
       this.phaseUnsubs.forEach((u) => u());
+      hideWaitingRoom();
       this.items?.destroy();
       this.items = null;
     });
@@ -148,6 +150,7 @@ export class GameScene extends Phaser.Scene {
       this.phaseUnsubs.push(net.onNoise((n) => this.onDrawerNoise(n)));
       const stored = net.phase();
       if (stored) apply(stored.view, stored.at);
+      else this.setWaiting(true);
     }
 
     // Setup controls
@@ -273,13 +276,37 @@ export class GameScene extends Phaser.Scene {
     const role = view.roles.find((r) => r.id === (this.registry.get('net') as GameLink).selfId)?.role ?? 'player';
     this.roundRole = role;
     this.roundPhaseName = view.phase;
+    this.player.setRole(role);
     const entry = view.entries?.find((e) => e.id === (this.registry.get('net') as GameLink).selfId);
     if (entry) this.player.place(entry.x, entry.y, (entry.f ?? 0) as FloorId);
-    const blind = role === 'phantom' && !canSeeInside(role, view.phase);
+    const waiting = isWaiting(role, view.phase);
+    this.setWaiting(waiting);
+    const blind = !waiting && role === 'phantom' && !canSeeInside(role, view.phase);
     this.setOutside(blind);
-    const open = !this.roundPhaseName || !this.roundRole || canOpenSpot(this.roundRole, this.roundPhaseName);
-    this.hidingSpotManager.setInputEnabled(!blind && open);
+    const open = !waiting && (!this.roundPhaseName || !this.roundRole || canOpenSpot(this.roundRole, this.roundPhaseName));
+    this.hidingSpotManager.setInputEnabled(!blind && !waiting && open);
     this.refreshPhaseHud();
+  }
+
+  private setWaiting(on: boolean): void {
+    if (on) {
+      this.cameras.main.stopFollow();
+      showWaitingRoom(this.waitingClockText());
+      (this.uiScene as { hideHidingSpotPrompt?: () => void })?.hideHidingSpotPrompt?.();
+    } else {
+      hideWaitingRoom();
+      if (this.player && !this.outside) {
+        this.applyHouseFloor(this.player.getFloor());
+        this.updateCameraZoom();
+        this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+      }
+    }
+  }
+
+  private waitingClockText(): string {
+    if (!this.phaseView) return '0:00';
+    const ms = phaseRemainingMs(this.phaseView.endsAt, this.phaseView.serverNow, this.phaseAt, performance.now());
+    return formatPhaseClock(ms);
   }
 
   private setOutside(on: boolean): void {
@@ -311,7 +338,9 @@ export class GameScene extends Phaser.Scene {
     const ms = phaseRemainingMs(this.phaseView.endsAt, this.phaseView.serverNow, this.phaseAt, performance.now());
     const who = this.roundRole === 'phantom' ? 'Phantom' : 'Player';
     const outside = this.outside ? '\nYou are outside the house.' : '';
-    ui.setPhaseLine(`${who} · ${PHASE_LABEL[this.roundPhaseName]}  ${formatPhaseClock(ms)}${outside}`);
+    const clock = formatPhaseClock(ms);
+    ui.setPhaseLine(`${who} · ${PHASE_LABEL[this.roundPhaseName]}  ${clock}${outside}`);
+    if (isWaiting(this.roundRole, this.roundPhaseName)) updateWaitingClock(clock);
   }
 
   private createRooms(): void {

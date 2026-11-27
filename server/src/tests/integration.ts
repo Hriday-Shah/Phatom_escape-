@@ -38,20 +38,23 @@ p2.onMessage('kicked', () => { kicked = true; }); ['lobby', 'welcome', 'left'].f
 await wait(200); const kid = hostLobby.get().players.find((p: any) => p.nickname === 'Kicked').id;
 host.send('kick', { id: kid }); await wait(300); assert.ok(kicked); assert.equal(closeCode, 4001); assert.equal(hostLobby.get().players.length, 2);
 // start, then late join refused
-host.send('start', {}); await wait(300); assert.equal(p1Lobby.get().started, true); assert.deepEqual(p1Spots.get(), { open: [] });
+host.send('start', {}); await wait(300); assert.equal(p1Lobby.get().started, true);
 const phase = hostPhase.get() ?? p1Phase.get();
 assert.equal(phase?.phase, 'hiding');
 assert.ok(phase.endsAt > phase.serverNow);
 const phantomId = phase.roles.find((r: { role: string }) => r.role === 'phantom').id;
 const phantom = phantomId === p1Welcome.get().selfId ? p1 : host;
+const waiterIsP1 = phantom !== p1;
+if (!waiterIsP1) assert.deepEqual(p1Spots.get(), { open: [] });
+else assert.equal(p1Spots.get(), undefined, 'a waiter does not receive the house during hiding');
 const otherPoses = phantom === host ? p1Poses : hostPoses;
 const st = await (await fetch(`${URL_}/rooms/${code}`)).json(); assert.equal(st.status, 'started');
 await assert.rejects(new Client(URL_).joinById(code, {}), (e: any) => /locked|started/.test(e.message));
-// Hiding: the Phantom's pose is echoed. Spot opens from the entrance are out of reach; unit tests cover reach.
+// Hiding: waiters must not see the Phantom (or the house). Unit tests cover reach.
 phantom.send('pos', { x: 300, y: 300, d: 2, m: 1, f: 0 }); await wait(200);
 phantom.send('pos', { x: 310, y: 300, d: 2, m: 1, f: 0 }); await wait(300);
 const seen = otherPoses.flatMap((m) => m.p).filter((p: any) => p[0] === phantomId);
-assert.ok(seen.length >= 1, JSON.stringify(otherPoses));
+assert.equal(seen.length, 0, 'waiters must not see the Phantom during hiding');
 // heartbeat answered
 p1.send('hb', {}); await wait(200); assert.ok(p1Hb.get());
 // drop (no consent) -> seat held, others see it away -> reconnect keeps the role and the phase clock
@@ -64,7 +67,8 @@ const backPhase = last(back, 'phase');
 ['poses', 'spot', 'left', 'kicked', 'hb'].forEach((t) => back.onMessage(t, () => {}));
 await wait(400);
 assert.equal(back.sessionId, p1Session); assert.equal(backWelcome.get()?.selfId, p1Id); // same seat
-assert.ok(backSpots.get());
+if (p1Id === phantomId) assert.ok(backSpots.get(), 'a reconnecting Phantom still sees the house');
+else assert.equal(backSpots.get(), undefined, 'a reconnecting waiter does not receive the house');
 assert.equal(backPhase.get()?.phase, 'hiding');
 assert.equal(backPhase.get()?.endsAt, phase.endsAt);
 assert.equal(backPhase.get()?.roles.find((r: { id: string }) => r.id === phantomId)?.role, 'phantom');
