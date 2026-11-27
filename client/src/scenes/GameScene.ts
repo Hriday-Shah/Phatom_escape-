@@ -172,7 +172,8 @@ export class GameScene extends Phaser.Scene {
     // Reconcile floor-dependent layers (light, spots) after online snap poses.
     this.applyHouseFloor(this.player.getFloor());
     if (this.outside) this.fitOutside();
-    this.refreshPhaseHud();
+    // launch() has not run UIScene.create yet, so the phase line waits for its text.
+    this.uiScene.events.once(Phaser.Scenes.Events.CREATE, () => this.refreshPhaseHud());
 
     // Reposition on safe area changes
     watchInsets(this, () => this.onResize());

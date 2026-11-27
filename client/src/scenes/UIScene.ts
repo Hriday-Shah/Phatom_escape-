@@ -136,6 +136,8 @@ export class UIScene extends Phaser.Scene {
 
   /** Online phase line. Empty hides it. Offline never sets this. */
   public setPhaseLine(text: string): void {
+    // GameScene can ask during its own create, before this scene's text exists.
+    if (!this.phaseText) return;
     const show = text.length > 0;
     this.phaseText.setText(text).setVisible(show);
     if (show) this.placePhaseLine();
