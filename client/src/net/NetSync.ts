@@ -176,6 +176,7 @@ export class NetSync {
     for (const [id, r] of this.remotes) {
       const them = this.roles.get(id) ?? 'player';
       r.setRole(them);
+      r.setPhantomMark(this.role === 'player' && them === 'phantom');
       r.setRoleVisible(ICanSee && !isWaiting(them, phase));
     }
   }

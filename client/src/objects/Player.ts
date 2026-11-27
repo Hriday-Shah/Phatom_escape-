@@ -31,6 +31,7 @@ export class Player {
   private lastDirection: string = 'down';
   private role: RoundRole = 'player';
   private hoodieTint: number = DEFAULT_HOODIE_TINT;
+  private passBedroom = false;
   /** Online: move with the shared slide instead of a private Arcade body. */
   private sharedSlide = false;
   /** Leftover milliseconds so every phone steps the slide at 60 Hz, whatever the refresh. */
@@ -176,13 +177,13 @@ export class Player {
   private stepSlide(dirX: number, dirY: number, delta: number): void {
     const step = 1000 / 60;
     this.slideDebt = Math.min(100, this.slideDebt + Math.max(0, delta));
-    const blockers = this.slideBlockers ??= movementBlockersForFloor(this.floorLevel);
+    const blockers = this.slideBlockers ??= movementBlockersForFloor(this.floorLevel, false, this.passBedroom);
     let x = this.x;
     let y = this.y;
     let guard = 0;
     while (this.slideDebt >= step && guard++ < 8) {
       this.slideDebt -= step;
-      const next = integrateSlide({ x, y }, dirX, dirY, step, blockers, this.speed, PLAYER_BODY_RADIUS, wallDoorBlockers(false, this.floorLevel));
+      const next = integrateSlide({ x, y }, dirX, dirY, step, blockers, this.speed, PLAYER_BODY_RADIUS, wallDoorBlockers(false, this.floorLevel, this.passBedroom));
       x = next.x;
       y = next.y;
     }
@@ -222,6 +223,14 @@ export class Player {
     }
   }
 
+  public setPassBedroom(on: boolean): void {
+    if (this.passBedroom === on) return;
+    this.passBedroom = on;
+    this.bumpBlockers();
+  }
+
+  public getPassBedroom(): boolean { return this.passBedroom; }
+
   public update(delta = 1000 / 60): void {
     this.footBeforePhysics = { x: this.x, y: this.y, f: this.floorLevel };
     const phantomArt = this.role === 'phantom' && this.scene.textures.exists('phantom');
@@ -235,7 +244,7 @@ export class Player {
         this.stepSlide(normalized.x, normalized.y, delta);
       } else {
         this.physics.setVelocity(normalized.x * this.speed, normalized.y * this.speed);
-        this.slideBlockers = movementBlockersForFloor(this.floorLevel);
+        this.slideBlockers = movementBlockersForFloor(this.floorLevel, false, this.passBedroom);
       }
       
       // Determine direction (prioritize horizontal)

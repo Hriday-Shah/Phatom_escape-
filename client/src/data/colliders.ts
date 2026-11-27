@@ -77,19 +77,24 @@ export interface StaticColliders {
   doors: Rect[];
 }
 
-export function isDoorLocked(doorId: string, locked: boolean, debugUnlock: boolean): boolean {
-  return locked && !(debugUnlock && doorId === 'bedroom_door');
+export function isDoorLocked(
+  doorId: string, locked: boolean, debugUnlock: boolean, passBedroom = false,
+): boolean {
+  if (!locked) return false;
+  if (doorId === 'bedroom_door' && (debugUnlock || passBedroom)) return false;
+  return true;
 }
 
 export function getStaticColliders(
   debugUnlock = false, exteriorExtra = EXTERIOR_WALL_BODY_EXTRA, layout: HouseLayout = houseLayout,
+  passBedroom = false,
 ): StaticColliders {
   return {
     walls: layout.walls.flatMap((w) => wallBodyRects(w, exteriorExtra, layout)),
     furniture: layout.furniture.filter((f) => f.blocking).map(({ x, y, width, height }) => ({ x, y, width, height })),
     spots: layout.hidingSpots.map(({ x, y, width, height }) => ({ x, y, width, height })),
     doors: layout.doors
-      .filter((d) => isDoorLocked(d.id, d.locked, debugUnlock))
+      .filter((d) => isDoorLocked(d.id, d.locked, debugUnlock, passBedroom))
       .flatMap((d) => wallBodyRects(d, exteriorExtra, layout)),
   };
 }

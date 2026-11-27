@@ -158,6 +158,14 @@ export class ItemDirector {
     return true;
   }
 
+  worldItems(): WorldItem[] {
+    return this.round?.items ?? [];
+  }
+
+  holdsKind(kind: WorldItem['kind']): boolean {
+    return this.round?.heldBy(this.selfId)?.kind === kind;
+  }
+
   onUse(): boolean {
     if (this.overlay.isOpen()) { this.overlay.confirm(); return true; }
     if (this.tryPickupFloor()) return true;

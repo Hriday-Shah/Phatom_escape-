@@ -1,0 +1,67 @@
+/*
+ * In-game overlays for the Phantom reveal banner and the lean hiding menu.
+ * Theme variables come from home.css :root.
+ */
+#pe-reveal {
+  position: fixed;
+  left: 50%;
+  top: max(env(safe-area-inset-top, 0px), 16px);
+  transform: translateX(-50%);
+  z-index: 12;
+  max-width: min(92vw, 520px);
+  margin: 0;
+  padding: 12px 18px;
+  background: var(--pe-screen, #241e18);
+  color: var(--pe-text, #f4f1ea);
+  border: 2px solid var(--pe-outline, #3a322a);
+  border-radius: var(--pe-radius, 12px);
+  font: var(--pe-text-size, 18px) / 1.35 var(--pe-font, system-ui, sans-serif);
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+#pe-reveal[hidden] { display: none !important; }
+
+#pe-hide-menu {
+  position: fixed;
+  right: max(env(safe-area-inset-right, 0px), 8px);
+  bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+  z-index: 11;
+  width: min(92vw, 340px);
+  max-height: min(70vh, 480px);
+  overflow: auto;
+  padding: 12px;
+  background: var(--pe-screen, #241e18);
+  color: var(--pe-text, #f4f1ea);
+  border: 2px solid var(--pe-outline, #3a322a);
+  border-radius: var(--pe-radius, 12px);
+  font: 14px / 1.35 var(--pe-font, system-ui, sans-serif);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  touch-action: manipulation;
+}
+#pe-hide-menu[hidden] { display: none !important; }
+#pe-hide-title { margin: 0; font-size: 16px; }
+#pe-hide-rules, #pe-hide-count, #pe-hide-error { margin: 0; }
+#pe-hide-rules, #pe-hide-count { color: var(--pe-muted, #b0a89c); }
+#pe-hide-error { color: #e8a0a0; min-height: 1.2em; }
+#pe-hide-kinds, #pe-hide-spots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#pe-hide-menu button {
+  font: inherit;
+  color: inherit;
+  background: #3a322a;
+  border: 1px solid var(--pe-outline, #3a322a);
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+#pe-hide-menu button[aria-pressed="true"] { outline: 2px solid #f4f1ea; }
+#pe-hide-menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

@@ -6,7 +6,10 @@ import { NetSync } from '../net/NetSync';
 import type { GameLink } from '../net/ColyseusLobbyService';
 import type { NoisePayload, PhasePayload } from '../net/protocol';
 import { canMove, canOpenSpot, canSeeInside, formatPhaseClock, isWaiting, PHASE_LABEL, phaseRemainingMs, type RoundPhase, type RoundRole } from '../logic/roundPhase';
+import { canPassBedroomDoor } from '../logic/doorAccess';
+import { scaledLightRadius } from '../config/lightConfig';
 import { hideWaitingRoom, showWaitingRoom, updateWaitingClock } from '../lobby/WaitingRoom';
+import { hideHideMenu, hidePhantomReveal, showHideMenu, showPhantomReveal, updateHideMenu, phantomRevealText } from '../ui/phantomHud';
 import { spawnNoiseRipple } from '../objects/NoiseRipple';
 import { Furniture, houseLayout } from '../data/houseLayout';
 import { createComposedWalls } from '../utils/wallRenderer';
@@ -40,6 +43,9 @@ export class GameScene extends Phaser.Scene {
   private dropKey!: Phaser.Input.Keyboard.Key;
   private wallGroup!: Phaser.Physics.Arcade.StaticGroup;
   private doorGroup!: Phaser.Physics.Arcade.StaticGroup;
+  private bedroomDoorBodies: Phaser.GameObjects.Rectangle[] = [];
+  private baseLightRadius = 0;
+  private revealTimer: Phaser.Time.TimerEvent | null = null;
   private uiScene!: Phaser.Scene;
   private lightLayer: LightLayer | null = null;
   /** Online only (QA reads netSync.remotePositions()). */
@@ -133,6 +139,8 @@ export class GameScene extends Phaser.Scene {
       this.events.off(Phaser.Scenes.Events.POST_UPDATE, target);
       this.phaseUnsubs.forEach((u) => u());
       hideWaitingRoom();
+      hideHideMenu();
+      hidePhantomReveal();
       this.items?.destroy();
       this.items = null;
     });
@@ -148,6 +156,7 @@ export class GameScene extends Phaser.Scene {
       const apply = (view: PhasePayload, at: number) => this.applyPhase(view, at);
       this.phaseUnsubs.push(net.onPhase(apply));
       this.phaseUnsubs.push(net.onNoise((n) => this.onDrawerNoise(n)));
+      this.phaseUnsubs.push(net.onItems(() => this.onItemsChanged()));
       const stored = net.phase();
       if (stored) apply(stored.view, stored.at);
       else this.setWaiting(true);
@@ -170,7 +179,7 @@ export class GameScene extends Phaser.Scene {
 
     // Items / mini-game (after UIScene exists so the slot and overlay can be placed).
     this.items = new ItemDirector(this as any);
-    this.time.delayedCall(0, () => { this.items?.attach(net ?? null); this.items?.place(); });
+    this.time.delayedCall(0, () => { this.items?.attach(net ?? null); this.items?.place(); this.onItemsChanged(); });
 
     // Reconcile floor-dependent layers (light, spots) after online snap poses.
     this.applyHouseFloor(this.player.getFloor());
@@ -202,8 +211,9 @@ export class GameScene extends Phaser.Scene {
       ...houseLayout.hidingSpots,
       ...houseLayout.furniture.filter((f) => f.blocking),
     ] : [];
+    this.baseLightRadius = GameScene.lightRadius(this.cache.json.get('artManifest'));
     this.lightLayer = new LightLayer(
-      this, GameScene.lightRadius(this.cache.json.get('artManifest')), wallsAndDoors, furniture,
+      this, scaledLightRadius(this.baseLightRadius, this.roundRole, this.roundPhaseName), wallsAndDoors, furniture,
     );
     // After Arcade has synced the body to the sprite (POST_UPDATE), so the light never lags.
     const sync = () => this.lightLayer?.update(this.player.x, this.player.y);
@@ -285,7 +295,65 @@ export class GameScene extends Phaser.Scene {
     this.setOutside(blind);
     const open = !waiting && (!this.roundPhaseName || !this.roundRole || canOpenSpot(this.roundRole, this.roundPhaseName));
     this.hidingSpotManager.setInputEnabled(!blind && !waiting && open);
+    this.syncDoorAccess();
+    this.syncLightRadius();
+    this.syncRevealBanner();
+    this.syncHideMenu();
     this.refreshPhaseHud();
+  }
+
+  private onItemsChanged(): void {
+    this.syncDoorAccess();
+    this.syncHideMenu();
+  }
+
+  private syncDoorAccess(): void {
+    const debugUnlock = hasDebugFlag('unlock');
+    const hasKey = !!this.items?.holdsKind('room_key');
+    const pass = canPassBedroomDoor(this.roundRole, hasKey, debugUnlock);
+    this.player.setPassBedroom(pass);
+    this.setBedroomDoorSolid(!pass);
+  }
+
+  private setBedroomDoorSolid(solid: boolean): void {
+    for (const body of this.bedroomDoorBodies) {
+      const phys = body.body as Phaser.Physics.Arcade.StaticBody | undefined;
+      if (phys) phys.enable = solid;
+      if ((body as any).doorData) (body as any).doorData.locked = solid;
+    }
+  }
+
+  private syncLightRadius(): void {
+    if (!this.lightLayer || !this.baseLightRadius) return;
+    this.lightLayer.setRadius(scaledLightRadius(this.baseLightRadius, this.roundRole, this.roundPhaseName));
+  }
+
+  private syncRevealBanner(): void {
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    const show = !!net && this.roundPhaseName === 'search' && this.roundRole === 'player';
+    if (!show) {
+      this.revealTimer?.remove(false);
+      this.revealTimer = null;
+      hidePhantomReveal();
+      return;
+    }
+    const text = phantomRevealText(this.phaseView?.roles ?? [], net.players());
+    showPhantomReveal(text);
+    this.revealTimer?.remove(false);
+    this.revealTimer = this.time.delayedCall(6000, () => hidePhantomReveal());
+  }
+
+  private syncHideMenu(): void {
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    if (!net || this.roundRole !== 'phantom' || this.roundPhaseName !== 'hiding') {
+      hideHideMenu();
+      return;
+    }
+    const items = this.items?.worldItems() ?? [];
+    showHideMenu(items, (kind, spotId) => {
+      net.sendHideItem(kind, spotId);
+    });
+    updateHideMenu(items);
   }
 
   private setWaiting(on: boolean): void {
@@ -415,8 +483,7 @@ export class GameScene extends Phaser.Scene {
     const debugUnlock = hasDebugFlag('unlock');
 
     houseLayout.doors.forEach(door => {
-      // Apply debug unlock only to bedroom_door
-      const isLocked = door.locked && !(debugUnlock && door.id === 'bedroom_door');
+      const isLocked = isDoorLocked(door.id, door.locked, debugUnlock);
       // Map door IDs to art keys
       let textureKey = 'door'; // Default
       
@@ -468,6 +535,7 @@ export class GameScene extends Phaser.Scene {
             .setVisible(false);
           if (i === 0) (body as any).doorData = doorData;
           this.doorGroup.add(body);
+          if (door.id === 'bedroom_door') this.bedroomDoorBodies.push(body);
         });
       }
     });
@@ -644,6 +712,7 @@ export class GameScene extends Phaser.Scene {
     for (const sprite of doorSprites) {
       const doorData = (sprite as any).doorData;
       if (!doorData || !doorData.locked) continue;
+      if (doorData.id === 'bedroom_door' && this.player.getPassBedroom()) continue;
       
       const doorCenter = new Phaser.Math.Vector2(
         doorData.x + doorData.width / 2,

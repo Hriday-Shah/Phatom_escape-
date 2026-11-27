@@ -16,9 +16,11 @@ import {
 import { displayNickname } from '../../client/src/home/settings';
 import { randomBytes, randomInt } from 'node:crypto';
 import { PLAYER_SPEED } from '../../client/src/config/physicsConfig';
-import { ItemRound, RoundPublic, createServerRoundFrom } from '../../client/src/logic/itemRound';
+import { ItemRound, RoundPublic, createServerRoundFrom, hidingSpotList } from '../../client/src/logic/itemRound';
 import { EscapeCode } from '../../client/src/logic/escapeCode';
-import { PublicItem } from '../../client/src/logic/items';
+import { ITEM_KINDS, type ItemKind, type PublicItem, type WorldItem } from '../../client/src/logic/items';
+import { autoPlaceHiddenItems, bedroomHideError } from '../../client/src/logic/bedroomHide';
+import { canPassBedroomDoor } from '../../client/src/logic/doorAccess';
 import { houseLayout } from '../../client/src/data/houseLayout';
 import { onlineSpawnSlots } from '../../client/src/logic/onlineSpawn';
 import { FLOOR_GROUND, normaliseFloor, poseInsideFloor } from '../../client/src/data/houseFloors';
@@ -356,6 +358,7 @@ export class HouseLogic {
     if (r.phase === 'hiding') {
       r.phase = 'search';
       r.endsAt = boundary + r.searchMs;
+      this.autoPlaceUnplaced();
       this.queuedEntries = this.letPlayersIn(boundary);
     } else if (r.phase === 'search') {
       r.phase = 'chase';
@@ -634,7 +637,8 @@ export class HouseLogic {
     p.f = prev.pose.f;
     p.d = p.d ?? prev.pose.d;
     p.m = p.m ?? prev.pose.m;
-    const blockers = movementBlockersForFloor(prev.pose.f, false);
+    const passBedroom = canPassBedroomDoor(role, this.hasRoomKey(id), false);
+    const blockers = movementBlockersForFloor(prev.pose.f, false, passBedroom);
     const slid = resolveMove(prev.pose, p, blockers, max, PLAYER_BODY_RADIUS);
     if (slid.x !== p.x || slid.y !== p.y) this.corrections++;
     p.x = slid.x;
@@ -693,6 +697,61 @@ export class HouseLogic {
     const n = this.pendingNoise;
     this.pendingNoise = null;
     return n;
+  }
+
+  hasRoomKey(playerId: string): boolean {
+    return !!this.items?.items.some((i) => i.heldBy === playerId && i.kind === 'room_key');
+  }
+
+  /** Phantom hiding: put one item in an empty spot. Rejects a 4th bedroom item and a key in the bedroom. */
+  placeHiddenItem(session: string, kind: string, spotId: string): { ok: boolean; error?: string } {
+    const by = this.bySession.get(session);
+    if (!by || !this.started) return { ok: false, error: 'not-started' };
+    this.advance(this.clockNow);
+    const role = this.roles.get(by) ?? 'player';
+    if (!this.round || this.round.phase !== 'hiding' || role !== 'phantom') {
+      return { ok: false, error: 'not-allowed' };
+    }
+    if (!(ITEM_KINDS as readonly string[]).includes(kind)) return { ok: false, error: 'no-item' };
+    const spot = hidingSpotList().find((s) => s.id === spotId) ?? spotById(spotId);
+    if (!spot) return { ok: false, error: 'no-spot' };
+    if (!this.items) return { ok: false, error: 'not-started' };
+    if (this.items.items.some((i) => i.spotId === spotId)) return { ok: false, error: 'spot-taken' };
+    const err = bedroomHideError(kind, spotId, this.items.items);
+    if (err) return { ok: false, error: err };
+    const item: WorldItem = {
+      id: `hide-${kind}-${this.items.items.length + 1}`,
+      kind: kind as ItemKind,
+      spotId,
+      x: spot.x + spot.width / 2,
+      y: spot.y + spot.height / 2,
+      f: FLOOR_GROUND,
+      heldBy: null,
+    };
+    this.items.items.push(item);
+    return { ok: true };
+  }
+
+  /** Test helper: queue an unplaced item so auto-place at hiding end has work to do. */
+  addUnplacedItem(kind: ItemKind): WorldItem {
+    if (!this.items) throw new Error('round has no items');
+    const item: WorldItem = {
+      id: `hide-${kind}-${this.items.items.length + 1}`,
+      kind,
+      spotId: null,
+      x: 0,
+      y: 0,
+      f: FLOOR_GROUND,
+      heldBy: null,
+    };
+    this.items.items.push(item);
+    return item;
+  }
+
+  /** When hiding ends, leftover items (including a key or extras) go into legal empty spots. */
+  autoPlaceUnplaced(rng: () => number = this.rng): void {
+    if (!this.items) return;
+    autoPlaceHiddenItems(this.items.items, rng);
   }
 
   /** In-game open / close of any hiding or search spot (after start, and only if this phase allows it). */

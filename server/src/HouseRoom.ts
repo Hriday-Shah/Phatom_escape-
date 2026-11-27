@@ -130,6 +130,15 @@ export class HouseRoom extends Room {
       if (r.ok) this.sendItemsToAll();
       else client.send('rejected', { action: 'itemDrop', error: r.error });
     });
+    this.onMessage('hideItem', (client, msg) => {
+      if (!this.allow(client, 'act')) return;
+      const body = msg && typeof msg === 'object' ? msg as { kind?: unknown; spotId?: unknown } : {};
+      const kind = typeof body.kind === 'string' ? body.kind : '';
+      const spotId = typeof body.spotId === 'string' ? body.spotId : '';
+      const r = this.logic.placeHiddenItem(client.sessionId, kind, spotId);
+      if (r.ok) this.sendItemsToAll();
+      else client.send('rejected', { action: 'hideItem', error: r.error });
+    });
     this.onMessage('minigameStart', (client) => {
       if (!this.allow(client, 'act')) return;
       const r = this.logic.startMinigame(client.sessionId);

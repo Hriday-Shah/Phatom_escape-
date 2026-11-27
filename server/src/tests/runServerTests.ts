@@ -7,7 +7,8 @@ import { PLAYER_SPEED } from '../../../client/src/config/physicsConfig';
 import { originAllowed, parseOrigins } from '../origins';
 import { randomBytes } from 'node:crypto';
 import { MIN_WIN_MS, createRound, createServerRoundFrom, hidingSpotList } from '../../../client/src/logic/itemRound';
-import { canUseSpot, clampDrop, integrateSlide, losBlockers, movementBlockers, moveHitsWall, PLAYER_BODY_RADIUS, pointBlocked, spotById } from '../../../client/src/logic/worldCollision';
+import { canUseSpot, clampDrop, integrateSlide, losBlockers, movementBlockers, moveHitsWall, PLAYER_BODY_RADIUS, pointBlocked, spotById, wallDoorBlockers } from '../../../client/src/logic/worldCollision';
+import { BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR, bedroomItemCount, isBedroomSpot } from '../../../client/src/logic/bedroomHide';
 import { houseLayout } from '../../../client/src/data/houseLayout';
 import { FLOOR_GROUND, FLOOR_UPPER, STAIR_LAND_GROUND, STAIR_LAND_UPPER } from '../../../client/src/data/houseFloors';
 import { STAIR_PAD_GROUND, STAIR_PAD_UPPER } from '../../../client/src/logic/floorMovement';
@@ -1052,6 +1053,109 @@ test('reconnect and host migration keep the role and the phase clock', () => {
   assert.equal(h.roleOf(h.playerId('s2')!), 'player');
   assert.equal(h.roundView()!.phase, 'search');
   assert.equal(h.roundView()!.endsAt, endsAt, 'the new host keeps the same clock');
+});
+
+
+function reportSlidePass(from: { x: number; y: number }, dirX: number, dirY: number, passBedroom: boolean): { x: number; y: number } {
+  const blockers = movementBlockers(false, FLOOR_GROUND, passBedroom);
+  const step = integrateSlide(from, dirX, dirY, 1000 / 12, blockers, PLAYER_SPEED, PLAYER_BODY_RADIUS, wallDoorBlockers(false, FLOOR_GROUND, passBedroom));
+  return { x: Math.round(step.x * 10) / 10, y: Math.round(step.y * 10) / 10 };
+}
+
+function walkServer(
+  h: HouseLogic, session: string, from: { x: number; y: number }, goal: { x: number; y: number },
+  now0: number, passBedroom: boolean, frames = 80,
+): { x: number; y: number } {
+  stand(h, session, from.x, from.y, now0);
+  let pose = { x: from.x, y: from.y };
+  let now = now0;
+  for (let i = 0; i < frames; i++) {
+    if (Math.hypot(goal.x - pose.x, goal.y - pose.y) <= 10) return pose;
+    const sent = reportSlidePass(pose, goal.x - pose.x, goal.y - pose.y, passBedroom);
+    now += 1000 / 12;
+    const got = h.move(session, { x: sent.x, y: sent.y, d: 0, m: 1, f: 0 }, now);
+    if (!got) return pose;
+    if (Math.hypot(got.x - pose.x, got.y - pose.y) < 0.15) return got;
+    pose = got;
+  }
+  return pose;
+}
+
+function sessionRole(h: HouseLogic, role: 'phantom' | 'player'): string {
+  for (const s of ['s0', 's1', 's2', 's3']) {
+    const id = h.playerId(s);
+    if (id && h.roleOf(id) === role) return s;
+  }
+  throw new Error(`no ${role} session`);
+}
+
+function freeBedroomSpots(h: HouseLogic): string[] {
+  const taken = new Set((h.items?.items ?? []).map((i) => i.spotId).filter(Boolean) as string[]);
+  return hidingSpotList().filter((s) => isBedroomSpot(s.id) && !taken.has(s.id)).map((s) => s.id);
+}
+
+function freeOtherSpot(h: HouseLogic): string {
+  const taken = new Set((h.items?.items ?? []).map((i) => i.spotId).filter(Boolean) as string[]);
+  const s = hidingSpotList().find((sp) => !isBedroomSpot(sp.id) && !taken.has(sp.id));
+  if (!s) throw new Error('no free non-bedroom spot');
+  return s.id;
+}
+
+test('the Phantom can always walk through the locked bedroom door; a player without the key cannot', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  const player = sessionRole(h, 'player');
+  const from = { x: 360, y: 435 };
+  const goal = { x: 250, y: 250 };
+  const ph = walkServer(h, phantom, from, goal, 0, true);
+  assert.ok(ph.y < 360, `Phantom should enter the bedroom (ended ${ph.x.toFixed(1)},${ph.y.toFixed(1)})`);
+
+  h.advance(h.roundView()!.endsAt);
+  assert.equal(h.roundView()!.phase, 'search');
+  const now = h.roundView()!.endsAt;
+  const pl = walkServer(h, player, from, goal, now, false);
+  assert.ok(pl.y > 360, `player without the key must not pass the bedroom door (ended ${pl.x.toFixed(1)},${pl.y.toFixed(1)})`);
+});
+
+test('the Phantom may hide at most 3 items in the locked bedroom, and never the room key', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  const player = sessionRole(h, 'player');
+  const spots = freeBedroomSpots(h);
+  assert.ok(spots.length >= 4, 'need four free bedroom spots for this check');
+  for (const spotId of spots.slice(0, 3)) {
+    const r = h.placeHiddenItem(phantom, 'battery', spotId);
+    assert.equal(r.ok, true, r.error);
+  }
+  const fourth = h.placeHiddenItem(phantom, 'battery', spots[3]!);
+  assert.equal(fourth.ok, false);
+  assert.equal(fourth.error, BEDROOM_LIMIT_ERROR);
+  const keyBed = h.placeHiddenItem(phantom, 'room_key', spots[3]!);
+  assert.equal(keyBed.ok, false);
+  assert.equal(keyBed.error, BEDROOM_KEY_ERROR);
+  const keyOther = h.placeHiddenItem(phantom, 'room_key', freeOtherSpot(h));
+  assert.equal(keyOther.ok, true, keyOther.error);
+  const asPlayer = h.placeHiddenItem(player, 'battery', spots[3]!);
+  assert.equal(asPlayer.ok, false);
+});
+
+test('auto-place at the end of hiding keeps the bedroom limit and never hides the key there', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  h.addUnplacedItem('room_key');
+  h.addUnplacedItem('battery');
+  h.addUnplacedItem('battery');
+  h.addUnplacedItem('battery');
+  h.addUnplacedItem('battery');
+  h.advance(h.roundView()!.endsAt);
+  assert.equal(h.roundView()!.phase, 'search');
+  const items = h.items!.items;
+  assert.ok(items.every((i) => i.spotId), 'unplaced leftovers received a spot');
+  const key = items.find((i) => i.kind === 'room_key')!;
+  assert.ok(key.spotId && !isBedroomSpot(key.spotId), 'the room key was not auto-placed in the bedroom');
+  assert.ok(bedroomItemCount(items) <= 3, `bedroom held ${bedroomItemCount(items)} after auto-place`);
 });
 
 console.log(`\n✅ ${n} server tests passed`);

@@ -30,6 +30,7 @@ export class RemotePlayer {
   /** Search hides Phantoms from the house, and hides the house from a Phantom. */
   private roleVisible = true;
   private role: RoundRole = 'player';
+  private showPhantomMark = false;
 
   constructor(private scene: Phaser.Scene, readonly id: string, nickname: string, colour: string, x: number, y: number) {
     const art = scene.textures.exists('player') && scene.textures.exists('player_tint');
@@ -49,9 +50,7 @@ export class RemotePlayer {
     this.nickname = nickname;
     this.away = away;
     // Dropped (seat held while reconnecting): greyed name + short tag (R13-2).
-    const text = away ? `${nickname} · away` : nickname;
-    if (this.label.text !== text) this.label.setText(text);
-    this.label.setColor(away ? '#b0b0b0' : '#ffffff');
+    this.refreshLabel();
     this.tint?.setTint(tintFor(colour));
     if (!this.tint) this.body.setTint(tintFor(colour));
     this.applyAlpha();
@@ -79,6 +78,20 @@ export class RemotePlayer {
 
   setSameFloorVisible(v: boolean): void {
     this.sameFloorVisible = v;
+  }
+
+  setPhantomMark(on: boolean): void {
+    if (this.showPhantomMark === on) return;
+    this.showPhantomMark = on;
+    this.refreshLabel();
+  }
+
+  private refreshLabel(): void {
+    let text = this.nickname;
+    if (this.away) text = `${this.nickname} · away`;
+    else if (this.showPhantomMark) text = `${this.nickname} · Phantom`;
+    if (this.label.text !== text) this.label.setText(text);
+    this.label.setColor(this.away ? '#b0b0b0' : this.showPhantomMark ? '#ffb4b4' : '#ffffff');
   }
 
   setRoleVisible(v: boolean): void {
