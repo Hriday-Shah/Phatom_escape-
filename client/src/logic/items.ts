@@ -1,14 +1,15 @@
 /**
  * Item catalog.
  *
- * Manifest art (all `pending review`, and the PNG files are not on disk yet):
+ * Manifest art (approved world sprites under assets/items/):
  *   item_paper_code
  *   item_stun_gun, item_stun_gun_loaded (held state, not a separate spawn)
  *   item_bullet
  *   item_toy_car_red, item_toy_car_blue, item_toy_car_violet, item_toy_car_yellow
  *   item_wire_cutter, item_room_key, item_battery
+ *   item_game_controller
  *
- * That is 7 kinds and 10 unique item arts (11 keys counting the loaded-gun state).
+ * That is 8 kinds and 11 unique item arts (12 keys counting the loaded-gun state).
  * The repo does not define how many of each kind are hidden in a round (the
  * brief mentioned "14 items in 8 kinds"). This module does not invent extra
  * bullets, batteries or other instances to reach 14. Adding the game controller

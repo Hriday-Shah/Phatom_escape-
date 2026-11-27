@@ -1123,6 +1123,8 @@ test('the Phantom may hide at most 3 items in the locked bedroom, and never the 
   h.start('s0', 0);
   const phantom = sessionRole(h, 'phantom');
   const player = sessionRole(h, 'player');
+  // The round's controller is already hidden; move it out of the bedroom so this check starts at 0/3.
+  h.items!.placeControllerForTest(freeOtherSpot(h));
   const spots = freeBedroomSpots(h);
   assert.ok(spots.length >= 4, 'need four free bedroom spots for this check');
   for (const spotId of spots.slice(0, 3)) {
