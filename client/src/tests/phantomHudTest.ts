@@ -22,9 +22,9 @@ t(HIDING_MENU_SLOTS.filter((s) => s.kind === 'battery').length === 4, 'four batt
 t(!HIDING_MENU_SLOTS.some((s) => s.kind === 'game_controller'), 'no controller in menu');
 
 for (const slot of HIDING_MENU_SLOTS) {
-  const rel = itemIconSrc(slot.artKey).replace(/^\//, '');
-  const disk = join(process.cwd(), 'public', rel);
-  t(existsSync(disk), `menu icon on disk for ${slot.slotId} (${rel})`);
+  const disk = join(process.cwd(), 'public', 'assets', 'items', `${slot.artKey}.png`);
+  t(existsSync(disk), `menu icon on disk for ${slot.slotId} (${slot.artKey}.png)`);
+  t(itemIconSrc(slot.artKey).includes(`items/${slot.artKey}.png`), `menu icon URL for ${slot.slotId}`);
 }
 
 const placedCar: WorldItem = {

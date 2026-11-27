@@ -1,4 +1,5 @@
 import { BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR } from '../logic/bedroomHide';
+import { assetUrl } from '../minigame/art';
 
 export {
   HIDING_MENU_SLOTS,
@@ -9,7 +10,7 @@ export {
 } from './phantomHideSlots';
 
 export function itemIconSrc(artKey: string): string {
-  return `/assets/items/${artKey}.png`;
+  return assetUrl(`items/${artKey}.png`);
 }
 
 /** Map server hideItem rejection codes to short UI text. */

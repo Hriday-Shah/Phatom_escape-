@@ -310,9 +310,7 @@ export class ItemDirector {
       this.host.hidingSpotManager.syncSpotItemSprites(() => null);
       return;
     }
-    const open = new Set(this.host.hidingSpotManager.openIds());
     this.host.hidingSpotManager.syncSpotItemSprites((spotId) => {
-      if (!open.has(spotId)) return null;
       const it = this.round!.itemInSpot(spotId);
       return it ? artKeyFor(it.kind, it.variant) : null;
     });

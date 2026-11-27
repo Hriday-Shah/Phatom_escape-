@@ -196,6 +196,8 @@ export class HidingSpotManager {
 
   /** The outline is stroked 3px outside the spot with a 4px line: it reaches 5px out. */
   static readonly OUTLINE_PAD = 5;
+  /** Above spot highlight graphics (depth 5) so item art stays visible when targeted. */
+  static readonly SPOT_ITEM_DEPTH = 6;
 
   public setActiveFloor(floor: FloorId): void {
     this.activeFloor = floor;
@@ -392,7 +394,7 @@ export class HidingSpotManager {
     const cx = spot.data.x + spot.data.width / 2;
     const cy = spot.data.y + spot.data.height / 2;
     if (!spr) {
-      spr = this.scene.add.image(cx, cy, key).setScale(2).setDepth(3);
+      spr = this.scene.add.image(cx, cy, key).setScale(2).setDepth(HidingSpotManager.SPOT_ITEM_DEPTH);
       this.spotItemSprites.set(id, spr);
     } else {
       spr.setTexture(key).setPosition(cx, cy);
