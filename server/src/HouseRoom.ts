@@ -132,10 +132,11 @@ export class HouseRoom extends Room {
     });
     this.onMessage('hideItem', (client, msg) => {
       if (!this.allow(client, 'act')) return;
-      const body = msg && typeof msg === 'object' ? msg as { kind?: unknown; spotId?: unknown } : {};
+      const body = msg && typeof msg === 'object' ? msg as { kind?: unknown; spotId?: unknown; variant?: unknown } : {};
       const kind = typeof body.kind === 'string' ? body.kind : '';
       const spotId = typeof body.spotId === 'string' ? body.spotId : '';
-      const r = this.logic.placeHiddenItem(client.sessionId, kind, spotId);
+      const variant = typeof body.variant === 'string' && body.variant.length > 0 ? body.variant : undefined;
+      const r = this.logic.placeHiddenItem(client.sessionId, kind, spotId, variant);
       if (r.ok) this.sendItemsToAll();
       else client.send('rejected', { action: 'hideItem', error: r.error });
     });

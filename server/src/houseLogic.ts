@@ -20,6 +20,7 @@ import { ItemRound, RoundPublic, createServerRoundFrom, hidingSpotList } from '.
 import { EscapeCode } from '../../client/src/logic/escapeCode';
 import { ITEM_KINDS, type ItemKind, type PublicItem, type WorldItem } from '../../client/src/logic/items';
 import { autoPlaceHiddenItems, bedroomHideError } from '../../client/src/logic/bedroomHide';
+import { hideInstanceAlreadyPlaced, hideVariantRequired } from '../../client/src/logic/hidePlacement';
 import { canPassBedroomDoor } from '../../client/src/logic/doorAccess';
 import { houseLayout } from '../../client/src/data/houseLayout';
 import { onlineSpawnSlots } from '../../client/src/logic/onlineSpawn';
@@ -704,7 +705,12 @@ export class HouseLogic {
   }
 
   /** Phantom hiding: put one item in an empty spot. Rejects a 4th bedroom item and a key in the bedroom. */
-  placeHiddenItem(session: string, kind: string, spotId: string): { ok: boolean; error?: string } {
+  placeHiddenItem(
+    session: string,
+    kind: string,
+    spotId: string,
+    variant?: string,
+  ): { ok: boolean; error?: string } {
     const by = this.bySession.get(session);
     if (!by || !this.started) return { ok: false, error: 'not-started' };
     this.advance(this.clockNow);
@@ -713,15 +719,21 @@ export class HouseLogic {
       return { ok: false, error: 'not-allowed' };
     }
     if (!(ITEM_KINDS as readonly string[]).includes(kind)) return { ok: false, error: 'no-item' };
+    const itemKind = kind as ItemKind;
+    if (hideVariantRequired(itemKind) && !variant) return { ok: false, error: 'missing-variant' };
     const spot = hidingSpotList().find((s) => s.id === spotId) ?? spotById(spotId);
     if (!spot) return { ok: false, error: 'no-spot' };
     if (!this.items) return { ok: false, error: 'not-started' };
+    if (hideInstanceAlreadyPlaced(itemKind, variant, this.items.items)) {
+      return { ok: false, error: 'already-hidden' };
+    }
     if (this.items.items.some((i) => i.spotId === spotId)) return { ok: false, error: 'spot-taken' };
     const err = bedroomHideError(kind, spotId, this.items.items);
     if (err) return { ok: false, error: err };
     const item: WorldItem = {
       id: `hide-${kind}-${this.items.items.length + 1}`,
-      kind: kind as ItemKind,
+      kind: itemKind,
+      variant,
       spotId,
       x: spot.x + spot.width / 2,
       y: spot.y + spot.height / 2,

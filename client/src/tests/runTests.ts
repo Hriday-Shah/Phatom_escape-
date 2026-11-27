@@ -19,6 +19,7 @@ import { runHouseFloorsTest } from './houseFloorsTest';
 import { runRoundPhaseTest } from './roundPhaseTest';
 import { runBedroomRulesTest } from './bedroomRulesTest';
 import { runPhantomHudTest } from './phantomHudTest';
+import { runHidePlacementTest } from './hidePlacementTest';
 
 console.log('Running tests...\n');
 
@@ -40,6 +41,7 @@ try {
   runRoundPhaseTest();
   runBedroomRulesTest();
   runPhantomHudTest();
+  runHidePlacementTest();
   console.log('\n✅ All tests passed!');
   process.exit(0);
 } catch (error) {

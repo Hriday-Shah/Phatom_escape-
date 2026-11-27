@@ -1127,11 +1127,11 @@ test('the Phantom may hide at most 3 items in the locked bedroom, and never the 
   h.items!.placeControllerForTest(freeOtherSpot(h));
   const spots = freeBedroomSpots(h);
   assert.ok(spots.length >= 4, 'need four free bedroom spots for this check');
-  for (const spotId of spots.slice(0, 3)) {
-    const r = h.placeHiddenItem(phantom, 'battery', spotId);
+  for (let i = 0; i < 3; i++) {
+    const r = h.placeHiddenItem(phantom, 'battery', spots[i]!, String(i + 1));
     assert.equal(r.ok, true, r.error);
   }
-  const fourth = h.placeHiddenItem(phantom, 'battery', spots[3]!);
+  const fourth = h.placeHiddenItem(phantom, 'battery', spots[3]!, '4');
   assert.equal(fourth.ok, false);
   assert.equal(fourth.error, BEDROOM_LIMIT_ERROR);
   const keyBed = h.placeHiddenItem(phantom, 'room_key', spots[3]!);
@@ -1139,8 +1139,23 @@ test('the Phantom may hide at most 3 items in the locked bedroom, and never the 
   assert.equal(keyBed.error, BEDROOM_KEY_ERROR);
   const keyOther = h.placeHiddenItem(phantom, 'room_key', freeOtherSpot(h));
   assert.equal(keyOther.ok, true, keyOther.error);
-  const asPlayer = h.placeHiddenItem(player, 'battery', spots[3]!);
+  const asPlayer = h.placeHiddenItem(player, 'battery', spots[3]!, '1');
   assert.equal(asPlayer.ok, false);
+});
+
+test('each menu instance can be hidden only once (battery variant and toy car colour)', () => {
+  const h = room(2, () => 0);
+  h.start('s0', 0);
+  const phantom = sessionRole(h, 'phantom');
+  h.items!.placeControllerForTest('fridge');
+  assert.ok(h.placeHiddenItem(phantom, 'toy_car', 'study_drawer_1', 'red').ok);
+  const dup = h.placeHiddenItem(phantom, 'toy_car', 'sofa_d1', 'red');
+  assert.equal(dup.ok, false);
+  assert.equal(dup.error, 'already-hidden');
+  assert.ok(h.placeHiddenItem(phantom, 'toy_car', 'sofa_d1', 'blue').ok);
+  const noVar = h.placeHiddenItem(phantom, 'battery', 'study_drawer_2', undefined);
+  assert.equal(noVar.ok, false);
+  assert.equal(noVar.error, 'missing-variant');
 });
 
 test('auto-place at the end of hiding keeps the bedroom limit and never hides the key there', () => {

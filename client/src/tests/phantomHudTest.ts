@@ -1,27 +1,40 @@
 /**
- * Phantom hiding menu: item list, selection flow, error strings, approved icon sprites.
+ * Phantom hiding menu: 13 slots, cars/batteries expanded, error strings, icons on disk.
  */
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { hidePlacementErrorMessage, HIDING_MENU_KINDS, itemIconSrc } from '../ui/phantomHideItems';
+import {
+  HIDING_MENU_SLOTS,
+  hidePlacementErrorMessage,
+  hideSlotTaken,
+  itemIconSrc,
+  remainingHideSlots,
+} from '../ui/phantomHideItems';
 import { BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR } from '../logic/bedroomHide';
-import { ITEM_INFO } from '../logic/items';
+import type { WorldItem } from '../logic/items';
 
 const t = (ok: boolean, msg: string) => { if (!ok) throw new Error(msg); };
 
-t(HIDING_MENU_KINDS.includes('game_controller') === false, 'menu omits the pre-hidden controller');
-t(HIDING_MENU_KINDS.includes('battery'), 'menu includes hideable items');
+t(HIDING_MENU_SLOTS.length === 13, '13 hideable menu slots');
+t(HIDING_MENU_SLOTS.filter((s) => s.kind === 'toy_car').length === 4, 'four toy cars');
+t(HIDING_MENU_SLOTS.filter((s) => s.kind === 'battery').length === 4, 'four batteries');
+t(!HIDING_MENU_SLOTS.some((s) => s.kind === 'game_controller'), 'no controller in menu');
 
-for (const kind of HIDING_MENU_KINDS) {
-  const info = ITEM_INFO[kind];
-  t(!!info.label && !!info.artKey, `icon metadata for ${kind}`);
-  const rel = itemIconSrc(info.artKey).replace(/^\//, '');
+for (const slot of HIDING_MENU_SLOTS) {
+  const rel = itemIconSrc(slot.artKey).replace(/^\//, '');
   const disk = join(process.cwd(), 'public', rel);
-  t(existsSync(disk), `approved menu icon on disk for ${kind} (${rel})`);
+  t(existsSync(disk), `menu icon on disk for ${slot.slotId} (${rel})`);
 }
 
-t(hidePlacementErrorMessage('spot-taken').includes('already'), 'spot-taken message');
+const placedCar: WorldItem = {
+  id: 'c1', kind: 'toy_car', variant: 'red', spotId: 'sofa_d1', x: 0, y: 0, f: 0, heldBy: null,
+};
+t(hideSlotTaken(HIDING_MENU_SLOTS.find((s) => s.slotId === 'toy_car:red')!, [placedCar]), 'red car leaves menu');
+t(!hideSlotTaken(HIDING_MENU_SLOTS.find((s) => s.slotId === 'toy_car:blue')!, [placedCar]), 'blue car still listed');
+t(remainingHideSlots([placedCar]).length === 12, 'one car hidden removes one row');
+
+t(hidePlacementErrorMessage('already-hidden').includes('already'), 'already-hidden message');
 t(hidePlacementErrorMessage(BEDROOM_LIMIT_ERROR) === BEDROOM_LIMIT_ERROR, 'bedroom limit passthrough');
 t(hidePlacementErrorMessage(BEDROOM_KEY_ERROR) === BEDROOM_KEY_ERROR, 'bedroom key passthrough');
 

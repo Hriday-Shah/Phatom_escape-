@@ -1,15 +1,15 @@
-import { ITEM_INFO, ITEM_KINDS, type ItemKind } from '../logic/items';
 import { BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR } from '../logic/bedroomHide';
 
-/** Kinds the Phantom can place during hiding (the controller is pre-hidden). */
-export const HIDING_MENU_KINDS: readonly ItemKind[] = ITEM_KINDS.filter((k) => k !== 'game_controller');
+export {
+  HIDING_MENU_SLOTS,
+  hideSlotById,
+  hideSlotTaken,
+  remainingHideSlots,
+  type HideMenuSlot,
+} from './phantomHideSlots';
 
 export function itemIconSrc(artKey: string): string {
   return `/assets/items/${artKey}.png`;
-}
-
-export function itemMenuLabel(kind: ItemKind): string {
-  return ITEM_INFO[kind].label;
 }
 
 /** Map server hideItem rejection codes to short UI text. */
@@ -22,6 +22,8 @@ export function hidePlacementErrorMessage(code: string | undefined): string {
     'no-item': 'Unknown item.',
     'not-allowed': 'You cannot hide items right now.',
     'not-started': 'The game has not started.',
+    'missing-variant': 'That item type needs a colour or number.',
+    'already-hidden': 'That item is already hidden.',
   };
   return map[code] ?? code;
 }

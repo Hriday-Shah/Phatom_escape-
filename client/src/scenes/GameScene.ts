@@ -11,7 +11,7 @@ import { scaledLightRadius } from '../config/lightConfig';
 import { hideWaitingRoom, showWaitingRoom, updateWaitingClock } from '../lobby/WaitingRoom';
 import { bedroomHideError } from '../logic/bedroomHide';
 import {
-  getSelectedHideKind,
+  getSelectedHideSlot,
   hideHideMenu,
   hidePhantomReveal,
   hidePlacementErrorMessage,
@@ -369,8 +369,8 @@ export class GameScene extends Phaser.Scene {
   private tryPhantomHide(): boolean {
     const net = this.registry.get('net') as GameLink | null | undefined;
     if (!net || this.roundRole !== 'phantom' || this.roundPhaseName !== 'hiding') return false;
-    const kind = getSelectedHideKind();
-    if (!kind) {
+    const slot = getSelectedHideSlot();
+    if (!slot) {
       updateHideMenu(this.items?.worldItems() ?? [], 'Choose an item from the menu, then select a hiding spot.');
       return false;
     }
@@ -384,12 +384,12 @@ export class GameScene extends Phaser.Scene {
       updateHideMenu(items, 'This spot already holds an item.');
       return false;
     }
-    const bedroomErr = bedroomHideError(kind, spot.data.id, items);
+    const bedroomErr = bedroomHideError(slot.kind, spot.data.id, items);
     if (bedroomErr) {
       updateHideMenu(items, bedroomErr);
       return false;
     }
-    net.sendHideItem(kind, spot.data.id);
+    net.sendHideItem(slot.kind, spot.data.id, slot.variant);
     if (!spot.isOpen) this.hidingSpotManager.interact();
     return true;
   }
@@ -734,7 +734,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.roundRole === 'phantom' && this.roundPhaseName === 'hiding') {
-      if (getSelectedHideKind() && this.hidingSpotManager.highlighted()) {
+      if (getSelectedHideSlot() && this.hidingSpotManager.highlighted()) {
         this.tryPhantomHide();
         return;
       }

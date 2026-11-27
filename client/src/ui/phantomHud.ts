@@ -2,11 +2,17 @@
  * Phantom hide item picker (overlay) and the search-start reveal banner for non-Phantoms.
  */
 import './phantomHud.css';
-import { ITEM_INFO, type ItemKind, type WorldItem } from '../logic/items';
+import type { WorldItem } from '../logic/items';
+import { hideInstanceAlreadyPlaced } from '../logic/hidePlacement';
 import {
   BEDROOM_HIDE_LIMIT, BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR, bedroomItemCount,
 } from '../logic/bedroomHide';
-import { HIDING_MENU_KINDS, itemIconSrc } from './phantomHideItems';
+import {
+  type HideMenuSlot,
+  hideSlotById,
+  itemIconSrc,
+  remainingHideSlots,
+} from './phantomHideItems';
 
 export { hidePlacementErrorMessage } from './phantomHideItems';
 
@@ -39,8 +45,8 @@ export function hidePhantomReveal(): void {
   if (root) root.hidden = true;
 }
 
-let menuPick: ItemKind | null = null;
-let confirmedKind: ItemKind | null = null;
+let menuPickId: string | null = null;
+let confirmedSlot: HideMenuSlot | null = null;
 let bound = false;
 let lastError: string | null = null;
 
@@ -48,11 +54,11 @@ function syncOpenButton(): void {
   const open = el('pe-hide-open');
   const picked = el('pe-hide-picked');
   if (!open) return;
-  if (confirmedKind) {
-    open.textContent = `Holding: ${ITEM_INFO[confirmedKind].label}`;
+  if (confirmedSlot) {
+    open.textContent = `Holding: ${confirmedSlot.label}`;
     if (picked) {
       picked.hidden = false;
-      picked.textContent = `Selected: ${ITEM_INFO[confirmedKind].label}. Use a hiding spot to place it.`;
+      picked.textContent = `Selected: ${confirmedSlot.label}. Use a hiding spot to place it.`;
     }
   } else {
     open.textContent = 'Choose item';
@@ -64,45 +70,53 @@ function setMenuOpen(open: boolean): void {
   const backdrop = el('pe-hide-backdrop');
   if (!backdrop) return;
   backdrop.hidden = !open;
-  if (open) {
-    menuPick = menuPick ?? confirmedKind ?? HIDING_MENU_KINDS[0]!;
-    refreshKindButtons();
-    syncSelectEnabled();
-  }
+  if (open) syncSelectEnabled();
 }
 
 function syncSelectEnabled(): void {
   const select = el('pe-hide-select');
-  if (select) select.disabled = menuPick == null;
+  if (select) select.disabled = menuPickId == null;
 }
 
 function refreshKindButtons(): void {
   const kinds = el('pe-hide-kinds');
   if (!kinds) return;
-  for (const btn of kinds.querySelectorAll<HTMLButtonElement>('button[data-kind]')) {
-    btn.setAttribute('aria-pressed', String(btn.dataset.kind === menuPick));
+  for (const btn of kinds.querySelectorAll<HTMLButtonElement>('button[data-slot-id]')) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.slotId === menuPickId));
   }
 }
 
-function buildKindList(): void {
+function renderHideSlots(items: readonly WorldItem[]): void {
   const kinds = el('pe-hide-kinds');
-  if (!kinds || kinds.childElementCount) return;
-  for (const kind of HIDING_MENU_KINDS) {
-    const info = ITEM_INFO[kind];
+  if (!kinds) return;
+  const slots = remainingHideSlots(items);
+  kinds.replaceChildren();
+  for (const slot of slots) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'pe-hide-item';
-    b.dataset.kind = kind;
+    b.dataset.slotId = slot.slotId;
+    b.dataset.kind = slot.kind;
+    if (slot.variant) b.dataset.variant = slot.variant;
     const img = document.createElement('img');
-    img.src = itemIconSrc(info.artKey);
+    img.src = itemIconSrc(slot.artKey);
     img.alt = '';
     img.width = 32;
     img.height = 32;
     const label = document.createElement('span');
-    label.textContent = info.label;
+    label.textContent = slot.label;
     b.append(img, label);
     kinds.appendChild(b);
   }
+  if (menuPickId && !slots.some((s) => s.slotId === menuPickId)) {
+    menuPickId = slots[0]?.slotId ?? null;
+  }
+  if (confirmedSlot && hideInstanceAlreadyPlaced(confirmedSlot.kind, confirmedSlot.variant, items)) {
+    confirmedSlot = null;
+  }
+  refreshKindButtons();
+  syncSelectEnabled();
+  syncOpenButton();
 }
 
 function bindHideMenu(): void {
@@ -114,7 +128,6 @@ function bindHideMenu(): void {
   const cancel = el('pe-hide-cancel');
   if (!kinds || !openBtn || !backdrop || !select || !cancel) return;
   bound = true;
-  buildKindList();
 
   openBtn.addEventListener('click', () => {
     lastError = null;
@@ -128,16 +141,17 @@ function bindHideMenu(): void {
   });
 
   kinds.addEventListener('click', (ev) => {
-    const btn = (ev.target as HTMLElement | null)?.closest('button[data-kind]') as HTMLButtonElement | null;
+    const btn = (ev.target as HTMLElement | null)?.closest('button[data-slot-id]') as HTMLButtonElement | null;
     if (!btn || btn.disabled) return;
-    menuPick = btn.dataset.kind as ItemKind;
+    menuPickId = btn.dataset.slotId!;
     refreshKindButtons();
     syncSelectEnabled();
   });
 
   select.addEventListener('click', () => {
-    if (!menuPick) return;
-    confirmedKind = menuPick;
+    const slot = menuPickId ? hideSlotById(menuPickId) : null;
+    if (!slot) return;
+    confirmedSlot = slot;
     syncOpenButton();
     setMenuOpen(false);
     const err = el('pe-hide-error');
@@ -146,8 +160,13 @@ function bindHideMenu(): void {
   });
 }
 
-export function getSelectedHideKind(): ItemKind | null {
-  return confirmedKind;
+export function getSelectedHideSlot(): HideMenuSlot | null {
+  return confirmedSlot;
+}
+
+/** @deprecated Use getSelectedHideSlot */
+export function getSelectedHideKind(): HideMenuSlot['kind'] | null {
+  return confirmedSlot?.kind ?? null;
 }
 
 export function showPhantomHideControls(items: readonly WorldItem[]): void {
@@ -158,16 +177,15 @@ export function showPhantomHideControls(items: readonly WorldItem[]): void {
   if (rules) rules.textContent = `${BEDROOM_LIMIT_ERROR} ${BEDROOM_KEY_ERROR}`;
   open.hidden = false;
   updateHideMenu(items);
-  syncOpenButton();
 }
 
 export function updateHideMenu(items: readonly WorldItem[], error?: string | null): void {
   if (error !== undefined) lastError = error;
+  renderHideSlots(items);
   const count = el('pe-hide-count');
   if (count) count.textContent = `Bedroom used: ${bedroomItemCount(items)}/${BEDROOM_HIDE_LIMIT}`;
   const err = el('pe-hide-error');
   if (err) err.textContent = lastError ?? '';
-  syncOpenButton();
 }
 
 export function hidePhantomHideControls(): void {
@@ -175,8 +193,8 @@ export function hidePhantomHideControls(): void {
   const backdrop = el('pe-hide-backdrop');
   if (open) open.hidden = true;
   if (backdrop) backdrop.hidden = true;
-  menuPick = null;
-  confirmedKind = null;
+  menuPickId = null;
+  confirmedSlot = null;
   lastError = null;
 }
 
