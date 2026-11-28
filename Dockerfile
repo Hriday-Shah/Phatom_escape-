@@ -17,6 +17,9 @@ COPY client/src/config/physicsConfig.ts client/src/config/physicsConfig.ts
 COPY client/src/config/playerConfig.ts client/src/config/playerConfig.ts
 COPY client/src/data client/src/data
 COPY client/src/logic client/src/logic
+COPY client/src/ui/phantomHideSlots.ts client/src/ui/phantomHideSlots.ts
+COPY scripts/check-docker-client-copy.mjs scripts/check-docker-client-copy.mjs
+RUN node scripts/check-docker-client-copy.mjs --in-image
 USER node
 WORKDIR /app/server
 # PORT comes from the host (Render sets it); 2567 locally.

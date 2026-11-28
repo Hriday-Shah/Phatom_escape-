@@ -32,7 +32,9 @@ Runner-up, Fly.io: always on and no sleep at all, but its free allowance needs a
 - `Dockerfile` (build context = repo root): Node 22 Alpine, installs only the server workspace's
   production dependencies, copies `server/src` plus the pure client modules the server imports
   (`client/src/lobby/lobby.ts`, `client/src/home/settings.ts`, `client/src/config/physicsConfig.ts`,
-  `client/src/config/playerConfig.ts`, `client/src/data/`, `client/src/logic/`).
+  `client/src/config/playerConfig.ts`, `client/src/data/`, `client/src/logic/`,
+  `client/src/ui/phantomHideSlots.ts`). `npm run check:docker-client` (also run inside the image build)
+  verifies every server import is copied before deploy.
   No client assets, Phaser scenes, or media go into the image (`.dockerignore`). Runs as the `node` user.
   There is no start-command override: the image runs `node --import tsx src/index.ts` in `/app/server`.
   Render injects `PORT` (10000 on a web service); the process listens on that.
