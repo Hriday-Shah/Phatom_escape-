@@ -22,6 +22,8 @@ services:
         - client/src/config/playerConfig.ts
         - client/src/data/**
         - client/src/logic/**
+        - client/src/ui/phantomHideSlots.ts
+        - scripts/check-docker-client-copy.mjs
         - package.json
         - package-lock.json
         - Dockerfile

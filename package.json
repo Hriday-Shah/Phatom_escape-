@@ -14,6 +14,7 @@
     "preview": "npm run preview -w client",
     "test": "npm run test -w client && npm run test -w server",
     "check:media": "node scripts/check-media.mjs",
+    "check:docker-client": "node scripts/check-docker-client-copy.mjs",
     "server": "npm run start -w server",
     "check:luminance": "node scripts/luminance-check.mjs",
     "check:leak": "node scripts/leak-check.mjs"
