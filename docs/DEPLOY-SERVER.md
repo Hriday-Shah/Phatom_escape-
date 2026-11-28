@@ -35,7 +35,8 @@ Runner-up, Fly.io: always on and no sleep at all, but its free allowance needs a
   `client/src/config/playerConfig.ts`, `client/src/data/`, `client/src/logic/`,
   `client/src/ui/phantomHideSlots.ts`). `npm run check:docker-client` (also run inside the image build)
   verifies every server import is copied before deploy.
-  No client assets, Phaser scenes, or media go into the image (`.dockerignore`). Runs as the `node` user.
+  No client assets, Phaser scenes, or media go into the image (`.dockerignore` keeps `scripts/*`
+  out except `scripts/check-docker-client-copy.mjs`, which the build runs to verify copies). Runs as the `node` user.
   There is no start-command override: the image runs `node --import tsx src/index.ts` in `/app/server`.
   Render injects `PORT` (10000 on a web service); the process listens on that.
 - `render.yaml`: Render Blueprint, free plan, Singapore, Docker, health check `/health`.
