@@ -1,5 +1,5 @@
 /*
- * In-game overlays for the Phantom reveal banner and the lean hiding menu.
+ * In-game overlays for the Phantom reveal banner and the hiding item picker.
  * Theme variables come from home.css :root.
  */
 #pe-reveal {
@@ -22,15 +22,42 @@
 }
 #pe-reveal[hidden] { display: none !important; }
 
-#pe-hide-menu {
+#pe-hide-open {
   position: fixed;
-  right: max(env(safe-area-inset-right, 0px), 8px);
-  bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+  left: max(env(safe-area-inset-left, 0px), 8px);
+  top: max(env(safe-area-inset-top, 0px), 8px);
   z-index: 11;
-  width: min(92vw, 340px);
-  max-height: min(70vh, 480px);
+  font: 14px / 1.2 var(--pe-font, system-ui, sans-serif);
+  color: var(--pe-text, #f4f1ea);
+  background: var(--pe-screen, #241e18);
+  border: 2px solid var(--pe-outline, #3a322a);
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+#pe-hide-open[hidden] { display: none !important; }
+
+#pe-hide-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 13;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(env(safe-area-inset-top, 0px), 12px) max(env(safe-area-inset-right, 0px), 12px)
+    max(env(safe-area-inset-bottom, 0px), 12px) max(env(safe-area-inset-left, 0px), 12px);
+  background: rgba(0, 0, 0, 0.55);
+  touch-action: manipulation;
+}
+#pe-hide-backdrop[hidden] { display: none !important; }
+
+#pe-hide-menu {
+  width: min(92vw, 380px);
+  max-height: min(80vh, 520px);
   overflow: auto;
-  padding: 12px;
+  padding: 14px;
   background: var(--pe-screen, #241e18);
   color: var(--pe-text, #f4f1ea);
   border: 2px solid var(--pe-outline, #3a322a);
@@ -38,30 +65,171 @@
   font: 14px / 1.35 var(--pe-font, system-ui, sans-serif);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  touch-action: manipulation;
+  gap: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
 }
-#pe-hide-menu[hidden] { display: none !important; }
-#pe-hide-title { margin: 0; font-size: 16px; }
-#pe-hide-rules, #pe-hide-count, #pe-hide-error { margin: 0; }
-#pe-hide-rules, #pe-hide-count { color: var(--pe-muted, #b0a89c); }
+#pe-hide-title { margin: 0; font-size: 17px; }
+#pe-hide-rules, #pe-hide-count, #pe-hide-error, #pe-hide-picked { margin: 0; }
+#pe-hide-rules, #pe-hide-count, #pe-hide-picked { color: var(--pe-muted, #b0a89c); }
 #pe-hide-error { color: #e8a0a0; min-height: 1.2em; }
-#pe-hide-kinds, #pe-hide-spots {
+
+#pe-hide-kinds {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
 }
-#pe-hide-menu button {
+
+.pe-hide-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
   font: inherit;
   color: inherit;
   background: #3a322a;
   border: 1px solid var(--pe-outline, #3a322a);
   border-radius: 8px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   cursor: pointer;
 }
-#pe-hide-menu button[aria-pressed="true"] { outline: 2px solid #f4f1ea; }
-#pe-hide-menu button:disabled {
+.pe-hide-item[aria-pressed="true"] { outline: 2px solid #f4f1ea; outline-offset: 1px; }
+.pe-hide-item:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+.pe-hide-item img {
+  width: 32px;
+  height: 32px;
+  image-rendering: pixelated;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+#pe-hide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+#pe-hide-actions button {
+  flex: 1 1 auto;
+  font: inherit;
+  color: inherit;
+  background: #3a322a;
+  border: 1px solid var(--pe-outline, #3a322a);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+#pe-hide-select.pe-primary { background: var(--pe-accent, #c9a227); color: #1a1612; }
+#pe-hide-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+#pe-end-hiding, #pe-open-door, #pe-code-open, #pe-spot-take {
+  position: fixed;
+  z-index: 11;
+  font: 16px / 1.2 var(--pe-font, system-ui, sans-serif);
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 2px solid var(--pe-outline, #3a322a);
+  background: var(--pe-screen, #241e18);
+  color: var(--pe-text, #f4f1ea);
+  touch-action: manipulation;
+  cursor: pointer;
+}
+#pe-end-hiding { left: max(env(safe-area-inset-left, 0px), 8px); bottom: max(env(safe-area-inset-bottom, 0px), 8px); }
+#pe-end-hiding:disabled { opacity: 0.45; }
+#pe-code-open {
+  left: max(env(safe-area-inset-left, 0px), 8px);
+  top: calc(max(env(safe-area-inset-top, 0px), 8px) + 48px);
+}
+#pe-spot-take { left: 50%; bottom: 28%; transform: translateX(-50%); }
+#pe-open-door { left: 50%; bottom: 20%; transform: translateX(-50%); }
+#pe-end-hiding[hidden], #pe-open-door[hidden], #pe-code-open[hidden], #pe-spot-take[hidden],
+#pe-code-backdrop[hidden] { display: none !important; }
+
+#pe-code-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 14;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(env(safe-area-inset-top, 0px), 12px) max(env(safe-area-inset-right, 0px), 12px)
+    max(env(safe-area-inset-bottom, 0px), 12px) max(env(safe-area-inset-left, 0px), 12px);
+  background: rgba(0, 0, 0, 0.55);
+  touch-action: manipulation;
+}
+#pe-code-panel {
+  width: min(92vw, 400px);
+  max-height: min(80vh, 560px);
+  overflow: auto;
+  padding: 16px;
+  background: var(--pe-screen, #241e18);
+  color: var(--pe-text, #f4f1ea);
+  border: 2px solid var(--pe-outline, #3a322a);
+  border-radius: var(--pe-radius, 12px);
+  font: 14px / 1.35 var(--pe-font, system-ui, sans-serif);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+#pe-code-title { margin: 0; font-size: 18px; text-align: center; }
+#pe-code-copy { margin: 0; color: var(--pe-muted, #b0a89c); text-align: center; }
+#pe-code-set-slots {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+#pe-code-set-slots button {
+  flex: 1 1 72px;
+  min-width: 72px;
+  max-width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  border: 2px solid var(--pe-outline, #3a322a);
+  border-radius: 10px;
+  background: #3a322a;
+  color: #fff;
+  font: 700 14px / 1.2 var(--pe-font, system-ui, sans-serif);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+#pe-code-set-slots button img {
+  width: 48px;
+  height: 48px;
+  image-rendering: pixelated;
+  object-fit: contain;
+}
+#pe-code-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#pe-code-actions button {
+  flex: 1 1 auto;
+  font: inherit;
+  color: inherit;
+  background: #3a322a;
+  border: 1px solid var(--pe-outline, #3a322a);
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+#pe-code-set-confirm.pe-primary { background: var(--pe-accent, #c9a227); color: #1a1612; }
+
+#pe-waiting-phantom { margin: 0; font-weight: 600; }
+
+@media (orientation: landscape) and (max-height: 500px) {
+  #pe-code-panel { max-height: min(88vh, 420px); padding: 12px; gap: 8px; }
+  #pe-code-set-slots button { min-width: 64px; padding: 6px; }
+  #pe-code-set-slots button img { width: 36px; height: 36px; }
 }

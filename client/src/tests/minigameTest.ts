@@ -237,7 +237,7 @@ export function runMinigameTest(): void {
     }
   });
 
-  test('round hides exactly one controller; winning does not consume it; code is private', () => {
+  test('round hides exactly one controller; winning does not consume it; a win publishes the code', () => {
     const r = ItemRound.fromSeed('ABC234', 1);
     assert.equal(r.items.length, 1);
     assert.equal(r.items[0]!.kind, 'game_controller');
@@ -260,8 +260,9 @@ export function runMinigameTest(): void {
     assert.ok(win.code);
     assert.ok(r.heldBy('p1'), 'controller was consumed');
     assert.equal(r.knowsCode('p1'), true);
-    assert.equal(r.knowsCode('p2'), false);
-    assert.equal(r.codeFor('p2'), null);
+    assert.equal(r.knowsCode('p2'), true, 'a mini-game win publishes the paper code to everyone');
+    assert.ok(r.codeFor('p2'));
+    assert.equal(r.codeIsPublic(), true);
     // Can start again (retry) still holding it.
     assert.equal(r.startMinigame('p1', tv).ok, true);
   });

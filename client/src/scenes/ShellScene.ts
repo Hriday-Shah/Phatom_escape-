@@ -14,6 +14,8 @@ export class ShellScene extends Phaser.Scene {
   private led: Phaser.GameObjects.Image | null = null;
   private labels = new Map<string, Phaser.GameObjects.Image>();
   private shootReady = false;
+  private phantomLabels = false;
+  private textLabels: Phaser.GameObjects.Text[] = [];
 
   constructor() {
     super({ key: 'ShellScene' });
@@ -36,6 +38,12 @@ export class ShellScene extends Phaser.Scene {
   public setShootReady(ready: boolean): void {
     this.shootReady = ready;
     this.labels.get('shoot')?.setTexture(ready ? 'label_shoot' : 'label_shoot_disabled');
+  }
+
+  public setPhantomLabels(on: boolean): void {
+    if (this.phantomLabels === on) return;
+    this.phantomLabels = on;
+    this.layout();
   }
 
   private img(key: string, b: Box, s: number, depth = 2): Phaser.GameObjects.Image | null {
@@ -72,12 +80,25 @@ export class ShellScene extends Phaser.Scene {
     this.img('logo_plate', L.logo, s);
     this.img('speaker_grille', L.grille, s);
     this.led = this.img('power_led_on', L.led, s);
+    this.textLabels.forEach((x) => x.destroy());
+    this.textLabels = [];
     const labelKeys: Record<string, string> = {
       interact: 'label_use', drop: 'label_drop', sneak: 'label_sneak',
       shoot: this.shootReady ? 'label_shoot' : 'label_shoot_disabled',
     };
+    const phantomText: Record<string, string> = { interact: 'PLACE', drop: 'DROP', sneak: 'CATCH' };
     for (const [id, b] of Object.entries(L.buttons)) {
       this.img('btn_socket', b.socket, s);
+      if (this.phantomLabels) {
+        if (id === 'shoot') continue;
+        const txt = this.add.text(b.labelX, b.labelY, phantomText[id] ?? '', {
+          fontFamily: 'system-ui, sans-serif', fontSize: `${Math.max(8, Math.round(8 * s))}px`, color: '#f4f1ea',
+          stroke: '#000000', strokeThickness: 2,
+        }).setOrigin(0.5, 0).setDepth(2);
+        this.parts.push(txt);
+        this.textLabels.push(txt);
+        continue;
+      }
       const key = labelKeys[id];
       if (!this.textures.exists(key)) continue;
       const lbl = this.add.image(b.labelX, b.labelY, key).setOrigin(0.5, 0).setScale(s).setDepth(2);

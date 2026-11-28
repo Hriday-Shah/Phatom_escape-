@@ -57,7 +57,10 @@ export interface GameLink {
   round(): RoundPublic | null;
   sendItemPickup(id: string): void;
   sendItemDrop(x: number, y: number, spotId?: string | null): void;
-  sendHideItem(kind: string, spotId: string): void;
+  sendHideItem(kind: string, spotId: string, variant?: string): void;
+  sendEndHiding(): void;
+  sendSetPaperCode(code: string[]): void;
+  sendUnlockBedroom(): void;
   sendMinigameStart(): void;
   sendMinigameWin(log: LogEvent[]): void;
   sendMinigameClose(): void;
@@ -74,6 +77,8 @@ export interface GameLink {
   onNoise(cb: (n: NoisePayload) => void): () => void;
   /** Stand here: this phase does not allow the move the phone just sent. */
   onHeld(cb: (p: { x: number; y: number; f: number }) => void): () => void;
+  /** Server refused a hideItem request (bedroom rules, taken spot, …). */
+  onHideRejected(cb: (error: string) => void): () => void;
 }
 
 type Listener<T extends unknown[]> = (...a: T) => void;
@@ -137,6 +142,7 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   private phaseEv = new Emitter<[PhasePayload, number]>();
   private noiseEv = new Emitter<[NoisePayload]>();
   private heldEv = new Emitter<[{ x: number; y: number; f: number }]>();
+  private hideRejectedEv = new Emitter<[string]>();
   private phaseState: { view: PhasePayload; at: number } | null = null;
 
   private constructor(room: Room, readonly server: string, first: First, early: EarlyRoom, stopEarly: () => void) {
@@ -155,11 +161,14 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
     saveSeat({ server: this.server, code: this.state.code, token: room.reconnectionToken });
     room.onMessage('lobby', (l: Omit<LobbyState, 'selfId'>) => { this.state = { ...l, selfId: this.state.selfId }; this.changes.emit(this.getState()); });
     room.onMessage('welcome', (m: { selfId: string }) => { if (m?.selfId) this.state = { ...this.state, selfId: m.selfId }; });
-    room.onMessage('rejected', (m: { action?: string; id?: string; open?: boolean }) => {
+    room.onMessage('rejected', (m: { action?: string; id?: string; open?: boolean; error?: string }) => {
       this.changes.emit(this.getState()); // re-render (e.g. a colour lost in a race)
       if (m?.action === 'spot' && typeof m.id === 'string' && typeof m.open === 'boolean') {
         this.open = m.open ? [...new Set([...this.open, m.id])] : this.open.filter((x) => x !== m.id);
         this.spotRejected.emit(m.id, m.open);
+      }
+      if (m?.action === 'hideItem' && typeof m.error === 'string') {
+        this.hideRejectedEv.emit(m.error);
       }
     });
     room.onMessage('kicked', () => { this.kicked = true; });
@@ -428,7 +437,12 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   openSpots(): string[] { return [...this.open]; }
   round(): RoundPublic | null { return this.roundState; }
   sendItemPickup(id: string): void { if (!this.left) this.room.send('itemPickup', { id }); }
-  sendHideItem(kind: string, spotId: string): void { if (!this.left) this.room.send('hideItem', { kind, spotId }); }
+  sendHideItem(kind: string, spotId: string, variant?: string): void {
+    if (!this.left) this.room.send('hideItem', { kind, spotId, ...(variant ? { variant } : {}) });
+  }
+  sendEndHiding(): void { if (!this.left) this.room.send('endHiding', {}); }
+  sendSetPaperCode(code: string[]): void { if (!this.left) this.room.send('setPaperCode', { code }); }
+  sendUnlockBedroom(): void { if (!this.left) this.room.send('unlockBedroom', {}); }
   sendItemDrop(x: number, y: number, spotId?: string | null): void { if (!this.left) this.room.send('itemDrop', { x, y, spotId: spotId ?? null }); }
   sendMinigameStart(): void { if (!this.left) this.room.send('minigameStart', {}); }
   sendMinigameWin(log: LogEvent[]): void { if (!this.left) this.room.send('minigameWin', { log }); }
@@ -443,6 +457,7 @@ export class ColyseusLobbyService implements LobbyService, GameLink {
   phase(): { view: PhasePayload; at: number } | null { return this.phaseState; }
   onNoise(cb: (n: NoisePayload) => void): () => void { return this.noiseEv.on(cb); }
   onHeld(cb: (p: { x: number; y: number; f: number }) => void): () => void { return this.heldEv.on(cb); }
+  onHideRejected(cb: (error: string) => void): () => void { return this.hideRejectedEv.on(cb); }
 
   private rememberPhase(m: PhasePayload): void {
     if (!m?.phase || !Array.isArray(m.roles)) return;

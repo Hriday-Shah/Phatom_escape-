@@ -13,6 +13,7 @@ import { createPuzzle, replayWin, type PuzzleSnapshot, type PlayView, playViewOf
 import { hashSeed, mulberry32, pick } from './seededRng';
 import type { FloorId } from '../data/houseFloors';
 import { clampDrop, reachableWithLos, canUseSpot, losBlockers } from './worldCollision';
+import { bedroomHideError } from './bedroomHide';
 
 export const TV_UNIT = { x: 760, y: 110, width: 40, height: 110, id: 'tv_unit' };
 export const NEAR_TV = 80;
@@ -171,6 +172,7 @@ export class ItemRound {
   setRevealedCode(code: EscapeCode, playerId: string): void {
     this.code = code;
     this.knows.add(playerId);
+    this.published = true;
   }
 
   /**
@@ -193,7 +195,20 @@ export class ItemRound {
     return this.items.find((i) => i.heldBy === playerId);
   }
 
-  knowsCode(playerId: string): boolean { return this.knows.has(playerId); }
+  private published = false;
+
+  knowsCode(playerId: string): boolean { return this.published || this.knows.has(playerId); }
+  codeIsPublic(): boolean { return this.published; }
+  publishCode(): EscapeCode {
+    this.published = true;
+    return this.code;
+  }
+  setCode(code: EscapeCode): void {
+    this.code = code;
+    this.codeSetByPhantom = true;
+  }
+  codeSetByPhantom = false;
+
   isPlaying(playerId: string): boolean { return this.playing.has(playerId); }
 
   /** Face of a memory card (server reveal only; never sent in the play view). */
@@ -202,7 +217,7 @@ export class ItemRound {
     if (!Number.isInteger(index) || index < 0 || index >= this.puzzle.cards.length) return null;
     return this.puzzle.cards[index]!;
   }
-  codeFor(playerId: string): EscapeCode | null { return this.knows.has(playerId) ? this.code : null; }
+  codeFor(playerId: string): EscapeCode | null { return this.knowsCode(playerId) ? this.code : null; }
 
   pickup(
     playerId: string, itemId: string, pose: { x: number; y: number; f?: number },
@@ -257,6 +272,9 @@ export class ItemRound {
         }
       }
     }
+    const others = this.items.filter((i) => i !== item);
+    const err = bedroomHideError(item.kind, spotId, others, { x: dx, y: dy });
+    if (err) return { ok: false, error: err };
     item.heldBy = null;
     item.x = dx;
     item.y = dy;
@@ -268,7 +286,19 @@ export class ItemRound {
 
   /** Drop whatever a leaving player was holding, at their last pose (open floor). */
   dropIfHeld(playerId: string, x: number, y: number): void {
-    if (this.heldBy(playerId)) this.drop(playerId, x, y, null, { x, y }, []);
+    if (this.heldBy(playerId)) {
+      const r = this.drop(playerId, x, y, null, { x, y }, []);
+      if (!r.ok) {
+        const item = this.heldBy(playerId);
+        if (item) {
+          // Leaving cannot leave an item stuck in-hand (e.g. a key in the bedroom).
+          item.heldBy = null;
+          item.spotId = null;
+          item.x = 350;
+          item.y = 430;
+        }
+      }
+    }
     this.cancelMinigame(playerId);
   }
 
@@ -287,8 +317,11 @@ export class ItemRound {
   placeControllerForTest(spotId: string): void {
     const spot = hidingSpotList().find((s) => s.id === spotId);
     if (!spot) throw new Error(`unknown spot ${spotId}`);
-    const item = this.items.find((i) => i.kind === 'game_controller' || i.id.startsWith('item-controller'));
-    if (!item) throw new Error('no controller');
+    let item = this.items.find((i) => i.kind === 'game_controller' || i.id.startsWith('item-controller'));
+    if (!item) {
+      item = makeController(spotId, spot.x + spot.width / 2, spot.y + spot.height / 2);
+      this.items.push(item);
+    }
     item.spotId = spotId;
     item.heldBy = null;
     item.x = spot.x + spot.width / 2;
@@ -301,7 +334,7 @@ export class ItemRound {
   }
 
   /**
-   * Winning reveals the paper code to that player only. The controller is not
+   * Winning publishes the paper code to every player for the rest of the round. The controller is not
    * consumed and there is no noise event. A win needs a matching start and a
    * believable elapsed time (R14-4).
    */
@@ -321,6 +354,7 @@ export class ItemRound {
     this.playing.delete(playerId);
     this.attempts.delete(playerId);
     this.knows.add(playerId);
+    this.published = true;
     return { ok: true, code: this.code };
   }
 
@@ -329,6 +363,7 @@ export class ItemRound {
     const item = this.heldBy(playerId);
     if (!isController(item)) return null;
     this.knows.add(playerId);
+    this.published = true;
     return this.code;
   }
 }

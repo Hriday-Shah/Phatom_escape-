@@ -16,6 +16,7 @@ import {
   footOnStairPad,
   movementBlockersForFloor,
   resolveStairAfterMove,
+  segmentHitsRect,
   STAIR_PAD_GROUND,
   STAIR_PAD_UPPER,
   reconcileFloor,
@@ -58,10 +59,10 @@ export function runHouseFloorsTest(): void {
   );
 
   const cheated = reconcileFloor(
-    { x: STAIR_LAND_GROUND.x, y: STAIR_LAND_GROUND.y, f: FLOOR_GROUND },
+    { x: 300, y: 430, f: FLOOR_GROUND },
     { x: STAIR_LAND_UPPER.x, y: STAIR_LAND_UPPER.y, f: FLOOR_UPPER },
   );
-  assert.equal(cheated.f, FLOOR_GROUND, 'teleport upstairs without the stair pad is rejected');
+  assert.equal(cheated.f, FLOOR_GROUND, 'teleport upstairs from the entrance is rejected');
 
   const sofa = spots.find((s) => s.id === 'sofa_d1') ?? spots[0]!;
   const nearSofa = { x: sofa.x + sofa.width / 2, y: sofa.y + sofa.height + 40, f: FLOOR_GROUND as FloorId };
@@ -90,6 +91,33 @@ export function runHouseFloorsTest(): void {
   assert.ok(footOnStairPad(STAIR_PAD_GROUND.x + 5, STAIR_PAD_GROUND.y + 5, FLOOR_GROUND));
   assert.ok(!pointBlocked(STAIR_LAND_UPPER.x, STAIR_LAND_UPPER.y, upperBlockers, PLAYER_BODY_RADIUS));
   assert.ok(poseInsideFloor(STAIR_LAND_UPPER.x, STAIR_LAND_UPPER.y, FLOOR_UPPER, PLAYER_BODY_RADIUS));
+  assert.ok(poseInsideFloor(STAIR_LAND_GROUND.x, STAIR_LAND_GROUND.y, FLOOR_GROUND, PLAYER_BODY_RADIUS));
+  assert.equal(pointBlocked(STAIR_LAND_GROUND.x, STAIR_LAND_GROUND.y, groundBlockers, PLAYER_BODY_RADIUS), false, 'ground landing is in the clear');
+  assert.ok(
+    STAIR_LAND_GROUND.y - (STAIR_PAD_GROUND.y + STAIR_PAD_GROUND.height) >= PLAYER_BODY_RADIUS,
+    'ground landing is at least one body radius south of the up pad',
+  );
+  assert.ok(
+    segmentHitsRect(STAIR_LAND_UPPER.x, STAIR_LAND_UPPER.y, STAIR_LAND_GROUND.x, STAIR_LAND_GROUND.y, STAIR_PAD_UPPER),
+    'a one-shot pose from the upper landing to the ground landing crosses the down pad',
+  );
+  const tunnelDown = resolveStairAfterMove(
+    { x: STAIR_LAND_UPPER.x, y: STAIR_LAND_UPPER.y, f: FLOOR_UPPER },
+    STAIR_LAND_GROUND.x,
+    STAIR_LAND_GROUND.y,
+  );
+  assert.equal(tunnelDown.f, FLOOR_GROUND, 'crossing the down pad in one step still descends');
+  assert.equal(tunnelDown.y, STAIR_LAND_GROUND.y);
+  assert.ok(
+    poseInsideFloor(STAIR_PAD_UPPER.x + 55, STAIR_PAD_UPPER.y, FLOOR_UPPER, PLAYER_BODY_RADIUS),
+    'the north edge of the down stair pad is reachable with a 16px body',
+  );
+  const upperBlockersNow = movementBlockersForFloor(FLOOR_UPPER);
+  assert.equal(
+    pointBlocked(STAIR_PAD_UPPER.x + 55, STAIR_PAD_UPPER.y, upperBlockersNow, PLAYER_BODY_RADIUS),
+    false,
+    'the down pad is not blocked by the deck edge',
+  );
 
   console.log('  ✓ stair pads, anti-teleport, 36 spots, same-floor reach');
 }

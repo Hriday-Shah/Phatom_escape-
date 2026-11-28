@@ -9,7 +9,23 @@ import { canMove, canOpenSpot, canSeeInside, formatPhaseClock, isWaiting, PHASE_
 import { canPassBedroomDoor } from '../logic/doorAccess';
 import { scaledLightRadius } from '../config/lightConfig';
 import { hideWaitingRoom, showWaitingRoom, updateWaitingClock } from '../lobby/WaitingRoom';
-import { hideHideMenu, hidePhantomReveal, showHideMenu, showPhantomReveal, updateHideMenu, phantomRevealText } from '../ui/phantomHud';
+import { bedroomHideError } from '../logic/bedroomHide';
+import {
+  getSelectedHideSlot,
+  hideHideMenu,
+  hidePhantomReveal,
+  hidePhantomHidingActions,
+  hidePlacementErrorMessage,
+  showPhantomHideControls,
+  showPhantomReveal,
+  updateHideMenu,
+  phantomRevealText,
+  configurePhantomHidingActions,
+  showOpenDoorButton,
+  showTakeItemButton,
+} from '../ui/phantomHud';
+import { BEDROOM_DOOR_MESSAGE, nearBedroomDoor } from '../logic/doorAccess';
+import type { EscapeCode } from '../logic/escapeCode';
 import { spawnNoiseRipple } from '../objects/NoiseRipple';
 import { Furniture, houseLayout } from '../data/houseLayout';
 import { createComposedWalls } from '../utils/wallRenderer';
@@ -61,6 +77,8 @@ export class GameScene extends Phaser.Scene {
   /** Items, Game Controller mini-game and paper-code reveal. */
   public items: ItemDirector | null = null;
   private floorView!: FloorView;
+  private phantomCodeSet = false;
+  private wasNearLockedBedroom = false;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -140,7 +158,10 @@ export class GameScene extends Phaser.Scene {
       this.phaseUnsubs.forEach((u) => u());
       hideWaitingRoom();
       hideHideMenu();
+      hidePhantomHidingActions();
       hidePhantomReveal();
+      showOpenDoorButton(false);
+      showTakeItemButton(false);
       this.items?.destroy();
       this.items = null;
     });
@@ -157,6 +178,9 @@ export class GameScene extends Phaser.Scene {
       this.phaseUnsubs.push(net.onPhase(apply));
       this.phaseUnsubs.push(net.onNoise((n) => this.onDrawerNoise(n)));
       this.phaseUnsubs.push(net.onItems(() => this.onItemsChanged()));
+      this.phaseUnsubs.push(net.onHideRejected((err) => {
+        updateHideMenu(this.items?.worldItems() ?? [], hidePlacementErrorMessage(err));
+      }));
       const stored = net.phase();
       if (stored) apply(stored.view, stored.at);
       else this.setWaiting(true);
@@ -295,11 +319,27 @@ export class GameScene extends Phaser.Scene {
     this.setOutside(blind);
     const open = !waiting && (!this.roundPhaseName || !this.roundRole || canOpenSpot(this.roundRole, this.roundPhaseName));
     this.hidingSpotManager.setInputEnabled(!blind && !waiting && open);
+    this.hidingSpotManager.autoPickup = !(role === 'phantom' && view.phase === 'hiding');
     this.syncDoorAccess();
     this.syncLightRadius();
     this.syncRevealBanner();
     this.syncHideMenu();
+    if (this.phaseView?.codeSet) this.phantomCodeSet = true;
+    this.syncPhantomButtons();
+    this.syncPublishedCode();
     this.refreshPhaseHud();
+  }
+
+  private syncPhantomButtons(): void {
+    (this.uiScene as { applyPhantomButtons?: (p: boolean, phase: string | null) => void })
+      ?.applyPhantomButtons?.(this.roundRole === 'phantom', this.roundPhaseName);
+  }
+
+  private syncPublishedCode(): void {
+    const code = this.phaseView?.code;
+    if (this.phaseView?.codePublic && code) {
+      this.items?.revealSharedCode?.(code as unknown as EscapeCode);
+    }
   }
 
   private onItemsChanged(): void {
@@ -309,8 +349,8 @@ export class GameScene extends Phaser.Scene {
 
   private syncDoorAccess(): void {
     const debugUnlock = hasDebugFlag('unlock');
-    const hasKey = !!this.items?.holdsKind('room_key');
-    const pass = canPassBedroomDoor(this.roundRole, hasKey, debugUnlock);
+    const unlocked = !!this.phaseView?.bedroomUnlocked;
+    const pass = canPassBedroomDoor(this.roundRole, unlocked, debugUnlock);
     this.player.setPassBedroom(pass);
     this.setBedroomDoorSolid(!pass);
   }
@@ -347,19 +387,53 @@ export class GameScene extends Phaser.Scene {
     const net = this.registry.get('net') as GameLink | null | undefined;
     if (!net || this.roundRole !== 'phantom' || this.roundPhaseName !== 'hiding') {
       hideHideMenu();
+      hidePhantomHidingActions();
       return;
     }
     const items = this.items?.worldItems() ?? [];
-    showHideMenu(items, (kind, spotId) => {
-      net.sendHideItem(kind, spotId);
+    showPhantomHideControls(items);
+    configurePhantomHidingActions({
+      items,
+      codeSet: this.phantomCodeSet || !!this.phaseView?.codeSet,
+      onEnd: () => net.sendEndHiding(),
+      onSetCode: (code) => { net.sendSetPaperCode(code); this.phantomCodeSet = true; this.syncHideMenu(); },
     });
-    updateHideMenu(items);
+  }
+
+  private tryPhantomHide(): boolean {
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    if (!net || this.roundRole !== 'phantom' || this.roundPhaseName !== 'hiding') return false;
+    const slot = getSelectedHideSlot();
+    if (!slot) {
+      updateHideMenu(this.items?.worldItems() ?? [], 'Choose an item from the menu, then select a hiding spot.');
+      return false;
+    }
+    const spot = this.hidingSpotManager.highlighted();
+    if (!spot) {
+      updateHideMenu(this.items?.worldItems() ?? [], 'Stand at an empty hiding spot.');
+      return false;
+    }
+    const items = this.items?.worldItems() ?? [];
+    if (items.some((i) => i.spotId === spot.data.id)) {
+      updateHideMenu(items, 'This spot already holds an item.');
+      return false;
+    }
+    const bedroomErr = bedroomHideError(slot.kind, spot.data.id, items);
+    if (bedroomErr) {
+      updateHideMenu(items, bedroomErr);
+      return false;
+    }
+    net.sendHideItem(slot.kind, spot.data.id, slot.variant);
+    if (spot.isOpen) this.hidingSpotManager.setOpen(spot.data.id, false);
+    return true;
   }
 
   private setWaiting(on: boolean): void {
     if (on) {
       this.cameras.main.stopFollow();
-      showWaitingRoom(this.waitingClockText());
+      const net = this.registry.get('net') as GameLink | null | undefined;
+      const who = net ? phantomRevealText(this.phaseView?.roles ?? [], net.players()) : '';
+      showWaitingRoom(this.waitingClockText(), who, this.phaseView?.untimedHiding !== false);
       (this.uiScene as { hideHidingSpotPrompt?: () => void })?.hideHidingSpotPrompt?.();
     } else {
       hideWaitingRoom();
@@ -403,11 +477,11 @@ export class GameScene extends Phaser.Scene {
       ui.setPhaseLine(PHASE_LABEL.ended);
       return;
     }
-    const ms = phaseRemainingMs(this.phaseView.endsAt, this.phaseView.serverNow, this.phaseAt, performance.now());
     const who = this.roundRole === 'phantom' ? 'Phantom' : 'Player';
     const outside = this.outside ? '\nYou are outside the house.' : '';
-    const clock = formatPhaseClock(ms);
-    ui.setPhaseLine(`${who} · ${PHASE_LABEL[this.roundPhaseName]}  ${clock}${outside}`);
+    const untimed = this.roundPhaseName === 'hiding' || this.phaseView.untimedHiding;
+    const clock = untimed ? '' : formatPhaseClock(phaseRemainingMs(this.phaseView.endsAt, this.phaseView.serverNow, this.phaseAt, performance.now()));
+    ui.setPhaseLine(`${who} · ${PHASE_LABEL[this.roundPhaseName]}${clock ? '  ' + clock : ''}${outside}`);
     if (isWaiting(this.roundRole, this.roundPhaseName)) updateWaitingClock(clock);
   }
 
@@ -690,13 +764,51 @@ export class GameScene extends Phaser.Scene {
     if (this.items?.onUse()) return;
     // Check for door interaction
     const nearbyDoor = this.checkNearbyDoor();
-    if (nearbyDoor) {
+    if (nearbyDoor && nearbyDoor.id === 'bedroom_door' && !this.player.getPassBedroom()) {
+      if (!this.items?.holdsKind('room_key')) {
+        (this.uiScene as any).showDoorMessage(BEDROOM_DOOR_MESSAGE, 2000);
+      }
+      return;
+    }
+    if (nearbyDoor && nearbyDoor.id !== 'bedroom_door') {
       (this.uiScene as any).showDoorMessage(nearbyDoor.message || 'Locked', 2000);
       return;
     }
 
+    if (this.roundRole === 'phantom' && this.roundPhaseName === 'hiding') {
+      if (getSelectedHideSlot() && this.hidingSpotManager.highlighted()) {
+        this.tryPhantomHide();
+        return;
+      }
+    }
+
     // Check for hiding spot interaction
     this.hidingSpotManager.interact();
+  }
+
+  private syncTakeItemButton(): void {
+    const hiding = this.roundRole === 'phantom' && this.roundPhaseName === 'hiding';
+    const spot = this.hidingSpotManager.highlighted();
+    const hasItem = !!spot?.isOpen && !!this.items?.worldItems().some((i) => i.spotId === spot.data.id && !i.heldBy);
+    showTakeItemButton(hiding && hasItem, () => this.hidingSpotManager.takeHighlighted());
+  }
+
+  private syncBedroomPrompt(): void {
+    const unlocked = !!this.phaseView?.bedroomUnlocked || hasDebugFlag('unlock');
+    const near = !this.outside && !!this.player && nearBedroomDoor(this.player.x, this.player.y);
+    const canPass = this.player?.getPassBedroom() || unlocked;
+    const hasKey = !!this.items?.holdsKind('room_key');
+    const net = this.registry.get('net') as GameLink | null | undefined;
+    const showOpen = near && hasKey && !canPass && this.roundRole === 'player';
+    showOpenDoorButton(showOpen, () => net?.sendUnlockBedroom());
+    if (near && !hasKey && !canPass && this.roundRole === 'player') {
+      if (!this.wasNearLockedBedroom) {
+        (this.uiScene as any).showDoorMessage(BEDROOM_DOOR_MESSAGE, 2000);
+      }
+      this.wasNearLockedBedroom = true;
+    } else {
+      this.wasNearLockedBedroom = false;
+    }
   }
 
   private onDrop(): void {
@@ -735,6 +847,8 @@ export class GameScene extends Phaser.Scene {
       this.keepSpotClearOfPrompt(delta);
       return;
     }
+    this.syncBedroomPrompt();
+    this.syncTakeItemButton();
 
     // Get keyboard input
     let moveX = 0;

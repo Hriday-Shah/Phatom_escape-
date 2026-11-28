@@ -12,7 +12,8 @@ export class TextureGenerator {
     this.generateWalls(scene);
     this.generateFurniture(scene);
     this.generateUI(scene);
-    this.generateItems(scene);
+    // Item textures come from the manifest (loadArtAssets). Placeholders are generated only
+    // when the manifest did not load (see PreloadScene).
   }
 
   private static generatePlayer(scene: Phaser.Scene): void {
@@ -167,7 +168,8 @@ export class TextureGenerator {
    * Placeholder item art (16x16, shown at 32 world px). Only used when the
    * approved file is missing; swap the pending manifest PNG to replace it.
    */
-  private static generateItems(scene: Phaser.Scene): void {
+  /** Fallback when manifest art is unavailable (same keys as approved item PNGs). */
+  static generateItemPlaceholders(scene: Phaser.Scene): void {
     const draw = (key: string, fn: (g: Phaser.GameObjects.Graphics) => void) => {
       if (scene.textures.exists(key)) return;
       const g = scene.add.graphics();

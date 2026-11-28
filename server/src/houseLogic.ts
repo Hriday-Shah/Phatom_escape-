@@ -17,10 +17,12 @@ import { displayNickname } from '../../client/src/home/settings';
 import { randomBytes, randomInt } from 'node:crypto';
 import { PLAYER_SPEED } from '../../client/src/config/physicsConfig';
 import { ItemRound, RoundPublic, createServerRoundFrom, hidingSpotList } from '../../client/src/logic/itemRound';
-import { EscapeCode } from '../../client/src/logic/escapeCode';
-import { ITEM_KINDS, type ItemKind, type PublicItem, type WorldItem } from '../../client/src/logic/items';
+import { ITEM_KINDS, TOY_CAR_COLOURS, type ItemKind, type PublicItem, type WorldItem } from '../../client/src/logic/items';
 import { autoPlaceHiddenItems, bedroomHideError } from '../../client/src/logic/bedroomHide';
-import { canPassBedroomDoor } from '../../client/src/logic/doorAccess';
+import { hideInstanceAlreadyPlaced, hideVariantRequired } from '../../client/src/logic/hidePlacement';
+import { canPassBedroomDoor, nearBedroomDoor } from '../../client/src/logic/doorAccess';
+import { hidingComplete } from '../../client/src/ui/phantomHideSlots';
+import type { EscapeCode } from '../../client/src/logic/escapeCode';
 import { houseLayout } from '../../client/src/data/houseLayout';
 import { onlineSpawnSlots } from '../../client/src/logic/onlineSpawn';
 import { FLOOR_GROUND, normaliseFloor, poseInsideFloor } from '../../client/src/data/houseFloors';
@@ -55,12 +57,18 @@ export interface RoundEntry { id: string; x: number; y: number; f: number }
 export const WAITING_ROOM_POSE: Pose = { x: -400, y: -400, d: 0, m: 0, f: FLOOR_GROUND };
 export interface RoundView {
   phase: RoundPhase;
-  /** Server epoch ms when this phase ends. On `ended`, the moment chase ran out. */
+  /** Server epoch ms when this phase ends. On `ended`, the moment chase ran out. Hiding has no deadline. */
   endsAt: number;
   serverNow: number;
   roles: RoundRoleRow[];
   result?: 'phantom-wins';
   entries?: RoundEntry[];
+  /** Hiding does not expire on a timer. */
+  untimedHiding?: boolean;
+  bedroomUnlocked?: boolean;
+  codePublic?: boolean;
+  codeSet?: boolean;
+  code?: EscapeCode;
 }
 /** Opening a spot in search or chase, when drawer noise is not off. `to` is Phantom player ids. */
 export interface DrawerNoiseEvent {
@@ -179,6 +187,7 @@ export class HouseLogic {
   private pendingNoise: DrawerNoiseEvent | null = null;
   /** Drawer noise captured when the host presses Start. */
   private drawerNoise: DrawerNoise = 'off';
+  private bedroomUnlocked = false;
 
   constructor(readonly code: string, private readonly rng: () => number = defaultRng) {}
 
@@ -225,6 +234,7 @@ export class HouseLogic {
     this.roles.delete(id);
     if (this.lobby?.state.players.some((p) => p.id === id)) this.lobby.leave(id);
     this.capPhantoms();
+    this.endHidingIfNoPhantomLeft();
   }
 
   /** R11: keep Phantoms within maxPhantoms(players) as players come and go (the client's rule). */
@@ -292,7 +302,10 @@ export class HouseLogic {
       // Independent CSPRNG streams: gameSeed (public, game + visuals) vs secret hex (never sent).
       const gameSeed = randomInt(0, 0x1_0000_0000);
       const secretHex = randomBytes(16).toString('hex');
-      this.items = new ItemRound(createServerRoundFrom(gameSeed, secretHex, 1));
+      const init = createServerRoundFrom(gameSeed, secretHex, 1);
+      init.items = []; // Phantom places the kit, including the controller; paper code is not a hidden item.
+      this.items = new ItemRound(init);
+      this.bedroomUnlocked = false;
       // Only Phantoms spawn in the house during hiding. Everyone else waits outside it.
       const players = this.lobby?.state.players ?? [];
       this.assignRoles(players.map((p) => p.id));
@@ -308,10 +321,9 @@ export class HouseLogic {
         }
       }
       const settings = this.lobby?.state.settings;
-      const hidingMs = minutesToMs(settings?.hidingMinutes ?? 5);
       this.round = {
         phase: 'hiding',
-        endsAt: now + hidingMs,
+        endsAt: now, // not used as a deadline; hiding is untimed
         searchMs: minutesToMs(settings?.searchMinutes ?? 5),
         chaseMs: minutesToMs(settings?.chaseMinutes ?? 20),
       };
@@ -344,7 +356,7 @@ export class HouseLogic {
     if (now < this.clockNow) now = this.clockNow;
     this.clockNow = now;
     let changed = false;
-    while (this.round.phase !== 'ended' && now >= this.round.endsAt) {
+    while (this.round.phase !== 'ended' && this.round.phase !== 'hiding' && now >= this.round.endsAt) {
       this.enterNext();
       changed = true;
     }
@@ -356,10 +368,10 @@ export class HouseLogic {
     const boundary = r.endsAt;
     this.placeOnReturn.clear();
     if (r.phase === 'hiding') {
+      const start = this.clockNow || boundary;
       r.phase = 'search';
-      r.endsAt = boundary + r.searchMs;
-      this.autoPlaceUnplaced();
-      this.queuedEntries = this.letPlayersIn(boundary);
+      r.endsAt = start + r.searchMs;
+      this.queuedEntries = this.letPlayersIn(start);
     } else if (r.phase === 'search') {
       r.phase = 'chase';
       r.endsAt = boundary + r.chaseMs;
@@ -430,6 +442,16 @@ export class HouseLogic {
     const view: RoundView = { phase: r.phase, endsAt: r.endsAt, serverNow: now, roles };
     if (r.result) view.result = r.result;
     if (entries && entries.length) view.entries = entries;
+    if (r.phase === 'hiding') {
+      view.untimedHiding = true;
+      if (this.items?.codeSetByPhantom) view.codeSet = true;
+    }
+    if (this.bedroomUnlocked) view.bedroomUnlocked = true;
+    if (this.items?.codeIsPublic()) {
+      view.codePublic = true;
+      const code = this.items.codeFor('__public__');
+      if (code) view.code = code;
+    }
     return view;
   }
 
@@ -461,6 +483,14 @@ export class HouseLogic {
    */
   itemListFor(playerId: string): PublicItem[] {
     if (!this.items) return [];
+    const role = this.roles.get(playerId) ?? 'player';
+    const phase = this.round?.phase;
+    // During hiding the Phantom gets its full kit (open or closed spots, floor, held)
+    // so the hide menu, bedroom count, and End hiding stay accurate. Never sent to players.
+    if (role === 'phantom' && phase === 'hiding') {
+      if (!this.canSeeHouse(playerId)) return [];
+      return this.items.items.map((i) => ({ ...i }));
+    }
     if (!this.canSeeHouse(playerId)) return [];
     const pose = this.poseOf(playerId);
     if (!pose) return [];
@@ -474,6 +504,10 @@ export class HouseLogic {
       if (item.spotId) {
         if (spotFloor(item.spotId) !== pf) continue;
         if (!open.has(item.spotId)) continue;
+        if (phase === 'hiding' && role === 'phantom') {
+          out.push({ ...item });
+          continue;
+        }
         const spot = spotById(item.spotId);
         if (!spot) continue;
         const opener = this.spotOpener.get(item.spotId);
@@ -637,7 +671,7 @@ export class HouseLogic {
     p.f = prev.pose.f;
     p.d = p.d ?? prev.pose.d;
     p.m = p.m ?? prev.pose.m;
-    const passBedroom = canPassBedroomDoor(role, this.hasRoomKey(id), false);
+    const passBedroom = canPassBedroomDoor(role, this.bedroomUnlocked, false);
     const blockers = movementBlockersForFloor(prev.pose.f, false, passBedroom);
     const slid = resolveMove(prev.pose, p, blockers, max, PLAYER_BODY_RADIUS);
     if (slid.x !== p.x || slid.y !== p.y) this.corrections++;
@@ -703,8 +737,91 @@ export class HouseLogic {
     return !!this.items?.items.some((i) => i.heldBy === playerId && i.kind === 'room_key');
   }
 
+
+  private endHidingIfNoPhantomLeft(): void {
+    if (!this.round || this.round.phase !== 'hiding') return;
+    const seated = new Set(this.bySession.values());
+    const phantomsLeft = [...this.roles.entries()].some(([id, role]) => role === 'phantom' && seated.has(id));
+    if (!phantomsLeft) this.forceSearch(this.clockNow);
+  }
+
+  /** Last Phantom gone (reconnect window expired): auto-place leftovers and start search. */
+  forceSearch(now = this.clockNow): { ok: boolean; error?: string } {
+    if (!this.round || this.round.phase !== 'hiding') return { ok: false, error: 'not-allowed' };
+    this.clockNow = Math.max(this.clockNow, now);
+    this.autoPlaceUnplaced();
+    this.enterNext();
+    this.phaseDirty = true;
+    return { ok: true };
+  }
+
+  /** Phantom: end hiding only when every hide-menu item is placed and the paper code is set. */
+  endHiding(session: string, now = Date.now()): { ok: boolean; error?: string } {
+    const by = this.bySession.get(session);
+    if (!by || !this.started || !this.round) return { ok: false, error: 'not-started' };
+    if (this.round.phase !== 'hiding' || (this.roles.get(by) ?? 'player') !== 'phantom') {
+      return { ok: false, error: 'not-allowed' };
+    }
+    if (!this.items?.codeSetByPhantom) return { ok: false, error: 'code-not-set' };
+    if (!hidingComplete(this.items.items)) return { ok: false, error: 'items-unplaced' };
+    this.clockNow = Math.max(this.clockNow, now);
+    this.enterNext();
+    this.phaseDirty = true;
+    return { ok: true };
+  }
+
+  setPaperCode(session: string, msg: unknown): { ok: boolean; error?: string } {
+    const by = this.bySession.get(session);
+    if (!by || !this.started || !this.items) return { ok: false, error: 'not-started' };
+    if (this.round?.phase !== 'hiding' || (this.roles.get(by) ?? 'player') !== 'phantom') {
+      return { ok: false, error: 'not-allowed' };
+    }
+    const raw = (msg && typeof msg === 'object' && 'code' in (msg as object))
+      ? (msg as { code: unknown }).code
+      : msg;
+    if (!Array.isArray(raw) || raw.length !== 4) return { ok: false, error: 'bad-code' };
+    const code = raw.map(String) as EscapeCode;
+    if (new Set(code).size !== 4 || code.some((c) => !(TOY_CAR_COLOURS as readonly string[]).includes(c))) {
+      return { ok: false, error: 'bad-code' };
+    }
+    this.items.setCode(code);
+    this.phaseDirty = true;
+    return { ok: true };
+  }
+
+  unlockBedroom(session: string): { ok: boolean; error?: string } {
+    const id = this.bySession.get(session);
+    if (!id || !this.started || !this.items) return { ok: false, error: 'not-started' };
+    if (this.bedroomUnlocked) return { ok: true };
+    const role = this.roles.get(id) ?? 'player';
+    if (role !== 'player') return { ok: false, error: 'not-allowed' };
+    if (!this.canSeeHouse(id)) return { ok: false, error: 'outside' };
+    const pose = this.poseOf(id);
+    if (!pose || !nearBedroomDoor(pose.x, pose.y)) return { ok: false, error: 'too-far' };
+    const key = this.items.items.find((i) => i.heldBy === id && i.kind === 'room_key');
+    if (!key) return { ok: false, error: 'need-key' };
+    this.items.items = this.items.items.filter((i) => i.id !== key.id);
+    this.bedroomUnlocked = true;
+    this.phaseDirty = true;
+    return { ok: true };
+  }
+
+  isBedroomUnlocked(): boolean { return this.bedroomUnlocked; }
+
+  /** After a hide, the spot is closed so its item is not left visible. */
+  private closeHideSpot(spotId: string): void {
+    this.spots.set(spotId, false);
+    this.spotOpener.delete(spotId);
+  }
+
+
   /** Phantom hiding: put one item in an empty spot. Rejects a 4th bedroom item and a key in the bedroom. */
-  placeHiddenItem(session: string, kind: string, spotId: string): { ok: boolean; error?: string } {
+  placeHiddenItem(
+    session: string,
+    kind: string,
+    spotId: string,
+    variant?: string,
+  ): { ok: boolean; error?: string } {
     const by = this.bySession.get(session);
     if (!by || !this.started) return { ok: false, error: 'not-started' };
     this.advance(this.clockNow);
@@ -713,15 +830,41 @@ export class HouseLogic {
       return { ok: false, error: 'not-allowed' };
     }
     if (!(ITEM_KINDS as readonly string[]).includes(kind)) return { ok: false, error: 'no-item' };
+    if (kind === 'paper_code') return { ok: false, error: 'not-hidden' };
+    const itemKind = kind as ItemKind;
+    if (hideVariantRequired(itemKind) && !variant) return { ok: false, error: 'missing-variant' };
     const spot = hidingSpotList().find((s) => s.id === spotId) ?? spotById(spotId);
     if (!spot) return { ok: false, error: 'no-spot' };
     if (!this.items) return { ok: false, error: 'not-started' };
+    const held = this.items.items.find((i) =>
+      i.heldBy === by && i.kind === itemKind && (hideVariantRequired(itemKind) ? i.variant === variant : true),
+    );
+    if (!held && hideInstanceAlreadyPlaced(itemKind, variant, this.items.items)) {
+      return { ok: false, error: 'already-hidden' };
+    }
+    const pose = this.poseOf(by);
+    if (!pose || pose.f !== FLOOR_GROUND || !canUseSpot(pose, spotId)) {
+      return { ok: false, error: 'too-far' };
+    }
+    if (held) {
+      if (this.items.items.some((i) => i !== held && i.spotId === spotId)) return { ok: false, error: 'spot-taken' };
+      const err = bedroomHideError(kind, spotId, this.items.items.filter((i) => i !== held));
+      if (err) return { ok: false, error: err };
+      held.spotId = spotId;
+      held.heldBy = null;
+      held.x = spot.x + spot.width / 2;
+      held.y = spot.y + spot.height / 2;
+      held.f = FLOOR_GROUND;
+      this.closeHideSpot(spotId);
+      return { ok: true };
+    }
     if (this.items.items.some((i) => i.spotId === spotId)) return { ok: false, error: 'spot-taken' };
     const err = bedroomHideError(kind, spotId, this.items.items);
     if (err) return { ok: false, error: err };
     const item: WorldItem = {
       id: `hide-${kind}-${this.items.items.length + 1}`,
-      kind: kind as ItemKind,
+      kind: itemKind,
+      variant,
       spotId,
       x: spot.x + spot.width / 2,
       y: spot.y + spot.height / 2,
@@ -729,6 +872,7 @@ export class HouseLogic {
       heldBy: null,
     };
     this.items.items.push(item);
+    this.closeHideSpot(spotId);
     return { ok: true };
   }
 

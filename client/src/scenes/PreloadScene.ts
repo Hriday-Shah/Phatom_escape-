@@ -37,6 +37,7 @@ export class PreloadScene extends Phaser.Scene {
     
     if (!manifest) {
       devLog('manifest.json not found, using placeholders');
+      TextureGenerator.generateItemPlaceholders(this);
       this.scene.start('GameScene');
       return;
     }
@@ -54,8 +55,11 @@ export class PreloadScene extends Phaser.Scene {
     
     const basePath = import.meta.env.BASE_URL || '/';
     
-    // Load each approved asset
+    // Load each approved asset (remove stale canvas placeholders so PNGs replace them).
     for (const asset of approvedAssets) {
+      if (this.textures.exists(asset.key)) {
+        this.textures.remove(asset.key);
+      }
       const url = `${basePath}assets/${asset.file}`;
       
       if (asset.spritesheet) {
@@ -80,6 +84,7 @@ export class PreloadScene extends Phaser.Scene {
       
       if (this.loadedArtCount === 0) {
         devLog('No art textures loaded, using placeholders');
+        TextureGenerator.generateItemPlaceholders(this);
       }
       
       this.scene.start('GameScene');

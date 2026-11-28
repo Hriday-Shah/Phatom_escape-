@@ -10,6 +10,7 @@ import { MinigameId } from '../logic/minigames';
 import { CodeReveal, MinigameOverlay } from '../minigame/MinigameOverlay';
 import type { HidingSpotManager } from '../objects/HidingSpotManager';
 import type { GameLink } from '../net/ColyseusLobbyService';
+import type { EscapeCode } from '../logic/escapeCode';
 
 export interface ItemHost {
   registry: Phaser.Data.DataManager;
@@ -60,6 +61,10 @@ export class ItemDirector {
     hm.contentsLabel = (id) => {
       const it = this.round?.itemInSpot(id);
       return it ? itemLabel(it) : null;
+    };
+    hm.contentsArtKey = (id) => {
+      const it = this.round?.itemInSpot(id);
+      return it ? artKeyFor(it.kind, it.variant) : null;
     };
     hm.tryPickup = (id) => this.pickupFromSpot(id);
     hm.onToggle = () => this.syncSprites();
@@ -164,6 +169,11 @@ export class ItemDirector {
 
   holdsKind(kind: WorldItem['kind']): boolean {
     return this.round?.heldBy(this.selfId)?.kind === kind;
+  }
+
+  revealSharedCode(code: EscapeCode): void {
+    this.round?.setRevealedCode(code, this.selfId);
+    this.code.reveal(code, false);
   }
 
   onUse(): boolean {
@@ -303,19 +313,27 @@ export class ItemDirector {
     if (!this.round) {
       this.sprites.forEach((s) => s.destroy());
       this.sprites.clear();
+      this.host.hidingSpotManager.syncSpotItemSprites(() => null);
       return;
     }
-    const open = new Set(this.host.hidingSpotManager.openIds());
+    this.host.hidingSpotManager.syncSpotItemSprites((spotId) => {
+      const it = this.round!.itemInSpot(spotId);
+      return it ? artKeyFor(it.kind, it.variant) : null;
+    });
     const seen = new Set<string>();
     for (const item of this.round.items) {
-      const visible = !item.heldBy && (!item.spotId || open.has(item.spotId));
+      if (item.spotId) {
+        this.sprites.get(item.id)?.setVisible(false);
+        continue;
+      }
+      const visible = !item.heldBy;
       if (!visible) { this.sprites.get(item.id)?.setVisible(false); continue; }
       seen.add(item.id);
       let spr = this.sprites.get(item.id);
       const key = artKeyFor(item.kind, item.variant);
       if (!spr) {
-        spr = this.host.add.image(item.x, item.y, this.host.textures.exists(key) ? key : 'item_game_controller')
-          .setDisplaySize(32, 32).setDepth(4);
+        const tex = this.host.textures.exists(key) ? key : 'item_game_controller';
+        spr = this.host.add.image(item.x, item.y, tex).setScale(2).setDepth(4);
         this.sprites.set(item.id, spr);
       }
       spr.setPosition(item.x, item.y).setVisible(true);

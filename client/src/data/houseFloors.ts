@@ -43,13 +43,24 @@ export function worldPixelBounds(): Rect {
 
 /** Axis-aligned bounds used to validate poses on each floor. */
 export function floorBounds(floor: FloorId): Rect {
-  if (floor === FLOOR_UPPER) return { ...UPPER_DECK };
+  if (floor === FLOOR_UPPER) {
+    // The visual deck ends at y=-20, but a 16px body would stop 8px short of the
+    // down-stair pad (y=-28). Extend the walkable bounds to include the pad;
+    // upper walls stay on UPPER_DECK (with a gap at the stairs).
+    const padBottom = STAIR_PAD_UPPER.y + STAIR_PAD_UPPER.height;
+    return { x: UPPER_DECK.x, y: UPPER_DECK.y, width: UPPER_DECK.width, height: Math.max(UPPER_DECK.height, padBottom - UPPER_DECK.y) };
+  }
   return { x: 0, y: 0, width: houseLayout.width, height: houseLayout.height };
 }
 
+/** Walk-on pads: ground to go up, upper to go down (see logic/floorMovement.ts). */
+export const STAIR_PAD_GROUND: Rect = { x: 565, y: 118, width: 110, height: 28 };
+export const STAIR_PAD_UPPER: Rect = { x: 565, y: -28, width: 110, height: 36 };
+
 /** Landings after a stair transition (see logic/floorMovement.ts stair pads). */
 /** South of the ground stair pad so a landing does not immediately re-trigger going up. */
-export const STAIR_LAND_GROUND = { x: 620, y: 158 };
+/** 40px south of the ground pad (which ends at y=146) so descent does not instantly re-ride up. */
+export const STAIR_LAND_GROUND = { x: 620, y: 186 };
 export const STAIR_LAND_UPPER = { x: 620, y: -68 };
 
 export function normaliseFloor(f: unknown): FloorId {

@@ -9,15 +9,19 @@ function el(id: string): HTMLElement {
   return node;
 }
 
-export function showWaitingRoom(clock: string): void {
+export function showWaitingRoom(clock: string, phantomLine?: string, untimed = true): void {
   const root = el('pe-waiting');
-  el('pe-waiting-clock').textContent = clock;
+  const clockEl = el('pe-waiting-clock');
+  clockEl.textContent = clock;
+  clockEl.hidden = untimed;
+  const who = document.getElementById('pe-waiting-phantom');
+  if (who) who.textContent = phantomLine ?? '';
   root.hidden = false;
 }
 
 export function updateWaitingClock(clock: string): void {
   const node = document.getElementById('pe-waiting-clock');
-  if (node) node.textContent = clock;
+  if (node && !node.hidden) node.textContent = clock;
 }
 
 export function hideWaitingRoom(): void {

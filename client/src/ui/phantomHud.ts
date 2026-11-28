@@ -1,15 +1,25 @@
 /**
- * Lean Phantom hide menu and the search-start reveal banner for non-Phantoms.
+ * Phantom hide item picker (overlay) and the search-start reveal banner for non-Phantoms.
  */
 import './phantomHud.css';
-import { ITEM_INFO, ITEM_KINDS, type ItemKind, type WorldItem } from '../logic/items';
+import { toyCarArtKey, type ToyCarColour, type WorldItem } from '../logic/items';
+import { CODE_CSS, CODE_GLYPH, cycleCodeSlot } from '../logic/escapeCode';
+import { hideInstanceAlreadyPlaced } from '../logic/hidePlacement';
 import {
-  BEDROOM_HIDE_LIMIT, BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR, bedroomHideError, bedroomItemCount,
+  BEDROOM_HIDE_LIMIT, BEDROOM_KEY_ERROR, BEDROOM_LIMIT_ERROR, bedroomItemCount,
 } from '../logic/bedroomHide';
-import { hidingSpotList } from '../logic/itemRound';
+import {
+  type HideMenuSlot,
+  hideSlotById,
+  itemIconSrc,
+  remainingHideSlots,
+} from './phantomHideItems';
+import { hidingComplete } from './phantomHideSlots';
 
-function el(id: string): HTMLElement | null {
-  return document.getElementById(id);
+export { hidePlacementErrorMessage } from './phantomHideItems';
+
+function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
+  return document.getElementById(id) as T | null;
 }
 
 export function phantomRevealText(
@@ -37,101 +47,295 @@ export function hidePhantomReveal(): void {
   if (root) root.hidden = true;
 }
 
-export type HidePlaceFn = (kind: ItemKind, spotId: string) => void;
-
-let selectedKind: ItemKind = 'battery';
-let onPlace: HidePlaceFn | null = null;
+let menuPickId: string | null = null;
+let confirmedSlot: HideMenuSlot | null = null;
 let bound = false;
+let lastError: string | null = null;
+
+function syncOpenButton(): void {
+  const open = el('pe-hide-open');
+  const picked = el('pe-hide-picked');
+  if (!open) return;
+  if (confirmedSlot) {
+    open.textContent = `Holding: ${confirmedSlot.label}`;
+    if (picked) {
+      picked.hidden = false;
+      picked.textContent = `Selected: ${confirmedSlot.label}. Use a hiding spot to place it.`;
+    }
+  } else {
+    open.textContent = 'Choose item';
+    if (picked) picked.hidden = true;
+  }
+}
+
+function setMenuOpen(open: boolean): void {
+  const backdrop = el('pe-hide-backdrop');
+  if (!backdrop) return;
+  backdrop.hidden = !open;
+  if (open) syncSelectEnabled();
+}
+
+function syncSelectEnabled(): void {
+  const select = el<HTMLButtonElement>('pe-hide-select');
+  if (select) select.disabled = menuPickId == null;
+}
+
+function refreshKindButtons(): void {
+  const kinds = el('pe-hide-kinds');
+  if (!kinds) return;
+  for (const btn of kinds.querySelectorAll<HTMLButtonElement>('button[data-slot-id]')) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.slotId === menuPickId));
+  }
+}
+
+function renderHideSlots(items: readonly WorldItem[]): void {
+  const kinds = el('pe-hide-kinds');
+  if (!kinds) return;
+  const slots = remainingHideSlots(items);
+  kinds.replaceChildren();
+  for (const slot of slots) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pe-hide-item';
+    b.dataset.slotId = slot.slotId;
+    b.dataset.kind = slot.kind;
+    if (slot.variant) b.dataset.variant = slot.variant;
+    const img = document.createElement('img');
+    img.src = itemIconSrc(slot.artKey);
+    img.alt = '';
+    img.width = 32;
+    img.height = 32;
+    const label = document.createElement('span');
+    label.textContent = slot.label;
+    b.append(img, label);
+    kinds.appendChild(b);
+  }
+  if (menuPickId && !slots.some((s) => s.slotId === menuPickId)) {
+    menuPickId = slots[0]?.slotId ?? null;
+  }
+  if (confirmedSlot && hideInstanceAlreadyPlaced(confirmedSlot.kind, confirmedSlot.variant, items)) {
+    confirmedSlot = null;
+  }
+  refreshKindButtons();
+  syncSelectEnabled();
+  syncOpenButton();
+}
 
 function bindHideMenu(): void {
   if (bound) return;
   const kinds = el('pe-hide-kinds');
-  const spots = el('pe-hide-spots');
-  if (!kinds || !spots) return;
+  const openBtn = el('pe-hide-open');
+  const backdrop = el('pe-hide-backdrop');
+  const select = el('pe-hide-select');
+  const cancel = el('pe-hide-cancel');
+  if (!kinds || !openBtn || !backdrop || !select || !cancel) return;
   bound = true;
+
+  openBtn.addEventListener('click', () => {
+    lastError = null;
+    setMenuOpen(true);
+  });
+
+  cancel.addEventListener('click', () => setMenuOpen(false));
+
+  backdrop.addEventListener('click', (ev) => {
+    if (ev.target === backdrop) setMenuOpen(false);
+  });
+
   kinds.addEventListener('click', (ev) => {
-    const btn = (ev.target as HTMLElement | null)?.closest('button[data-kind]') as HTMLButtonElement | null;
+    const btn = (ev.target as HTMLElement | null)?.closest('button[data-slot-id]') as HTMLButtonElement | null;
     if (!btn || btn.disabled) return;
-    selectedKind = btn.dataset.kind as ItemKind;
-    for (const b of kinds.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === btn));
-    refreshSpotButtons();
+    menuPickId = btn.dataset.slotId!;
+    refreshKindButtons();
+    syncSelectEnabled();
   });
-  spots.addEventListener('click', (ev) => {
-    const btn = (ev.target as HTMLElement | null)?.closest('button[data-spot]') as HTMLButtonElement | null;
-    if (!btn || btn.disabled || !onPlace) return;
-    onPlace(selectedKind, btn.dataset.spot!);
+
+  select.addEventListener('click', () => {
+    const slot = menuPickId ? hideSlotById(menuPickId) : null;
+    if (!slot) return;
+    confirmedSlot = slot;
+    syncOpenButton();
+    setMenuOpen(false);
+    const err = el('pe-hide-error');
+    if (err) err.textContent = '';
+    lastError = null;
   });
 }
 
-let lastItems: readonly WorldItem[] = [];
-
-function refreshSpotButtons(): void {
-  const spots = el('pe-hide-spots');
-  if (!spots) return;
-  const taken = new Set(lastItems.map((i) => i.spotId).filter(Boolean) as string[]);
-  for (const btn of spots.querySelectorAll('button')) {
-    const id = (btn as HTMLButtonElement).dataset.spot!;
-    if (taken.has(id)) {
-      btn.setAttribute('disabled', '');
-      (btn as HTMLButtonElement).title = 'This spot already holds an item.';
-      continue;
-    }
-    const err = bedroomHideError(selectedKind, id, lastItems);
-    if (err) {
-      btn.setAttribute('disabled', '');
-      (btn as HTMLButtonElement).title = err;
-    } else {
-      btn.removeAttribute('disabled');
-      (btn as HTMLButtonElement).title = '';
-    }
-  }
+export function getSelectedHideSlot(): HideMenuSlot | null {
+  return confirmedSlot;
 }
 
-export function showHideMenu(items: readonly WorldItem[], place: HidePlaceFn): void {
+/** @deprecated Use getSelectedHideSlot */
+export function getSelectedHideKind(): HideMenuSlot['kind'] | null {
+  return confirmedSlot?.kind ?? null;
+}
+
+export function showPhantomHideControls(items: readonly WorldItem[]): void {
   bindHideMenu();
-  onPlace = place;
-  const root = el('pe-hide-menu');
-  const kinds = el('pe-hide-kinds');
-  const spots = el('pe-hide-spots');
+  const open = el('pe-hide-open');
   const rules = el('pe-hide-rules');
-  if (!root || !kinds || !spots) return;
-  if (rules) {
-    rules.textContent = `${BEDROOM_LIMIT_ERROR} ${BEDROOM_KEY_ERROR}`;
-  }
-  if (!kinds.childElementCount) {
-    for (const kind of ITEM_KINDS) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.dataset.kind = kind;
-      b.textContent = ITEM_INFO[kind].label;
-      b.setAttribute('aria-pressed', String(kind === selectedKind));
-      kinds.appendChild(b);
-    }
-  }
-  if (!spots.childElementCount) {
-    for (const s of hidingSpotList()) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.dataset.spot = s.id;
-      b.textContent = s.id.replace(/_/g, ' ');
-      spots.appendChild(b);
-    }
-  }
-  root.hidden = false;
+  if (!open) return;
+  if (rules) rules.textContent = `${BEDROOM_LIMIT_ERROR} ${BEDROOM_KEY_ERROR}`;
+  open.hidden = false;
   updateHideMenu(items);
 }
 
 export function updateHideMenu(items: readonly WorldItem[], error?: string | null): void {
-  lastItems = items;
+  if (error !== undefined) lastError = error;
+  renderHideSlots(items);
   const count = el('pe-hide-count');
   if (count) count.textContent = `Bedroom used: ${bedroomItemCount(items)}/${BEDROOM_HIDE_LIMIT}`;
   const err = el('pe-hide-error');
-  if (err) err.textContent = error ?? '';
-  refreshSpotButtons();
+  if (err) err.textContent = lastError ?? '';
 }
 
-export function hideHideMenu(): void {
-  const root = el('pe-hide-menu');
-  if (root) root.hidden = true;
-  onPlace = null;
+export function hidePhantomHideControls(): void {
+  const open = el('pe-hide-open');
+  const backdrop = el('pe-hide-backdrop');
+  if (open) open.hidden = true;
+  if (backdrop) backdrop.hidden = true;
+  menuPickId = null;
+  confirmedSlot = null;
+  lastError = null;
+}
+
+/** @deprecated Use hidePhantomHideControls */
+export const hideHideMenu = hidePhantomHideControls;
+
+
+const DEFAULT_CODE: ToyCarColour[] = ['red', 'blue', 'violet', 'yellow'];
+let draftCode: ToyCarColour[] = [...DEFAULT_CODE];
+let committedCode: ToyCarColour[] | null = null;
+let codeConfirmed = false;
+let hidingActionsBound = false;
+let onEndHiding: (() => void) | null = null;
+let onSetCode: ((code: ToyCarColour[]) => void) | null = null;
+
+function setCodePanelOpen(open: boolean): void {
+  const backdrop = el('pe-code-backdrop');
+  if (backdrop) backdrop.hidden = !open;
+  if (open) {
+    if (committedCode) draftCode = [...committedCode];
+    paintCodeDraft();
+  }
+}
+
+function bindHidingActions(): void {
+  if (hidingActionsBound) return;
+  const end = el('pe-end-hiding');
+  const confirm = el('pe-code-set-confirm');
+  const slots = el('pe-code-set-slots');
+  const cancel = el('pe-code-cancel');
+  const open = el('pe-code-open');
+  const backdrop = el('pe-code-backdrop');
+  if (!end || !confirm || !slots) return;
+  hidingActionsBound = true;
+  if (!slots.childElementCount) {
+    for (let i = 0; i < 4; i++) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.index = String(i);
+      const img = document.createElement('img');
+      img.alt = '';
+      const label = document.createElement('span');
+      b.append(img, label);
+      slots.appendChild(b);
+    }
+  }
+  slots.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement | null)?.closest('button[data-index]') as HTMLButtonElement | null;
+    if (!btn) return;
+    draftCode = cycleCodeSlot(draftCode, Number(btn.dataset.index));
+    paintCodeDraft();
+  });
+  confirm.addEventListener('click', () => {
+    if (new Set(draftCode).size !== 4) return;
+    committedCode = draftCode.slice() as ToyCarColour[];
+    codeConfirmed = true;
+    onSetCode?.(draftCode.slice() as ToyCarColour[]);
+    paintCodeDraft();
+    setCodePanelOpen(false);
+  });
+  cancel?.addEventListener('click', () => {
+    draftCode = committedCode ? [...committedCode] : [...DEFAULT_CODE];
+    paintCodeDraft();
+    setCodePanelOpen(false);
+  });
+  backdrop?.addEventListener('click', (ev) => {
+    if (ev.target === backdrop) {
+      draftCode = committedCode ? [...committedCode] : [...DEFAULT_CODE];
+      paintCodeDraft();
+      setCodePanelOpen(false);
+    }
+  });
+  open?.addEventListener('click', () => setCodePanelOpen(true));
+  end.addEventListener('click', () => { if (!(end as HTMLButtonElement).disabled) onEndHiding?.(); });
+}
+
+function paintCodeDraft(): void {
+  const slots = el('pe-code-set-slots');
+  if (!slots) return;
+  [...slots.querySelectorAll('button')].forEach((b, i) => {
+    const c = draftCode[i];
+    const img = b.querySelector('img');
+    const label = b.querySelector('span');
+    if (c) {
+      b.style.background = CODE_CSS[c];
+      if (img) {
+        img.src = itemIconSrc(toyCarArtKey(c));
+        img.alt = c;
+      }
+      if (label) label.textContent = `${i + 1} · ${CODE_GLYPH[c]}`;
+    }
+  });
+  const confirm = el('pe-code-set-confirm') as HTMLButtonElement | null;
+  if (confirm) confirm.textContent = codeConfirmed && committedCode?.join() === draftCode.join() ? 'Update code' : 'Confirm';
+}
+
+export function configurePhantomHidingActions(opts: {
+  items: readonly WorldItem[];
+  codeSet: boolean;
+  onEnd: () => void;
+  onSetCode: (code: ToyCarColour[]) => void;
+}): void {
+  bindHidingActions();
+  onEndHiding = opts.onEnd;
+  onSetCode = opts.onSetCode;
+  codeConfirmed = opts.codeSet;
+  if (opts.codeSet && !committedCode) committedCode = draftCode.slice() as ToyCarColour[];
+  const end = el('pe-end-hiding') as HTMLButtonElement | null;
+  const open = el('pe-code-open');
+  if (open) open.hidden = false;
+  paintCodeDraft();
+  if (end) {
+    end.hidden = false;
+    end.disabled = !(opts.codeSet && hidingComplete(opts.items));
+  }
+}
+
+export function hidePhantomHidingActions(): void {
+  const end = el('pe-end-hiding');
+  const open = el('pe-code-open');
+  const take = el('pe-spot-take');
+  if (end) end.hidden = true;
+  if (open) open.hidden = true;
+  if (take) take.hidden = true;
+  setCodePanelOpen(false);
+  onEndHiding = null;
+  onSetCode = null;
+}
+
+export function showTakeItemButton(on: boolean, click?: () => void): void {
+  const b = el('pe-spot-take') as HTMLButtonElement | null;
+  if (!b) return;
+  b.hidden = !on;
+  b.onclick = on && click ? click : null;
+}
+
+export function showOpenDoorButton(on: boolean, click?: () => void): void {
+  const b = el('pe-open-door') as HTMLButtonElement | null;
+  if (!b) return;
+  b.hidden = !on;
+  b.onclick = on && click ? click : null;
 }
