@@ -3,7 +3,9 @@
 .git
 .github
 docs
-scripts
+# Keep repo scripts out of the image except the server client-copy verifier (Dockerfile COPY).
+scripts/*
+!scripts/check-docker-client-copy.mjs
 client/public
 client/index.html
 *.png
